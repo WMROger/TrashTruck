@@ -1,19 +1,22 @@
-import React, { useState, useRef, useEffect } from 'react';
+import ChatMessage from '@/components/ChatMessage';
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { getN8nWebhookUrl, isN8nConfigured } from '@/config/n8n';
+import { useTheme } from '@/hooks/useTheme';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Alert,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import ChatMessage from '@/components/ChatMessage';
-import { getN8nWebhookUrl, isN8nConfigured } from '@/config/n8n';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Message {
   id: string;
@@ -188,6 +191,7 @@ async function testN8nWebhook() {
 }
 
 export default function ChatScreen() {
+  const { colors, isDark, toggleTheme } = useTheme();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -200,6 +204,7 @@ export default function ChatScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const scrollToBottom = () => {
@@ -211,6 +216,26 @@ export default function ChatScreen() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    const keyboardDidShow = () => {
+      setIsKeyboardVisible(true);
+      setTimeout(scrollToBottom, 100);
+    };
+
+    const keyboardDidHide = () => {
+      setIsKeyboardVisible(false);
+      setTimeout(scrollToBottom, 100);
+    };
+
+    const showSubscription = Keyboard.addListener('keyboardDidShow', keyboardDidShow);
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', keyboardDidHide);
+
+    return () => {
+      showSubscription?.remove();
+      hideSubscription?.remove();
+    };
+  }, []);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -276,152 +301,205 @@ export default function ChatScreen() {
     <ChatMessage message={item} />
   );
 
+  // Dynamic styles based on theme
+  const dynamicStyles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      paddingTop: 20,
+      paddingBottom: 20,
+      paddingHorizontal: 16,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    headerContent: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    headerTitle: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: colors.chatUserText,
+      marginBottom: 4,
+    },
+    headerSubtitle: {
+      fontSize: 14,
+      color: colors.secondary,
+      opacity: 0.8,
+      marginBottom: 8,
+    },
+    themeToggleButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    testButton: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 16,
+      marginTop: 8,
+    },
+    testButtonText: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: 'bold',
+    },
+    messagesList: {
+      flex: 1,
+    },
+    messagesContainer: {
+      paddingVertical: 16,
+    },
+    loadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 16,
+      paddingHorizontal: 16,
+    },
+    loadingText: {
+      marginLeft: 8,
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      paddingBottom: Platform.OS === 'ios' ? (isKeyboardVisible ? 0 : 94) : 0,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surface,
+      minHeight: 60,
+    },
+    textInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      maxHeight: 100,
+      minHeight: 40,
+      fontSize: 16,
+      color: colors.textPrimary,
+      backgroundColor: colors.surfaceVariant,
+    },
+    sendButton: {
+      backgroundColor: colors.primary,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
+    },
+    sendButtonDisabled: {
+      backgroundColor: colors.border,
+    },
+  });
+
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>AI Assistant</Text>
-        <Text style={styles.headerSubtitle}>
-          {isN8nConfigured() ? 'Powered by n8n + Groq' : 'Powered by RAG (Demo Mode)'}
-        </Text>
-        {isN8nConfigured() && (
-          <TouchableOpacity style={styles.testButton} onPress={testN8nWebhook}>
-            <Text style={styles.testButtonText}>Test Webhook</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        style={styles.messagesList}
-        contentContainerStyle={styles.messagesContainer}
-        showsVerticalScrollIndicator={false}
-      />
-
-      {isLoading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#5B7C67" />
-          <Text style={styles.loadingText}>AI is thinking...</Text>
+    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+      <View style={dynamicStyles.header}>
+        <View style={dynamicStyles.headerContent}>
+          <Text style={dynamicStyles.headerTitle}>AI Assistant</Text>
+          <Text style={dynamicStyles.headerSubtitle}>
+            {isN8nConfigured() ? 'Powered by n8n + Groq' : 'Powered by RAG (Demo Mode)'}
+          </Text>
+          {isN8nConfigured() && (
+            <TouchableOpacity style={dynamicStyles.testButton} onPress={testN8nWebhook}>
+              <Text style={dynamicStyles.testButtonText}>Test Webhook</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
-
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.textInput}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Type your message..."
-          placeholderTextColor="#999"
-          multiline
-          maxLength={500}
-          editable={!isLoading}
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, (!input.trim() || isLoading) && styles.sendButtonDisabled]}
-          onPress={sendMessage}
-          disabled={!input.trim() || isLoading}
+        <TouchableOpacity 
+          style={dynamicStyles.themeToggleButton} 
+          onPress={toggleTheme}
+          activeOpacity={0.7}
         >
           <IconSymbol 
-            name="paperplane.fill" 
+            name={isDark ? "sun.max.fill" : "moon.fill"} 
             size={20} 
-            color={(!input.trim() || isLoading) ? "#999" : "#FFFFFF"} 
+            color={colors.primary} 
           />
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          style={dynamicStyles.messagesList}
+          contentContainerStyle={[
+            dynamicStyles.messagesContainer,
+            { paddingBottom: 20 }
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={scrollToBottom}
+          onLayout={scrollToBottom}
+        />
+
+        {isLoading && (
+          <View style={dynamicStyles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={dynamicStyles.loadingText}>AI is thinking...</Text>
+          </View>
+        )}
+
+        <View style={dynamicStyles.inputContainer}>
+          <TextInput
+            style={dynamicStyles.textInput}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Type your message..."
+            placeholderTextColor={colors.textTertiary}
+            multiline
+            maxLength={500}
+            editable={!isLoading}
+            onFocus={() => {
+              // Scroll to bottom when input is focused
+              setTimeout(() => {
+                scrollToBottom();
+                // Additional scroll after keyboard animation completes
+                setTimeout(scrollToBottom, 300);
+              }, 100);
+            }}
+          />
+          <TouchableOpacity
+            style={[dynamicStyles.sendButton, (!input.trim() || isLoading) && dynamicStyles.sendButtonDisabled]}
+            onPress={sendMessage}
+            disabled={!input.trim() || isLoading}
+          >
+            <IconSymbol 
+              name="paperplane.fill" 
+              size={20} 
+              color={(!input.trim() || isLoading) ? colors.textTertiary : colors.chatUserText} 
+            />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  header: {
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    backgroundColor: '#5B7C67',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#E8F5E8',
-    opacity: 0.8,
-    marginBottom: 8,
-  },
-  testButton: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    marginTop: 8,
-  },
-  testButtonText: {
-    color: '#5B7C67',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  messagesList: {
-    flex: 1,
-  },
-  messagesContainer: {
-    paddingVertical: 16,
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  loadingText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#666',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    backgroundColor: '#FFFFFF',
-  },
-  textInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    maxHeight: 100,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#F8F8F8',
-  },
-  sendButton: {
-    backgroundColor: '#5B7C67',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#E0E0E0',
-  },
-});
