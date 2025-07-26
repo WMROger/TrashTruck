@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read/write access to chat logs
+    match /chat_logs/{document} {
+      allow read, write: if true; // For demo purposes - in production, add proper authentication
+    }
+    
+    // Allow read/write access to documents collection
+    match /documents/{document} {
+      allow read, write: if true; // For demo purposes - in production, add proper authentication
+    }
+    
+    // Default rule - deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 
