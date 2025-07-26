@@ -13,19 +13,7 @@ import {
 } from 'react-native';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import ChatMessage from '@/components/ChatMessage';
-
-// Firebase imports (with error handling)
-let functions: any = null;
-let httpsCallable: any = null;
-
-try {
-  const firebaseModule = require('firebase/functions');
-  const firebaseConfig = require('@/config/firebase');
-  functions = firebaseConfig.functions;
-  httpsCallable = firebaseModule.httpsCallable;
-} catch (error) {
-  console.log('Firebase not configured, using mock mode');
-}
+import { getN8nWebhookUrl, isN8nConfigured } from '@/config/n8n';
 
 interface Message {
   id: string;
@@ -92,12 +80,121 @@ function generateMockResponse(query: string): string {
   return `I understand you're asking about "${query}". TrashTrack is a comprehensive waste management app that can help you track waste, set recycling goals, and learn about sustainable practices. How can I assist you further?`;
 }
 
+// Call n8n webhook for RAG processing
+async function callN8nWebhook(query: string): Promise<string> {
+  try {
+    const webhookUrl = getN8nWebhookUrl();
+    console.log('🔗 Calling n8n webhook:', webhookUrl);
+    
+    const requestBody = {
+      messageInput: query, // Changed from 'query' to 'messageInput' to match working curl
+      timestamp: new Date().toISOString(),
+      source: 'TrashTrack App'
+    };
+    
+    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+    
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log('📥 n8n response status:', response.status);
+    console.log('📥 n8n response headers:', Object.fromEntries(response.headers.entries()));
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ n8n error response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ n8n response data:', JSON.stringify(data, null, 2));
+    
+    // Handle different possible response formats (including 'output' field)
+    let aiResponse = data.reply || data.response || data.answer || data.message || data.output || 'Sorry, I couldn\'t process your request.';
+    
+    // Add guardrails for trash-related content
+    aiResponse = applyGuardrails(aiResponse, query);
+    
+    return aiResponse;
+  } catch (error) {
+    console.error('❌ n8n webhook error:', error);
+    throw error;
+  }
+}
+
+// Guardrails function to filter and improve responses
+function applyGuardrails(response: string, originalQuery: string): string {
+  const query = originalQuery.toLowerCase();
+  const responseLower = response.toLowerCase();
+  
+  // Guardrail 1: Check if query is related to TrashTrack/waste management
+  const trashTrackKeywords = [
+    'trash', 'waste', 'recycling', 'garbage', 'rubbish', 'litter', 'disposal',
+    'environment', 'sustainability', 'eco', 'green', 'compost', 'landfill',
+    'pollution', 'clean', 'dirty', 'mess', 'filth', 'trash track', 'trashtrack'
+  ];
+  
+  const isTrashTrackRelated = trashTrackKeywords.some(keyword => 
+    query.includes(keyword) || responseLower.includes(keyword)
+  );
+  
+  if (!isTrashTrackRelated) {
+    return "I'm your TrashTrack AI assistant! I can help you with waste management, recycling tips, sustainability practices, and TrashTrack app features. How can I assist you with your waste management goals today?";
+  }
+  
+  // Guardrail 2: Filter inappropriate or harmful content
+  const inappropriateKeywords = [
+    'illegal', 'dangerous', 'harmful', 'toxic', 'poison', 'hazardous',
+    'unsafe', 'risky', 'forbidden', 'banned', 'criminal'
+  ];
+  
+  const hasInappropriateContent = inappropriateKeywords.some(keyword => 
+    responseLower.includes(keyword)
+  );
+  
+  if (hasInappropriateContent) {
+    return "I can't provide advice about potentially harmful or illegal waste disposal methods. Instead, let me help you with safe, legal, and environmentally-friendly waste management practices. What specific aspect of waste management would you like to learn about?";
+  }
+  
+  // Guardrail 3: Ensure response is helpful and informative
+  if (response.length < 20) {
+    return "I'd be happy to help you with that! Could you please provide more details about your waste management question so I can give you a more helpful response?";
+  }
+  
+  // Guardrail 4: Add TrashTrack branding and encouragement
+  if (!responseLower.includes('trash') && !responseLower.includes('waste') && !responseLower.includes('recycling')) {
+    return response + "\n\n💚 Remember, TrashTrack is here to help you make a positive impact on the environment through better waste management!";
+  }
+  
+  return response;
+}
+
+// Test n8n webhook function
+async function testN8nWebhook() {
+  try {
+    console.log('🧪 Testing n8n webhook...');
+    const result = await callN8nWebhook('Test message from TrashTrack app');
+    console.log('✅ Test successful:', result);
+    Alert.alert('Test Successful', `n8n webhook responded: ${result.substring(0, 100)}...`);
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+    Alert.alert('Test Failed', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'ai',
-      text: functions ? 'Hello! I\'m your AI assistant for TrashTrack. How can I help you today?' : 'Hello! I\'m your AI assistant for TrashTrack (Demo Mode). How can I help you today?',
+      text: isN8nConfigured() 
+        ? 'Hello! I\'m your AI assistant for TrashTrack. How can I help you today?' 
+        : 'Hello! I\'m your AI assistant for TrashTrack (Demo Mode). How can I help you today?',
       timestamp: new Date(),
     },
   ]);
@@ -132,20 +229,20 @@ export default function ChatScreen() {
     try {
       let aiResponse: string;
 
-      // Try Firebase Functions first, fallback to mock
-      if (functions && httpsCallable) {
+      // Try n8n webhook first, fallback to mock
+      if (isN8nConfigured()) {
         try {
-          const chatWithRAG = httpsCallable(functions, 'chatWithRAG');
-          const result = await chatWithRAG({ query: userMessage.text });
-          aiResponse = (result.data as any)?.reply || 'Sorry, I couldn\'t process your request.';
-        } catch (firebaseError) {
-          console.log('Firebase error, using mock:', firebaseError);
+          console.log('🚀 Using n8n webhook for AI response');
+          aiResponse = await callN8nWebhook(userMessage.text);
+        } catch (n8nError) {
+          console.log('⚠️ n8n error, using mock:', n8nError);
           // Simulate API delay
           await new Promise(resolve => setTimeout(resolve, 1000));
           aiResponse = generateMockResponse(userMessage.text);
         }
       } else {
         // Use mock implementation
+        console.log('🎭 Using mock mode for AI response');
         await new Promise(resolve => setTimeout(resolve, 1000));
         aiResponse = generateMockResponse(userMessage.text);
       }
@@ -159,7 +256,7 @@ export default function ChatScreen() {
 
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ Error sending message:', error);
       Alert.alert('Error', 'Failed to send message. Please try again.');
       
       const errorMessage: Message = {
@@ -187,8 +284,13 @@ export default function ChatScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>AI Assistant</Text>
         <Text style={styles.headerSubtitle}>
-          {functions ? 'Powered by RAG + Groq' : 'Powered by RAG (Demo Mode)'}
+          {isN8nConfigured() ? 'Powered by n8n + Groq' : 'Powered by RAG (Demo Mode)'}
         </Text>
+        {isN8nConfigured() && (
+          <TouchableOpacity style={styles.testButton} onPress={testN8nWebhook}>
+            <Text style={styles.testButtonText}>Test Webhook</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <FlatList
@@ -257,6 +359,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#E8F5E8',
     opacity: 0.8,
+    marginBottom: 8,
+  },
+  testButton: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginTop: 8,
+  },
+  testButtonText: {
+    color: '#5B7C67',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   messagesList: {
     flex: 1,

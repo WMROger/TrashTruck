@@ -1,25 +1,41 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
+// Firebase configuration with graceful fallback
+let app: any = null;
+let db: any = null;
+let functions: any = null;
 
-// Your Firebase configuration
-const firebaseConfig = {
-  apiKey: "your-api-key",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "your-sender-id",
-  appId: "your-app-id"
-};
+try {
+  const { initializeApp } = require('firebase/app');
+  const { getFirestore } = require('firebase/firestore');
+  const { getFunctions } = require('firebase/functions');
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+  // Your Firebase configuration
+  const firebaseConfig = {
+    apiKey: "your-api-key",
+    authDomain: "your-project.firebaseapp.com",
+    projectId: "your-project-id",
+    storageBucket: "your-project.appspot.com",
+    messagingSenderId: "your-sender-id",
+    appId: "your-app-id"
+  };
 
-// Initialize Firestore
-export const db = getFirestore(app);
+  // Initialize Firebase
+  app = initializeApp(firebaseConfig);
 
-// Initialize Functions
-export const functions = getFunctions(app);
+  // Initialize Firestore
+  db = getFirestore(app);
 
-// Export the app instance
+  // Initialize Functions
+  functions = getFunctions(app);
+
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.log('Firebase not available, using mock mode:', error.message);
+  // Provide mock implementations
+  app = null;
+  db = null;
+  functions = null;
+}
+
+// Export with fallbacks
+export { db, functions };
 export default app; 

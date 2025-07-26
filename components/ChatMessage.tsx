@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 
 interface ChatMessageProps {
   message: {
@@ -14,6 +15,12 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
   return (
     <View style={[styles.container, isUser ? styles.userContainer : styles.aiContainer]}>
+      {!isUser && (
+        <View style={styles.aiHeader}>
+          <IconSymbol name="leaf.fill" size={16} color="#5B7C67" />
+          <Text style={styles.aiLabel}>TrashTrack AI</Text>
+        </View>
+      )}
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
         <Text style={[styles.text, isUser ? styles.userText : styles.aiText]}>
           {message.text}
@@ -24,6 +31,11 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           </Text>
         )}
       </View>
+      {!isUser && (
+        <View style={styles.aiFooter}>
+          <Text style={styles.aiFooterText}>💚 Powered by TrashTrack</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -38,6 +50,18 @@ const styles = StyleSheet.create({
   },
   aiContainer: {
     alignItems: 'flex-start',
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    marginLeft: 4,
+  },
+  aiLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5B7C67',
+    marginLeft: 4,
   },
   bubble: {
     maxWidth: '80%',
@@ -54,8 +78,10 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   aiBubble: {
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F8F9FA',
     borderBottomLeftRadius: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: '#5B7C67',
   },
   text: {
     fontSize: 16,
@@ -79,5 +105,14 @@ const styles = StyleSheet.create({
   aiTimestamp: {
     color: '#666666',
     textAlign: 'left',
+  },
+  aiFooter: {
+    marginTop: 2,
+    marginLeft: 4,
+  },
+  aiFooterText: {
+    fontSize: 10,
+    color: '#5B7C67',
+    fontStyle: 'italic',
   },
 }); 
