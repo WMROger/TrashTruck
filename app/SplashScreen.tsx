@@ -1,62 +1,140 @@
-import React, { useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Image } from 'react-native';
-const Swiper = require('react-native-swiper').default;
-import { useRouter } from 'expo-router';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import { Image as ExpoImage } from 'expo-image';
+import React, { useRef, useState } from 'react';
+import {
+    Dimensions,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
-const { width, height } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-const slides = [
+interface CarouselItem {
+  id: number;
+  title: string;
+  subtitle: string;
+  image: any;
+  backgroundColor: string;
+}
+
+const carouselData: CarouselItem[] = [
   {
-    key: 'slide1',
+    id: 1,
     title: 'Welcome to TrashTrack',
-    text: "Here's a good place for a brief overview of the app or its key features.",
+    subtitle: 'Here\'s a good place for a brief overview of the app or its key features.',
     image: require('@/assets/images/splash-icon.png'),
+    backgroundColor: '#E8F5E8',
   },
   {
-    key: 'slide2',
-    title: 'Track Your Waste',
-    text: 'Monitor and manage your waste efficiently with our easy-to-use tools.',
-    image: require('@/assets/images/partial-react-logo.png'),
+    id: 2,
+    title: 'Smart Waste Management',
+    subtitle: 'Track your waste, optimize collection routes, and contribute to a cleaner environment.',
+    image: require('@/assets/images/icon.png'),
+    backgroundColor: '#F0F8F0',
   },
   {
-    key: 'slide3',
-    title: 'Join the Clean Movement',
-    text: 'Be a part of the solution. Clean with haste, know your waste!',
-    image: require('@/assets/images/react-logo.png'),
+    id: 3,
+    title: 'Know the Waste, Clean with Haste',
+    subtitle: 'Join thousands of users making a difference in waste management.',
+    image: require('@/assets/images/splash-icon.png'),
+    backgroundColor: '#E8F5E8',
   },
 ];
 
-export default function SplashScreen() {
-  const router = useRouter();
-  const swiperRef = useRef(null);
-  const [activeIndex, setActiveIndex] = React.useState(0);
+export default function SplashScreen({ onGetStarted }: { onGetStarted: () => void }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
+  const handleScroll = (event: any) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffset / screenWidth);
+    setCurrentIndex(index);
+  };
+
+  const handleDotPress = (index: number) => {
+    scrollViewRef.current?.scrollTo({
+      x: index * screenWidth,
+      animated: true,
+    });
+    setCurrentIndex(index);
+  };
+
+  const handleGetStarted = () => {
+    onGetStarted();
+  };
+
+  const isLastSlide = currentIndex === carouselData.length - 1;
 
   return (
-    <View style={styles.container}>
-      <Swiper
-        ref={swiperRef}
-        loop={false}
-        showsPagination={true}
-        onIndexChanged={setActiveIndex}
-        activeDotColor={'#5B7C67'}
-        dotColor={'#A9D6B5'}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView
+        ref={scrollViewRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollViewContent}
       >
-        {slides.map((slide, idx) => (
-          <View style={styles.slide} key={slide.key}>
-            <Image source={slide.image} style={styles.image} />
-            <Text style={styles.title}>{slide.title}</Text>
-            <Text style={styles.text}>{slide.text}</Text>
-            {idx === slides.length - 1 && (
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => router.replace('/')}
-              >
-                <Text style={styles.buttonText}>Continue</Text>
-              </TouchableOpacity>
-            )}
+        {carouselData.map((item, index) => (
+          <View key={item.id} style={[styles.slide, { width: screenWidth }]}>
+            <View style={[styles.slideContent, { backgroundColor: item.backgroundColor }]}>
+              <View style={styles.imageContainer}>
+                <ExpoImage
+                  source={item.image}
+                  style={styles.slideImage}
+                  contentFit="contain"
+                />
+              </View>
+              <View style={styles.textContainer}>
+                <Text style={[styles.title, { color: colors.textPrimary }]}>
+                  {item.title}
+                </Text>
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                  {item.subtitle}
+                </Text>
+              </View>
+            </View>
           </View>
         ))}
-      </Swiper>
+      </ScrollView>
+
+      {/* Pagination Dots */}
+      <View style={styles.paginationContainer}>
+        {carouselData.map((_, index) => (
+          <TouchableOpacity
+            key={index}
+            style={[
+              styles.dot,
+              {
+                backgroundColor: index === currentIndex ? colors.primary : colors.border,
+              },
+            ]}
+            onPress={() => handleDotPress(index)}
+          />
+        ))}
+      </View>
+
+      {/* Get Started Button - Only show on last slide */}
+      {isLastSlide && (
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={[styles.getStartedButton, { backgroundColor: colors.primary }]}
+            onPress={handleGetStarted}
+          >
+            <Text style={[styles.getStartedText, { color: colors.surface }]}>
+              Get Started
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -64,44 +142,84 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F6FBF7',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
   },
   slide: {
     flex: 1,
+    width: screenWidth,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  slideContent: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    paddingHorizontal: 32,
+    paddingVertical: 40,
   },
-  image: {
-    width: width * 0.7,
-    height: height * 0.35,
-    resizeMode: 'contain',
-    marginBottom: 32,
+  imageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    maxHeight: screenHeight * 0.4,
+  },
+  slideImage: {
+    width: Math.min(screenWidth * 0.6, 250),
+    height: Math.min(screenWidth * 0.6, 250),
+    maxHeight: screenHeight * 0.3,
+  },
+  textContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    flex: 1,
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 24,
+    fontSize: Math.min(screenWidth * 0.06, 28),
     fontWeight: 'bold',
-    color: '#222',
+    textAlign: 'center',
     marginBottom: 16,
-    textAlign: 'center',
+    lineHeight: Math.min(screenWidth * 0.07, 34),
   },
-  text: {
-    fontSize: 16,
-    color: '#5B7C67',
+  subtitle: {
+    fontSize: Math.min(screenWidth * 0.04, 16),
     textAlign: 'center',
-    marginBottom: 32,
+    lineHeight: Math.min(screenWidth * 0.05, 24),
+    paddingHorizontal: 20,
   },
-  button: {
-    backgroundColor: '#5B7C67',
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  buttonContainer: {
+    paddingHorizontal: 32,
+    paddingBottom: 40,
+  },
+  getStartedButton: {
     borderRadius: 8,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 32,
     alignItems: 'center',
-    marginTop: 24,
   },
-  buttonText: {
-    color: '#fff',
+  getStartedText: {
+    fontSize: 18,
     fontWeight: 'bold',
-    fontSize: 16,
   },
 }); 

@@ -1,6 +1,6 @@
 import ChatMessage from '@/components/ChatMessage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { getN8nWebhookUrl, isN8nConfigured } from '@/config/n8n';
+import { getN8nWebhookUrl } from '@/config/n8n';
 import { useTheme } from '@/hooks/useTheme';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -25,72 +25,14 @@ interface Message {
   timestamp: Date;
 }
 
-// Mock RAG documents for demo (fallback)
-const mockDocuments = [
-  {
-    id: 'doc1',
-    content: 'TrashTrack is a waste management app that helps users track and manage their waste efficiently. The app provides tools for monitoring waste generation, setting recycling goals, and learning about sustainable practices.',
-    keywords: ['waste', 'management', 'tracking', 'recycling', 'sustainability']
-  },
-  {
-    id: 'doc2',
-    content: 'The app features include: waste categorization, recycling tips, progress tracking, community challenges, and educational content about environmental impact.',
-    keywords: ['features', 'categorization', 'tips', 'progress', 'community', 'education']
-  },
-  {
-    id: 'doc3',
-    content: 'Users can set personal waste reduction goals, track their daily waste generation, and receive personalized recommendations for improving their environmental footprint.',
-    keywords: ['goals', 'tracking', 'recommendations', 'environmental', 'footprint']
-  },
-  {
-    id: 'doc4',
-    content: 'The app integrates with local recycling programs and provides information about proper waste disposal methods for different types of materials.',
-    keywords: ['recycling', 'programs', 'disposal', 'materials', 'local']
-  }
-];
-
-// Simple keyword-based document retrieval (fallback)
-function getRelevantDocs(query: string) {
-  const queryLower = query.toLowerCase();
-  const relevantDocs = mockDocuments.filter(doc => {
-    return doc.keywords.some(keyword => 
-      queryLower.includes(keyword.toLowerCase())
-    ) || doc.content.toLowerCase().includes(queryLower);
-  });
-  
-  return relevantDocs.slice(0, 2);
-}
-
-// Mock AI response generator (fallback)
-function generateMockResponse(query: string): string {
-  const relevantDocs = getRelevantDocs(query);
-  
-  if (relevantDocs.length > 0) {
-    const context = relevantDocs.map(doc => doc.content).join(' ');
-    
-    // Simple response based on context
-    if (query.toLowerCase().includes('feature') || query.toLowerCase().includes('what can')) {
-      return "TrashTrack offers several key features including waste categorization, recycling tips, progress tracking, community challenges, and educational content about environmental impact. You can track your daily waste generation and set personal reduction goals.";
-    } else if (query.toLowerCase().includes('waste') || query.toLowerCase().includes('recycling')) {
-      return "TrashTrack helps you manage waste efficiently by providing tools for monitoring waste generation, setting recycling goals, and learning about sustainable practices. The app integrates with local recycling programs and provides proper disposal information.";
-    } else if (query.toLowerCase().includes('goal') || query.toLowerCase().includes('track')) {
-      return "You can set personal waste reduction goals and track your daily waste generation through TrashTrack. The app provides personalized recommendations for improving your environmental footprint and monitors your progress over time.";
-    } else {
-      return `Based on your question about "${query}", TrashTrack can help you with waste management and sustainability. ${context.substring(0, 200)}...`;
-    }
-  }
-  
-  return `I understand you're asking about "${query}". TrashTrack is a comprehensive waste management app that can help you track waste, set recycling goals, and learn about sustainable practices. How can I assist you further?`;
-}
-
-// Call n8n webhook for RAG processing
+// Call n8n webhook for AI processing
 async function callN8nWebhook(query: string): Promise<string> {
   try {
     const webhookUrl = getN8nWebhookUrl();
     console.log('🔗 Calling n8n webhook:', webhookUrl);
     
     const requestBody = {
-      messageInput: query, // Changed from 'query' to 'messageInput' to match working curl
+      messageInput: query,
       timestamp: new Date().toISOString(),
       source: 'TrashTrack App'
     };
@@ -117,8 +59,11 @@ async function callN8nWebhook(query: string): Promise<string> {
     const data = await response.json();
     console.log('✅ n8n response data:', JSON.stringify(data, null, 2));
     
-    // Handle different possible response formats (including 'output' field)
+    // Handle different possible response formats
     let aiResponse = data.reply || data.response || data.answer || data.message || data.output || 'Sorry, I couldn\'t process your request.';
+    
+    // Clean the response by removing <think> tags and other internal processing
+    aiResponse = cleanAiResponse(aiResponse);
     
     // Add guardrails for trash-related content
     aiResponse = applyGuardrails(aiResponse, query);
@@ -130,64 +75,31 @@ async function callN8nWebhook(query: string): Promise<string> {
   }
 }
 
-// Guardrails function to filter and improve responses
-function applyGuardrails(response: string, originalQuery: string): string {
-  const query = originalQuery.toLowerCase();
-  const responseLower = response.toLowerCase();
+function cleanAiResponse(response: string): string {
+  // Remove <think> tags and their content
+  response = response.replace(/<think>.*?<\/think>/gs, '');
   
-  // Guardrail 1: Check if query is related to TrashTrack/waste management
-  const trashTrackKeywords = [
-    'trash', 'waste', 'recycling', 'garbage', 'rubbish', 'litter', 'disposal',
-    'environment', 'sustainability', 'eco', 'green', 'compost', 'landfill',
-    'pollution', 'clean', 'dirty', 'mess', 'filth', 'trash track', 'trashtrack'
-  ];
+  // Remove any remaining XML-like tags
+  response = response.replace(/<[^>]*>/g, '');
   
-  const isTrashTrackRelated = trashTrackKeywords.some(keyword => 
-    query.includes(keyword) || responseLower.includes(keyword)
-  );
-  
-  if (!isTrashTrackRelated) {
-    return "I'm your TrashTrack AI assistant! I can help you with waste management, recycling tips, sustainability practices, and TrashTrack app features. How can I assist you with your waste management goals today?";
-  }
-  
-  // Guardrail 2: Filter inappropriate or harmful content
-  const inappropriateKeywords = [
-    'illegal', 'dangerous', 'harmful', 'toxic', 'poison', 'hazardous',
-    'unsafe', 'risky', 'forbidden', 'banned', 'criminal'
-  ];
-  
-  const hasInappropriateContent = inappropriateKeywords.some(keyword => 
-    responseLower.includes(keyword)
-  );
-  
-  if (hasInappropriateContent) {
-    return "I can't provide advice about potentially harmful or illegal waste disposal methods. Instead, let me help you with safe, legal, and environmentally-friendly waste management practices. What specific aspect of waste management would you like to learn about?";
-  }
-  
-  // Guardrail 3: Ensure response is helpful and informative
-  if (response.length < 20) {
-    return "I'd be happy to help you with that! Could you please provide more details about your waste management question so I can give you a more helpful response?";
-  }
-  
-  // Guardrail 4: Add TrashTrack branding and encouragement
-  if (!responseLower.includes('trash') && !responseLower.includes('waste') && !responseLower.includes('recycling')) {
-    return response + "\n\n💚 Remember, TrashTrack is here to help you make a positive impact on the environment through better waste management!";
-  }
+  // Clean up extra whitespace
+  response = response.replace(/\n\s*\n/g, '\n').trim();
   
   return response;
 }
 
-// Test n8n webhook function
-async function testN8nWebhook() {
-  try {
-    console.log('🧪 Testing n8n webhook...');
-    const result = await callN8nWebhook('Test message from TrashTrack app');
-    console.log('✅ Test successful:', result);
-    Alert.alert('Test Successful', `n8n webhook responded: ${result.substring(0, 100)}...`);
-  } catch (error) {
-    console.error('❌ Test failed:', error);
-    Alert.alert('Test Failed', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+function applyGuardrails(response: string, originalQuery: string): string {
+  // Basic content filtering for inappropriate responses
+  const inappropriateKeywords = ['illegal', 'dangerous', 'harmful', 'toxic'];
+  const hasInappropriateContent = inappropriateKeywords.some(keyword => 
+    response.toLowerCase().includes(keyword)
+  );
+  
+  if (hasInappropriateContent) {
+    return 'I apologize, but I cannot provide advice about that. Please focus on safe and legal waste management practices. How can I help you with proper waste disposal and recycling?';
   }
+  
+  return response;
 }
 
 export default function ChatScreen() {
@@ -196,9 +108,7 @@ export default function ChatScreen() {
     {
       id: '1',
       role: 'ai',
-      text: isN8nConfigured() 
-        ? 'Hello! I\'m your AI assistant for TrashTrack. How can I help you today?' 
-        : 'Hello! I\'m your AI assistant for TrashTrack (Demo Mode). How can I help you today?',
+      text: 'Hello! I\'m your AI assistant for TrashTrack. How can I help you today?',
       timestamp: new Date(),
     },
   ]);
@@ -252,25 +162,8 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      let aiResponse: string;
-
-      // Try n8n webhook first, fallback to mock
-      if (isN8nConfigured()) {
-        try {
-          console.log('🚀 Using n8n webhook for AI response');
-          aiResponse = await callN8nWebhook(userMessage.text);
-        } catch (n8nError) {
-          console.log('⚠️ n8n error, using mock:', n8nError);
-          // Simulate API delay
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          aiResponse = generateMockResponse(userMessage.text);
-        }
-      } else {
-        // Use mock implementation
-        console.log('🎭 Using mock mode for AI response');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        aiResponse = generateMockResponse(userMessage.text);
-      }
+      console.log('🚀 Using n8n webhook for AI response');
+      const aiResponse = await callN8nWebhook(userMessage.text);
       
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -301,201 +194,64 @@ export default function ChatScreen() {
     <ChatMessage message={item} />
   );
 
-  // Dynamic styles based on theme
-  const dynamicStyles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    header: {
-      paddingTop: 20,
-      paddingBottom: 20,
-      paddingHorizontal: 16,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-    },
-    headerContent: {
-      flex: 1,
-      alignItems: 'center',
-    },
-    headerTitle: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: colors.chatUserText,
-      marginBottom: 4,
-    },
-    headerSubtitle: {
-      fontSize: 14,
-      color: colors.secondary,
-      opacity: 0.8,
-      marginBottom: 8,
-    },
-    themeToggleButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surface,
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-    testButton: {
-      backgroundColor: colors.surface,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 16,
-      marginTop: 8,
-    },
-    testButtonText: {
-      color: colors.primary,
-      fontSize: 12,
-      fontWeight: 'bold',
-    },
-    messagesList: {
-      flex: 1,
-    },
-    messagesContainer: {
-      paddingVertical: 16,
-    },
-    loadingContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 16,
-      paddingHorizontal: 16,
-    },
-    loadingText: {
-      marginLeft: 8,
-      fontSize: 14,
-      color: colors.textSecondary,
-    },
-    inputContainer: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      paddingBottom: Platform.OS === 'ios' ? (isKeyboardVisible ? 0 : 94) : 0,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      backgroundColor: colors.surface,
-      minHeight: 60,
-    },
-    textInput: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 20,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      maxHeight: 100,
-      minHeight: 40,
-      fontSize: 16,
-      color: colors.textPrimary,
-      backgroundColor: colors.surfaceVariant,
-    },
-    sendButton: {
-      backgroundColor: colors.primary,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginLeft: 8,
-    },
-    sendButtonDisabled: {
-      backgroundColor: colors.border,
-    },
-  });
-
   return (
-    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
-      <View style={dynamicStyles.header}>
-        <View style={dynamicStyles.headerContent}>
-          <Text style={dynamicStyles.headerTitle}>AI Assistant</Text>
-          <Text style={dynamicStyles.headerSubtitle}>
-            {isN8nConfigured() ? 'Powered by n8n + Groq' : 'Powered by RAG (Demo Mode)'}
-          </Text>
-          {isN8nConfigured() && (
-            <TouchableOpacity style={dynamicStyles.testButton} onPress={testN8nWebhook}>
-              <Text style={dynamicStyles.testButtonText}>Test Webhook</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <TouchableOpacity 
-          style={dynamicStyles.themeToggleButton} 
-          onPress={toggleTheme}
-          activeOpacity={0.7}
-        >
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          TrashTrack AI Assistant
+        </Text>
+        <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
           <IconSymbol 
             name={isDark ? "sun.max.fill" : "moon.fill"} 
-            size={20} 
-            color={colors.primary} 
+            size={24} 
+            color={colors.textSecondary} 
           />
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        renderItem={renderMessage}
+        keyExtractor={(item) => item.id}
+        style={styles.messagesList}
+        contentContainerStyle={styles.messagesContainer}
+        showsVerticalScrollIndicator={false}
+      />
+
+      {isLoading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+            AI is thinking...
+          </Text>
+        </View>
+      )}
+
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        style={styles.inputContainer}
       >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          style={dynamicStyles.messagesList}
-          contentContainerStyle={[
-            dynamicStyles.messagesContainer,
-            { paddingBottom: 20 }
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onContentSizeChange={scrollToBottom}
-          onLayout={scrollToBottom}
-        />
-
-        {isLoading && (
-          <View style={dynamicStyles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={dynamicStyles.loadingText}>AI is thinking...</Text>
-          </View>
-        )}
-
-        <View style={dynamicStyles.inputContainer}>
+        <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
           <TextInput
-            style={dynamicStyles.textInput}
+            style={[styles.input, { color: colors.textPrimary }]}
             value={input}
             onChangeText={setInput}
-            placeholder="Type your message..."
+            placeholder="Ask me about waste management..."
             placeholderTextColor={colors.textTertiary}
             multiline
             maxLength={500}
-            editable={!isLoading}
-            onFocus={() => {
-              // Scroll to bottom when input is focused
-              setTimeout(() => {
-                scrollToBottom();
-                // Additional scroll after keyboard animation completes
-                setTimeout(scrollToBottom, 300);
-              }, 100);
-            }}
+            onSubmitEditing={sendMessage}
           />
           <TouchableOpacity
-            style={[dynamicStyles.sendButton, (!input.trim() || isLoading) && dynamicStyles.sendButtonDisabled]}
+            style={[styles.sendButton, { backgroundColor: colors.primary }]}
             onPress={sendMessage}
             disabled={!input.trim() || isLoading}
           >
             <IconSymbol 
               name="paperplane.fill" 
               size={20} 
-              color={(!input.trim() || isLoading) ? colors.textTertiary : colors.chatUserText} 
+              color={colors.surface} 
             />
           </TouchableOpacity>
         </View>
@@ -503,3 +259,71 @@ export default function ChatScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  themeToggle: {
+    padding: 8,
+  },
+  messagesList: {
+    flex: 1,
+  },
+  messagesContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  inputContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minHeight: 44,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    maxHeight: 100,
+    paddingVertical: 8,
+  },
+  sendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+});

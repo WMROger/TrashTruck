@@ -8,14 +8,14 @@ try {
   const { getFirestore } = require('firebase/firestore');
   const { getFunctions } = require('firebase/functions');
 
-  // Your Firebase configuration
+  // Your Firebase configuration - Update these with your actual values
   const firebaseConfig = {
-    apiKey: "your-api-key",
-    authDomain: "your-project.firebaseapp.com",
-    projectId: "your-project-id",
-    storageBucket: "your-project.appspot.com",
-    messagingSenderId: "your-sender-id",
-    appId: "your-app-id"
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "your-api-key",
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "your-project-id",
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
+    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "your-sender-id",
+    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "your-app-id"
   };
 
   // Initialize Firebase
@@ -28,7 +28,7 @@ try {
   functions = getFunctions(app);
 
   console.log('Firebase initialized successfully');
-} catch (error) {
+} catch (error: any) {
   console.log('Firebase not available, using mock mode:', error.message);
   // Provide mock implementations
   app = null;
