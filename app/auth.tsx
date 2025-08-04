@@ -81,6 +81,9 @@ export default function AuthenticationPage() {
           <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/test-tabs')}>
             <Text style={styles.backButtonText}>Test Tabs</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/admin')}>
+            <Text style={styles.backButtonText}>Admin Portal</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>

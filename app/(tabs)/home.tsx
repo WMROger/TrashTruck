@@ -12,7 +12,7 @@ export default function HomePage() {
 
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
-    router.replace('/splash');
+    router.replace('/auth');
   };
 
   return (

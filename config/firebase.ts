@@ -8,15 +8,16 @@ try {
   const { getFirestore } = require('firebase/firestore');
   const { getFunctions } = require('firebase/functions');
 
-  // Your Firebase configuration - Update these with your actual values
+  // Your web app's Firebase configuration
   const firebaseConfig = {
-    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "your-api-key",
-    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
-    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "your-project-id",
-    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
-    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "your-sender-id",
-    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "your-app-id"
+    apiKey: "AIzaSyCI_dZWMCn1QbwAaZe9qkPi_lB5KG0iLks",
+    authDomain: "trashtruck-swu-98ce9.firebaseapp.com",
+    projectId: "trashtruck-swu-98ce9",
+    storageBucket: "trashtruck-swu-98ce9.firebasestorage.app",
+    messagingSenderId: "634173704158",
+    appId: "1:634173704158:web:d7a0efc4fd1bd026283f4f"
   };
+
 
   // Initialize Firebase
   app = initializeApp(firebaseConfig);

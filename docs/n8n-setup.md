@@ -156,7 +156,7 @@ Add an **HTTP Request node** to call Groq API:
    - Body (JSON):
      ```json
      {
-       "model": "llama3-8b-8192",
+       "model": "gemma2-9b-it",
        "messages": [
          {
            "role": "system",
