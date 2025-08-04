@@ -82,19 +82,35 @@ cd ..
 firebase deploy --only functions
 ```
 
-### 5. Update App Configuration
+### 5. Environment Variables Setup
 
-1. **Update Firebase Config** in `config/firebase.ts`:
-   ```typescript
-   const firebaseConfig = {
-     apiKey: "your-api-key",
-     authDomain: "your-project.firebaseapp.com",
-     projectId: "your-project-id",
-     storageBucket: "your-project.appspot.com",
-     messagingSenderId: "your-sender-id",
-     appId: "your-app-id"
-   };
+1. **Create Environment File**:
+   ```bash
+   # Option 1: Use the setup script (recommended)
+   npm run setup-env
+   
+   # Option 2: Manual setup
+   cp .env.example .env
    ```
+
+2. **Update Firebase Configuration**:
+   - Go to [Firebase Console](https://console.firebase.google.com/)
+   - Select your project
+   - Go to Project Settings > General
+   - Scroll down to "Your apps" section
+   - Copy the configuration values
+   - Update your `.env` file with the actual values:
+
+   ```env
+   EXPO_PUBLIC_FIREBASE_API_KEY=your-actual-api-key
+   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+   EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+   EXPO_PUBLIC_FIREBASE_APP_ID=your-app-id
+   ```
+
+   ⚠️ **Important**: Never commit your `.env` file to version control. It's already added to `.gitignore`.
 
 ### 6. Run the App
 
