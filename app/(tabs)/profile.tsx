@@ -12,7 +12,7 @@ export default function ProfilePage() {
 
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
-    router.replace('/auth');
+    router.replace('/splash');
   };
 
   return (

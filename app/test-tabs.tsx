@@ -34,7 +34,7 @@ export default function TestTabs() {
       </TouchableOpacity>
       
       <TouchableOpacity style={styles.button} onPress={goToExplore}>
-        <Text style={styles.buttonText}>Go to AI Chat Tab</Text>
+        <Text style={styles.buttonText}>Go to Explore Tab</Text>
       </TouchableOpacity>
       
       <TouchableOpacity style={styles.button} onPress={goToProfile}>
