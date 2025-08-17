@@ -1,49 +1,26 @@
 import { useColorScheme } from 'react-native';
-import { useState, useEffect } from 'react';
-import { Colors } from '@/constants/Colors';
+import { create } from 'zustand';
+
+interface ThemeStore {
+  theme: 'light' | 'dark' | 'system';
+  setTheme: (theme: 'light' | 'dark' | 'system') => void;
+}
+
+export const useThemeStore = create<ThemeStore>((set) => ({
+  theme: 'light', // Changed from 'system' to 'light' as default
+  setTheme: (theme) => set({ theme }),
+}));
 
 export function useTheme() {
   const systemColorScheme = useColorScheme();
-  const [manualTheme, setManualTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const { theme, setTheme } = useThemeStore();
   
-  // Determine the actual theme to use
-  const getActualTheme = () => {
-    if (manualTheme === 'system') {
-      return systemColorScheme || 'light';
-    }
-    return manualTheme;
-  };
-  
-  const actualTheme = getActualTheme();
-  const isDark = actualTheme === 'dark';
-  
-  // Update manual theme when system theme changes (if using system)
-  useEffect(() => {
-    if (manualTheme === 'system') {
-      // This will trigger a re-render when system theme changes
-    }
-  }, [systemColorScheme, manualTheme]);
-  
-  const toggleTheme = () => {
-    if (manualTheme === 'system') {
-      setManualTheme(isDark ? 'light' : 'dark');
-    } else if (manualTheme === 'light') {
-      setManualTheme('dark');
-    } else {
-      setManualTheme('light');
-    }
-  };
-  
-  const setTheme = (theme: 'light' | 'dark' | 'system') => {
-    setManualTheme(theme);
-  };
+  // Determine the actual theme to use - prioritize user choice over system
+  const actualTheme = theme === 'system' ? (systemColorScheme ?? 'light') : theme;
   
   return {
-    colors: Colors[isDark ? 'dark' : 'light'],
-    isDark,
-    colorScheme: actualTheme,
-    manualTheme,
-    toggleTheme,
+    theme: actualTheme,
     setTheme,
+    isSystem: theme === 'system',
   };
 } 

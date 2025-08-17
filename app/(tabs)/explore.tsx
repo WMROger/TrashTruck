@@ -1,6 +1,7 @@
 import ChatMessage from '@/components/ChatMessage';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { getN8nWebhookUrl } from '@/config/n8n';
+import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -103,7 +104,8 @@ function applyGuardrails(response: string, originalQuery: string): string {
 }
 
 export default function ChatScreen() {
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -114,6 +116,8 @@ export default function ChatScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Used for keyboard handling logic (auto-scroll when keyboard appears/hides)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
@@ -190,23 +194,22 @@ export default function ChatScreen() {
     }
   };
 
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+  };
+
   const renderMessage = ({ item }: { item: Message }) => (
     <ChatMessage message={item} />
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>
           TrashTrack AI Assistant
         </Text>
-        <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
-          <IconSymbol 
-            name={isDark ? "sun.max.fill" : "moon.fill"} 
-            size={24} 
-            color={colors.textSecondary} 
-          />
-        </TouchableOpacity>
+       
       </View>
 
       <FlatList
@@ -230,7 +233,7 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.inputContainer}
+        style={[styles.inputContainer, { borderTopColor: colors.border }]}
       >
         <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
           <TextInput
@@ -271,7 +274,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   title: {
     fontSize: 20,
@@ -301,7 +303,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+    marginBottom: 60,
   },
   inputWrapper: {
     flexDirection: 'row',

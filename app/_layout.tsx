@@ -1,34 +1,60 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { AuthProvider, useAuthContext } from '@/components/AuthContext';
+import { Colors } from '@/constants/Colors';
+import { useTheme } from '@/hooks/useTheme';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { useEffect, useRef } from 'react';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
+function RootLayoutNav() {
+  const { loading, isAuthenticated } = useAuthContext();
+  const segments = useSegments();
+  const router = useRouter();
+  const lastAuthState = useRef<boolean | null>(null);
+  const { theme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  useEffect(() => {
+    if (loading) return;
+    if (lastAuthState.current === isAuthenticated) return; // Prevent unnecessary navigation
+    
+    lastAuthState.current = isAuthenticated;
+    const currentSegment = segments[0];
+
+    if (!isAuthenticated) {
+      if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)') {
+        router.replace('/auth' as any); // Redirect to auth screen
+      }
+    } else if (isAuthenticated && currentSegment === '(auth)') {
+      router.replace('/(tabs)' as any); // Redirect to tabs if authenticated and in auth group
+    }
+  }, [isAuthenticated, loading, segments, router]);
+
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
-  if (!loaded) {
+  if (!loaded || loading) {
     // Async font loading only occurs in development.
     return null;
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack initialRouteName="splash">
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="splash" options={{ headerShown: false }} />
-        <Stack.Screen name="auth" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="test-tabs" options={{ headerShown: false }} />
-        <Stack.Screen name="admin" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack initialRouteName="splash">
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="splash" options={{ headerShown: false }} />
+      <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="test-tabs" options={{ headerShown: false }} />
+      <Stack.Screen name="admin" options={{ headerShown: false }} />
+      <Stack.Screen name="+not-found" />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }

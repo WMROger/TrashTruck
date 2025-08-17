@@ -2,11 +2,13 @@
 let app: any = null;
 let db: any = null;
 let functions: any = null;
+let auth: any = null;
 
 try {
   const { initializeApp } = require('firebase/app');
   const { getFirestore } = require('firebase/firestore');
   const { getFunctions } = require('firebase/functions');
+  const { getAuth } = require('firebase/auth');
 
   // Your Firebase configuration - Update these with your actual values
   const firebaseConfig = {
@@ -27,6 +29,9 @@ try {
   // Initialize Functions
   functions = getFunctions(app);
 
+  // Initialize Authentication
+  auth = getAuth(app);
+
   console.log('Firebase initialized successfully');
 } catch (error: any) {
   console.log('Firebase not available, using mock mode:', error.message);
@@ -34,8 +39,9 @@ try {
   app = null;
   db = null;
   functions = null;
+  auth = null;
 }
 
 // Export with fallbacks
-export { db, functions };
+export { db, functions, auth };
 export default app; 

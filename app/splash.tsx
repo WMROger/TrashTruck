@@ -6,7 +6,7 @@ export default function SplashScreenRoute() {
   const router = useRouter();
 
   const handleGetStarted = () => {
-    // Navigate to the authentication page
+    // Navigate to the authentication page (not directly to login)
     router.replace('/auth');
   };
 

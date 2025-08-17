@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 interface ChatMessageProps {
   message: {
@@ -12,7 +13,8 @@ interface ChatMessageProps {
 }
 
 export default function ChatMessage({ message }: ChatMessageProps) {
-  const { colors } = useTheme();
+  const { theme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
   const isUser = message.role === 'user';
 
   const dynamicStyles = StyleSheet.create({

@@ -98,6 +98,24 @@ firebase deploy --only functions
    - Select your project
    - Go to Project Settings > General
    - Scroll down to "Your apps" section
+
+### 6. Authentication Setup
+
+1. **Enable Authentication Methods**:
+   - In Firebase Console, go to "Authentication" > "Sign-in method"
+   - Enable Email/Password authentication
+   - Optionally enable Google and Facebook sign-in
+
+2. **Configure OAuth Providers** (Optional):
+   - For Google: Set up OAuth 2.0 client ID
+   - For Facebook: Configure Facebook App ID and Secret
+
+3. **Test Authentication**:
+   - Run the app: `npm start`
+   - Try creating an account and signing in
+   - Check console for any authentication errors
+
+For detailed authentication setup instructions, see [docs/firebase-setup.md](docs/firebase-setup.md).
    - Copy the configuration values
    - Update your `.env` file with the actual values:
 

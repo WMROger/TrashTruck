@@ -1,18 +1,54 @@
+import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useTheme } from '@/hooks/useTheme';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
+  const { theme, setTheme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
+  const { user, logout } = useAuthContext();
+  const [preferencesExpanded, setPreferencesExpanded] = useState(false);
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
 
-  const handleLogout = () => {
-    // Navigate back to splash screen (logout)
-    router.replace('/splash');
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+              // Navigate to splash screen after successful logout
+              router.replace('/splash');
+            } catch (error) {
+              console.error('Logout error:', error);
+              // Even if there's an error, redirect to splash
+              router.replace('/splash');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const togglePreferences = () => {
+    setPreferencesExpanded(!preferencesExpanded);
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    console.log('Theme changed to:', newTheme);
   };
 
   return (
@@ -29,10 +65,10 @@ export default function ProfilePage() {
             <IconSymbol name="person.fill" size={40} color={colors.surface} />
           </View>
           <Text style={[styles.userName, { color: colors.textPrimary }]}>
-            John Doe
+            {user?.displayName || 'User'}
           </Text>
           <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
-            john.doe@example.com
+            {user?.email || 'No email'}
           </Text>
         </View>
 
@@ -71,13 +107,63 @@ export default function ProfilePage() {
             App Settings
           </Text>
           
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]}
+            onPress={togglePreferences}
+          >
             <IconSymbol name="gear" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               Preferences
             </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
+            <IconSymbol 
+              name={preferencesExpanded ? "chevron.up" : "chevron.right"} 
+              size={16} 
+              color={colors.textTertiary} 
+            />
           </TouchableOpacity>
+
+          {/* Preferences Dropdown */}
+          {preferencesExpanded && (
+            <View style={styles.preferencesDropdown}>
+              {/* Single Theme Toggle */}
+              <View style={styles.toggleContainer}>
+                <TouchableOpacity 
+                  style={[
+                    styles.toggleSwitch, 
+                    { 
+                      backgroundColor: theme === 'dark' ? '#2C2C2C' : '#FFFFFF',
+                      justifyContent: theme === 'dark' ? 'flex-end' : 'flex-start'
+                    }
+                  ]}
+                  onPress={toggleTheme}
+                  activeOpacity={0.8}
+                >
+                  <View style={[
+                    styles.toggleThumb, 
+                    { 
+                      backgroundColor: theme === 'dark' ? '#FFFFFF' : '#2C2C2C'
+                    }
+                  ]}>
+                    <IconSymbol 
+                      name={theme === 'dark' ? "moon.fill" : "sun.max.fill"} 
+                      size={16} 
+                      color={theme === 'dark' ? "#2C2C2C" : "#FFFFFF"} 
+                    />
+                  </View>
+                  <Text style={[
+                    styles.toggleText, 
+                    { 
+                      color: theme === 'dark' ? '#FFFFFF' : '#000000',
+                      marginLeft: theme === 'dark' ? 0 : 12,
+                      marginRight: theme === 'dark' ? 12 : 0
+                    }
+                  ]}>
+                    {theme === 'dark' ? 'DARK MODE' : 'LIGHT MODE'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
             <IconSymbol name="questionmark.circle" size={24} color={colors.primary} />
@@ -172,6 +258,47 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
   },
+  preferencesDropdown: {
+    marginLeft: 20,
+    gap: 16,
+    paddingVertical: 8,
+  },
+  toggleContainer: {
+    alignItems: 'center',
+  },
+  toggleSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 200,
+    height: 50,
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    gap: 12,
+    // Neumorphic shadow effects
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  toggleThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Inner shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -180,6 +307,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 8,
     marginTop: 20,
+    marginBottom: 70,
   },
   logoutText: {
     fontSize: 16,

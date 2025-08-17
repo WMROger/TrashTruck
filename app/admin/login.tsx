@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { Dimensions, Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
 import { adminStyles } from '../../styles/admin';
 
-const { width, height } = Dimensions.get('window');
+// Dimensions available if needed for responsive design
+// const { width, height } = Dimensions.get('window');
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');

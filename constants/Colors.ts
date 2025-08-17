@@ -1,37 +1,38 @@
 /**
  * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Light mode is the primary theme with a carefully crafted color palette.
+ * Dark mode is provided as an auxiliary option for user preference.
  */
 
-const tintColorLight = '#5B7C67'; // TrashTrack green
+const tintColorLight = '#4E6C50'; // Primary green from user palette
 const tintColorDark = '#A9D6B5'; // Lighter green for dark mode
 
 export const Colors = {
   light: {
     text: '#11181C',
-    background: '#fff',
+    background: '#EDFBE8', // Very light green background from user palette
     tint: tintColorLight,
     icon: '#687076',
     tabIconDefault: '#687076',
     tabIconSelected: tintColorLight,
-    // TrashTrack specific colors
-    primary: '#5B7C67',
-    primaryLight: '#A9D6B5',
-    secondary: '#E8F5E8',
-    surface: '#FFFFFF',
-    surfaceVariant: '#F8F9FA',
-    border: '#E0E0E0',
-    textPrimary: '#333333',
-    textSecondary: '#666666',
-    textTertiary: '#999999',
+    // TrashTrack specific colors using user's color palette - PRIMARY THEME
+    primary: '#4E6C50', // Main primary green
+    primaryLight: '#4E6C50', // Lighter green variant
+    secondary: '#ECFEE5', // Light green secondary
+    surface: '#FFFFFF', // White surface
+    surfaceVariant: '#E6F5D9', // Very light green surface variant
+    border: '#AFAF9F', // Muted gray border
+    textPrimary: '#000000', // Dark green text
+    textSecondary: '#73946B', // Medium green text
+    textTertiary: '#AFAF9F', // Muted gray text
     success: '#4CAF50',
     warning: '#FF9800',
     error: '#F44336',
-    chatUserBubble: '#5B7C67',
+    chatUserBubble: '#4E6C50',
     chatUserText: '#FFFFFF',
-    chatAIBubble: '#F8F9FA',
-    chatAIText: '#333333',
-    chatAIBorder: '#5B7C67',
+    chatAIBubble: '#E6F5D9',
+    chatAIText: '#4E6C50',
+    chatAIBorder: '#4E6C50',
   },
   dark: {
     text: '#ECEDEE',
@@ -40,7 +41,7 @@ export const Colors = {
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
-    // TrashTrack specific colors
+    // TrashTrack specific colors - AUXILIARY THEME
     primary: '#A9D6B5',
     primaryLight: '#5B7C67',
     secondary: '#2A3A2E',
