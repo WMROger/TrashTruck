@@ -31,6 +31,12 @@ const MAPPING = {
   'gear': 'settings',
   'questionmark.circle': 'help',
   'info.circle': 'info',
+  // Additional icons used by new tabs
+  'calendar': 'event',
+  'hand.thumbsup': 'thumb-up',
+  'mappin.and.ellipse': 'location-on',
+  'star.fill': 'star',
+  'hand.thumbsdown': 'thumb-down',
 } as IconMapping;
 
 /**
