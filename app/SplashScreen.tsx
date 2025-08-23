@@ -1,6 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Image as ExpoImage } from 'expo-image';
+import { Image } from 'react-native';
 import React, { useRef, useState } from 'react';
 import {
     Dimensions,
@@ -87,10 +87,10 @@ export default function SplashScreen({ onGetStarted }: { onGetStarted: () => voi
           <View key={item.id} style={[styles.slide, { width: screenWidth }]}>
             <View style={[styles.slideContent, { backgroundColor: item.backgroundColor }]}>
               <View style={styles.imageContainer}>
-                <ExpoImage
+                <Image
                   source={item.image}
                   style={styles.slideImage}
-                  contentFit="contain"
+                  resizeMode="contain"
                 />
               </View>
               <View style={styles.textContainer}>

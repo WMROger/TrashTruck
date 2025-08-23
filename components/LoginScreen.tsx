@@ -1,8 +1,9 @@
 import { auth } from '@/config/firebase';
+import { configureAuth, signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { FacebookAuthProvider, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import React, { useState } from 'react';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -22,103 +23,109 @@ export default function LoginScreen() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Configure authentication on component mount
+  useEffect(() => {
+    configureAuth();
+    
+    // Debug: Check Firebase auth status
+    console.log('LoginScreen - Firebase auth object:', auth);
+    if (auth) {
+      console.log('LoginScreen - Auth methods available:');
+      console.log('- signInWithRedirect:', typeof auth.signInWithRedirect);
+      console.log('- signInWithPopup:', typeof auth.signInWithPopup);
+      console.log('- signInWithEmailAndPassword:', typeof auth.signInWithEmailAndPassword);
+    } else {
+      console.log('LoginScreen - Firebase auth is null/undefined');
+    }
+  }, []);
+
   const handleLogin = async () => {
-    // ========================================
-    // DEV LOGIN BYPASS - REMOVE IN PRODUCTION
-    // ========================================
-
-    // Uncomment the next line to bypass authentication for development
-    router.replace('/(tabs)/home' as any); 
-    return;
-    // ========================================
-
-
-
-    // if (!email || !password) {
-    //   Alert.alert('Error', 'Please fill in all fields');
-    //   return;
-    // }
-
-    // setIsLoading(true);
-    // try {
-    //   // Use Firebase authentication
-    //   if (auth) {
-    //     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    //     const user = userCredential.user;
-    //     console.log('User logged in successfully:', user.email);
-        
-    //     // Navigate to main app (tabs)
-    //     router.replace('/(tabs)' as any);
-    //   } else {
-    //     // Fallback to mock login if Firebase is not available
-    //     await new Promise(resolve => setTimeout(resolve, 1000));
-    //     console.log('Mock login - Firebase not available');
-    //     router.replace('/(tabs)' as any);
-    //   }
-    // } catch (error: any) {
-    //   console.error('Login error:', error);
-    //   let errorMessage = 'Login failed. Please try again.';
-      
-    //   if (error.code === 'auth/user-not-found') {
-    //     errorMessage = 'No account found with this email address.';
-    //   } else if (error.code === 'auth/wrong-password') {
-    //     errorMessage = 'Incorrect password. Please try again.';
-    //   } else if (error.code === 'auth/invalid-email') {
-    //     errorMessage = 'Invalid email address.';
-    //   } else if (error.code === 'auth/too-many-requests') {
-    //     errorMessage = 'Too many failed attempts. Please try again later.';
-    //   }
-      
-    //   Alert.alert('Login Error', errorMessage);
-    // } finally {
-    //   setIsLoading(false);
-    // }
-
-
-
-
-    
-
-    
-    // ========================================
-    // END DEV LOGIN BYPASS
-    // ========================================
-  };
-
-  const handleGoogleLogin = async () => {
-    if (!auth) {
-      Alert.alert('Google Login', 'Google login functionality would be implemented here');
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
+    setIsLoading(true);
+    try {
+      // Use Firebase authentication
+      if (auth) {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        console.log('User logged in successfully:', user.email);
+        
+        // Navigate to main app (tabs)
+        router.replace('/(tabs)' as any);
+      } else {
+        // Fallback to mock login if Firebase is not available
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('Mock login - Firebase not available');
+        router.replace('/(tabs)' as any);
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      }
+      
+      Alert.alert('Login Error', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
     try {
       setIsLoading(true);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log('Google login successful:', user.email);
-      router.replace('/(tabs)' as any);
+      const result = await signInWithGoogle();
+      
+      if (result.success && result.user) {
+        console.log('Google login successful:', result.user.email);
+        router.replace('/(tabs)' as any);
+      } else {
+        // Handle mobile-specific error messages
+        let errorMessage = result.error || 'Failed to login with Google. Please try again.';
+        
+        if (Platform.OS !== 'web' && result.error?.includes('mobile requires additional setup')) {
+          errorMessage = 'Google sign-in on mobile is not yet fully configured. Please use the web version or try again later.';
+        }
+        
+        Alert.alert('Google Login Error', errorMessage);
+      }
     } catch (error: any) {
       console.error('Google login error:', error);
-      Alert.alert('Google Login Error', 'Failed to login with Google. Please try again.');
+      
+      let errorMessage = 'Failed to login with Google. Please try again.';
+      
+      // Handle specific error types
+      if (error.message?.includes('signInWithRedirect is not a function')) {
+        errorMessage = 'Google sign-in is not properly configured for mobile. Please use the web version.';
+      }
+      
+      Alert.alert('Google Login Error', errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleFacebookLogin = async () => {
-    if (!auth) {
-      Alert.alert('Facebook Login', 'Facebook login functionality would be implemented here');
-      return;
-    }
-
     try {
       setIsLoading(true);
-      const provider = new FacebookAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log('Facebook login successful:', user.email);
-      router.replace('/(tabs)' as any);
+      const result = await signInWithFacebook();
+      
+      if (result.success && result.user) {
+        console.log('Facebook login successful:', result.user.email);
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert('Facebook Login Error', result.error || 'Failed to login with Facebook. Please try again.');
+      }
     } catch (error: any) {
       console.error('Facebook login error:', error);
       Alert.alert('Facebook Login Error', 'Failed to login with Facebook. Please try again.');
@@ -232,6 +239,15 @@ export default function LoginScreen() {
               </View>
             </TouchableOpacity>
           </View>
+
+          {/* Mobile Notice */}
+          {Platform.OS !== 'web' && (
+            <View style={styles.mobileNotice}>
+              <Text style={styles.mobileNoticeText}>
+                Note: Social login works best on web. Mobile support coming soon.
+              </Text>
+            </View>
+          )}
 
           {/* Sign Up Link */}
           <View style={styles.signUpContainer}>
@@ -405,5 +421,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#007AFF',
     fontWeight: '600',
+  },
+  mobileNotice: {
+    backgroundColor: '#FFE5E5',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  mobileNoticeText: {
+    fontSize: 14,
+    color: '#D32F2F',
+    textAlign: 'center',
   },
 });

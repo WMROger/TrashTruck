@@ -7,11 +7,16 @@ import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, toggleSystem } = useTheme();
   const colors = Colors[theme ?? 'light'];
   const { user, logout } = useAuthContext();
   const [preferencesExpanded, setPreferencesExpanded] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const router = useRouter();
+
+  // Debug: Log current theme state
+  console.log('ProfilePage - Current theme:', theme);
+  console.log('ProfilePage - Colors being used:', colors);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -27,13 +32,22 @@ export default function ProfilePage() {
           style: 'destructive',
           onPress: async () => {
             try {
+              setIsLoggingOut(true);
+              console.log('Starting logout process...');
+              
+              // Call the logout function from AuthContext
               await logout();
-              // Navigate to splash screen after successful logout
+              console.log('Logout successful, navigating to splash');
+              
+              // Navigate to splash screen immediately after logout
               router.replace('/splash');
+              console.log('Navigation to splash completed');
+              
             } catch (error) {
               console.error('Logout error:', error);
-              // Even if there's an error, redirect to splash
-              router.replace('/splash');
+              Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
+            } finally {
+              setIsLoggingOut(false);
             }
           },
         },
@@ -125,6 +139,16 @@ export default function ProfilePage() {
           {/* Preferences Dropdown */}
           {preferencesExpanded && (
             <View style={styles.preferencesDropdown}>
+              {/* Theme Status Display */}
+              <View style={styles.themeStatusContainer}>
+                <Text style={[styles.themeStatusText, { color: colors.textSecondary }]}>
+                  Current Theme: {theme?.toUpperCase()}
+                </Text>
+                <Text style={[styles.themeStatusText, { color: colors.textTertiary }]}>
+                  Background: {colors.background}
+                </Text>
+              </View>
+
               {/* Single Theme Toggle */}
               <View style={styles.toggleContainer}>
                 <TouchableOpacity 
@@ -162,6 +186,34 @@ export default function ProfilePage() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* System Theme Toggle */}
+              <View style={styles.toggleContainer}>
+                <TouchableOpacity 
+                  style={[
+                    styles.systemToggleSwitch, 
+                    { 
+                      backgroundColor: colors.surface,
+                      borderColor: colors.primary,
+                      borderWidth: 2
+                    }
+                  ]}
+                  onPress={toggleSystem}
+                  activeOpacity={0.8}
+                >
+                  <IconSymbol 
+                    name="gear" 
+                    size={20} 
+                    color={colors.primary} 
+                  />
+                  <Text style={[
+                    styles.systemToggleText, 
+                    { color: colors.textPrimary }
+                  ]}>
+                    Use System Theme
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -183,12 +235,19 @@ export default function ProfilePage() {
         </View>
 
         <TouchableOpacity 
-          style={[styles.logoutButton, { backgroundColor: colors.error }]} 
+          style={[
+            styles.logoutButton, 
+            { 
+              backgroundColor: isLoggingOut ? colors.textTertiary : colors.error,
+              opacity: isLoggingOut ? 0.6 : 1
+            }
+          ]} 
           onPress={handleLogout}
+          disabled={isLoggingOut}
         >
           <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color={colors.surface} />
           <Text style={[styles.logoutText, { color: colors.surface }]}>
-            Logout
+            {isLoggingOut ? 'Logging Out...' : 'Logout'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -299,6 +358,26 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
+  systemToggleSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 200,
+    height: 50,
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    gap: 12,
+    // Neumorphic shadow effects
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  systemToggleText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -312,5 +391,13 @@ const styles = StyleSheet.create({
   logoutText: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  themeStatusContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  themeStatusText: {
+    fontSize: 14,
+    marginBottom: 4,
   },
 }); 

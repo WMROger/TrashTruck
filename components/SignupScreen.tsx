@@ -1,7 +1,8 @@
 import { auth } from '@/config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword, FacebookAuthProvider, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -74,18 +75,16 @@ export default function SignupScreen() {
   };
 
   const handleGoogleSignUp = async () => {
-    if (!auth) {
-      Alert.alert('Google Sign Up', 'Google sign up functionality would be implemented here');
-      return;
-    }
-
     try {
       setIsLoading(true);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log('Google signup successful:', user.email);
-      router.replace('/(tabs)' as any);
+      const result = await signInWithGoogle();
+      
+      if (result.success && result.user) {
+        console.log('Google signup successful:', result.user.email);
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert('Google Sign Up Error', result.error || 'Failed to sign up with Google. Please try again.');
+      }
     } catch (error: any) {
       console.error('Google signup error:', error);
       Alert.alert('Google Sign Up Error', 'Failed to sign up with Google. Please try again.');
@@ -95,18 +94,16 @@ export default function SignupScreen() {
   };
 
   const handleFacebookSignUp = async () => {
-    if (!auth) {
-      Alert.alert('Facebook Sign Up', 'Facebook sign up functionality would be implemented here');
-      return;
-    }
-
     try {
       setIsLoading(true);
-      const provider = new FacebookAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log('Facebook signup successful:', user.email);
-      router.replace('/(tabs)' as any);
+      const result = await signInWithFacebook();
+      
+      if (result.success && result.user) {
+        console.log('Facebook signup successful:', result.user.email);
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert('Facebook Sign Up Error', result.error || 'Failed to sign up with Facebook. Please try again.');
+      }
     } catch (error: any) {
       console.error('Facebook signup error:', error);
       Alert.alert('Facebook Sign Up Error', 'Failed to sign up with Facebook. Please try again.');

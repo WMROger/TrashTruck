@@ -8,6 +8,7 @@ A React Native + Expo app with a RAG (Retrieval-Augmented Generation) AI chatbot
 - **Real-time Chat UI**: Beautiful, responsive chat interface
 - **Document Management**: Add and manage knowledge base documents
 - **Firebase Integration**: Secure backend with Firestore and Cloud Functions
+- **Social Authentication**: Google and Facebook login support
 - **Cross-platform**: Works on iOS, Android, and Web
 
 ## 🏗️ Architecture
@@ -82,7 +83,22 @@ cd ..
 firebase deploy --only functions
 ```
 
-### 5. Environment Variables Setup
+### 5. Social Authentication Setup
+
+For Google and Facebook login functionality, follow the detailed setup guide in [`docs/social-login-setup.md`](docs/social-login-setup.md).
+
+**Quick Setup**:
+1. **Google Sign-In**:
+   - Create OAuth 2.0 credentials in Google Cloud Console
+   - Enable Google authentication in Firebase
+   - Add client IDs to environment variables
+
+2. **Facebook Sign-In**:
+   - Create a Facebook app in Facebook Developers Console
+   - Enable Facebook authentication in Firebase
+   - Add app ID and client token to environment variables
+
+### 6. Environment Variables Setup
 
 1. **Create Environment File**:
    ```bash
