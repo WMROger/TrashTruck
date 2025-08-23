@@ -1,5 +1,5 @@
 import { auth } from '@/config/firebase';
-import { configureAuth, signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
+import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
@@ -25,8 +25,6 @@ export default function LoginScreen() {
 
   // Configure authentication on component mount
   useEffect(() => {
-    configureAuth();
-    
     // Debug: Check Firebase auth status
     console.log('LoginScreen - Firebase auth object:', auth);
     if (auth) {
@@ -84,32 +82,20 @@ export default function LoginScreen() {
   const handleGoogleLogin = async () => {
     try {
       setIsLoading(true);
+      console.log('Starting Google login...');
+      
       const result = await signInWithGoogle();
       
-      if (result.success && result.user) {
-        console.log('Google login successful:', result.user.email);
+      if (result.success) {
+        console.log('Google login successful');
         router.replace('/(tabs)' as any);
       } else {
-        // Handle mobile-specific error messages
-        let errorMessage = result.error || 'Failed to login with Google. Please try again.';
-        
-        if (Platform.OS !== 'web' && result.error?.includes('mobile requires additional setup')) {
-          errorMessage = 'Google sign-in on mobile is not yet fully configured. Please use the web version or try again later.';
-        }
-        
-        Alert.alert('Google Login Error', errorMessage);
+        console.error('Google login failed:', result.error);
+        Alert.alert('Google Sign-In Error', result.error || 'Google sign-in failed');
       }
     } catch (error: any) {
       console.error('Google login error:', error);
-      
-      let errorMessage = 'Failed to login with Google. Please try again.';
-      
-      // Handle specific error types
-      if (error.message?.includes('signInWithRedirect is not a function')) {
-        errorMessage = 'Google sign-in is not properly configured for mobile. Please use the web version.';
-      }
-      
-      Alert.alert('Google Login Error', errorMessage);
+      Alert.alert('Google Sign-In Error', error.message || 'Google sign-in failed');
     } finally {
       setIsLoading(false);
     }
@@ -118,17 +104,20 @@ export default function LoginScreen() {
   const handleFacebookLogin = async () => {
     try {
       setIsLoading(true);
+      console.log('Starting Facebook login...');
+      
       const result = await signInWithFacebook();
       
-      if (result.success && result.user) {
-        console.log('Facebook login successful:', result.user.email);
+      if (result.success) {
+        console.log('Facebook login successful');
         router.replace('/(tabs)' as any);
       } else {
-        Alert.alert('Facebook Login Error', result.error || 'Failed to login with Facebook. Please try again.');
+        console.error('Facebook login failed:', result.error);
+        Alert.alert('Facebook Sign-In Error', result.error || 'Facebook sign-in failed');
       }
     } catch (error: any) {
       console.error('Facebook login error:', error);
-      Alert.alert('Facebook Login Error', 'Failed to login with Facebook. Please try again.');
+      Alert.alert('Facebook Sign-In Error', error.message || 'Facebook sign-in failed');
     } finally {
       setIsLoading(false);
     }
@@ -225,29 +214,29 @@ export default function LoginScreen() {
           </View>
 
           {/* Social Login Buttons */}
-          <View style={styles.socialButtonsContainer}>
-            <TouchableOpacity style={styles.socialButton} onPress={handleGoogleLogin}>
-              <View style={styles.socialButtonContent}>
-                <Text style={styles.socialIcon}>G</Text>
-                <Text style={styles.socialButtonText}>Google</Text>
-              </View>
+          <View style={styles.socialButtons}>
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton]}
+              onPress={handleGoogleLogin}
+              disabled={isLoading}
+            >
+              <Ionicons name="logo-google" size={24} color="#fff" />
+              <Text style={styles.socialButtonText}>
+                {isLoading ? 'Signing in...' : 'Continue with Google'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton} onPress={handleFacebookLogin}>
-              <View style={styles.socialButtonContent}>
-                <Text style={styles.socialIcon}>f</Text>
-                <Text style={styles.socialButtonText}>Facebook</Text>
-              </View>
+
+            <TouchableOpacity
+              style={[styles.socialButton, styles.facebookButton]}
+              onPress={handleFacebookLogin}
+              disabled={isLoading}
+            >
+              <Ionicons name="logo-facebook" size={24} color="#fff" />
+              <Text style={styles.socialButtonText}>
+                {isLoading ? 'Signing in...' : 'Continue with Facebook'}
+              </Text>
             </TouchableOpacity>
           </View>
-
-          {/* Mobile Notice */}
-          {Platform.OS !== 'web' && (
-            <View style={styles.mobileNotice}>
-              <Text style={styles.mobileNoticeText}>
-                Note: Social login works best on web. Mobile support coming soon.
-              </Text>
-            </View>
-          )}
 
           {/* Sign Up Link */}
           <View style={styles.signUpContainer}>
@@ -379,7 +368,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  socialButtonsContainer: {
+  socialButtons: {
     flexDirection: 'row',
     gap: 16,
     marginBottom: 40,
@@ -393,20 +382,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
-  socialButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  googleButton: {
+    backgroundColor: '#DB4437',
   },
-  socialIcon: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  facebookButton: {
+    backgroundColor: '#1877F2',
   },
   socialButtonText: {
     fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+    color: 'white',
+    fontWeight: '600',
+    marginTop: 8,
   },
   signUpContainer: {
     flexDirection: 'row',
@@ -421,18 +407,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#007AFF',
     fontWeight: '600',
-  },
-  mobileNotice: {
-    backgroundColor: '#FFE5E5',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  mobileNoticeText: {
-    fontSize: 14,
-    color: '#D32F2F',
-    textAlign: 'center',
   },
 });

@@ -33,18 +33,29 @@ export default function ProfilePage() {
           onPress: async () => {
             try {
               setIsLoggingOut(true);
+              console.log('=== LOGOUT PROCESS START ===');
               console.log('Starting logout process...');
+              console.log('Current user before logout:', user);
+              console.log('Logout function type:', typeof logout);
               
               // Call the logout function from AuthContext
+              console.log('Calling logout function...');
               await logout();
-              console.log('Logout successful, navigating to splash');
+              console.log('Logout function completed successfully');
+              console.log('User should now be null');
               
               // Navigate to splash screen immediately after logout
+              console.log('Navigating to splash screen...');
               router.replace('/splash');
               console.log('Navigation to splash completed');
+              console.log('=== LOGOUT PROCESS END ===');
               
-            } catch (error) {
+            } catch (error: any) {
+              console.error('=== LOGOUT ERROR ===');
               console.error('Logout error:', error);
+              console.error('Error type:', typeof error);
+              console.error('Error message:', error.message);
+              console.error('Error stack:', error.stack);
               Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
             } finally {
               setIsLoggingOut(false);

@@ -49,8 +49,14 @@ try {
   auth = getAuth(app);
 
   // Verify that auth is properly initialized
-  if (!auth || typeof auth.signInWithRedirect !== 'function') {
-    console.warn('Firebase Auth not properly initialized, some features may not work');
+  if (!auth) {
+    console.warn('Firebase Auth is null - not properly initialized');
+  } else if (typeof auth.signOut !== 'function') {
+    console.warn('Firebase Auth missing signOut method - not properly initialized');
+  } else if (typeof auth.currentUser !== 'undefined') {
+    console.log('Firebase Auth properly initialized with signOut and currentUser');
+  } else {
+    console.warn('Firebase Auth may not be fully initialized');
   }
 
   console.log('Firebase initialized successfully');
