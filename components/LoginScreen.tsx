@@ -144,7 +144,7 @@ export default function LoginScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#333" />
+            <Ionicons name="arrow-back" size={20} color="#2f3a31" />
           </TouchableOpacity>
         </View>
 
@@ -220,7 +220,7 @@ export default function LoginScreen() {
               onPress={handleGoogleLogin}
               disabled={isLoading}
             >
-              <Ionicons name="logo-google" size={24} color="#fff" />
+              <Ionicons name="logo-google" size={20} color="#fff" />
               <Text style={styles.socialButtonText}>
                 {isLoading ? 'Signing in...' : 'Continue with Google'}
               </Text>
@@ -231,7 +231,7 @@ export default function LoginScreen() {
               onPress={handleFacebookLogin}
               disabled={isLoading}
             >
-              <Ionicons name="logo-facebook" size={24} color="#fff" />
+              <Ionicons name="logo-facebook" size={20} color="#fff" />
               <Text style={styles.socialButtonText}>
                 {isLoading ? 'Signing in...' : 'Continue with Facebook'}
               </Text>
@@ -255,6 +255,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#E8F5E8',
+    justifyContent: 'center',
   },
   keyboardView: {
     flex: 1,
@@ -264,45 +265,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 10,
   },
   backButton: {
     padding: 8,
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 32,
-    paddingTop: 20,
+    marginHorizontal: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: 20,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#5B7C67',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#2f3a31',
+    marginBottom: 6,
+    textAlign: 'left',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  inputContainer: {
+    fontSize: 14,
+    color: '#6b6b6b',
+    textAlign: 'left',
     marginBottom: 20,
   },
+  inputContainer: {
+    marginBottom: 14,
+  },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderColor: '#dfe9df',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 16,
     color: '#333',
   },
@@ -310,7 +318,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
   },
   rememberMeContainer: {
     flexDirection: 'row',
@@ -319,36 +327,35 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 20,
     height: 20,
-    borderWidth: 2,
-    borderColor: '#5B7C67',
-    borderRadius: 4,
+    borderWidth: 1.6,
+    borderColor: '#8aa08a',
+    borderRadius: 6,
     marginRight: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#5B7C67',
+    backgroundColor: '#6f8b6f',
   },
   rememberMeText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#333',
   },
   forgotPasswordText: {
-    fontSize: 14,
-    color: '#007AFF',
-    textDecorationLine: 'underline',
+    fontSize: 13,
+    color: '#6b8bff',
   },
   primaryButton: {
-    backgroundColor: '#5B7C67',
-    borderRadius: 8,
-    paddingVertical: 16,
+    backgroundColor: '#4f6b4f',
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
   },
   primaryButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   disabledButton: {
     opacity: 0.6,
@@ -356,31 +363,33 @@ const styles = StyleSheet.create({
   separatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
   },
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#E6E6E6',
   },
   separatorText: {
-    marginHorizontal: 16,
-    fontSize: 14,
-    color: '#666',
+    marginHorizontal: 12,
+    fontSize: 13,
+    color: '#888',
   },
   socialButtons: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 40,
+    flexDirection: 'column',
+    gap: 12,
+    marginBottom: 20,
   },
   socialButton: {
-    flex: 1,
+    width: '100%',
     backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderWidth: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
   },
   googleButton: {
     backgroundColor: '#DB4437',
@@ -392,7 +401,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'white',
     fontWeight: '600',
-    marginTop: 8,
   },
   signUpContainer: {
     flexDirection: 'row',
@@ -405,7 +413,7 @@ const styles = StyleSheet.create({
   },
   signUpLink: {
     fontSize: 14,
-    color: '#007AFF',
+    color: '#4a76ff',
     fontWeight: '600',
   },
 });

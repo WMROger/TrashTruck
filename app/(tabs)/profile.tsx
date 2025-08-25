@@ -4,7 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
   const { theme, setTheme, toggleSystem } = useTheme();
@@ -12,58 +12,33 @@ export default function ProfilePage() {
   const { user, logout } = useAuthContext();
   const [preferencesExpanded, setPreferencesExpanded] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Debug: Log current theme state
-  console.log('ProfilePage - Current theme:', theme);
-  console.log('ProfilePage - Colors being used:', colors);
+  // ...existing code...
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsLoggingOut(true);
-              console.log('=== LOGOUT PROCESS START ===');
-              console.log('Starting logout process...');
-              console.log('Current user before logout:', user);
-              console.log('Logout function type:', typeof logout);
-              
-              // Call the logout function from AuthContext
-              console.log('Calling logout function...');
-              await logout();
-              console.log('Logout function completed successfully');
-              console.log('User should now be null');
-              
-              // Navigate to splash screen immediately after logout
-              console.log('Navigating to splash screen...');
-              router.replace('/splash');
-              console.log('Navigation to splash completed');
-              console.log('=== LOGOUT PROCESS END ===');
-              
-            } catch (error: any) {
-              console.error('=== LOGOUT ERROR ===');
-              console.error('Logout error:', error);
-              console.error('Error type:', typeof error);
-              console.error('Error message:', error.message);
-              console.error('Error stack:', error.stack);
-              Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
-            } finally {
-              setIsLoggingOut(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleLogout = () => {
+    setLogoutError(null);
+    setShowLogoutModal(true);
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutModal(false);
+    setLogoutError(null);
+  };
+
+  const confirmLogout = async () => {
+    setLogoutError(null);
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setShowLogoutModal(false);
+    } catch (e: any) {
+      setLogoutError(e?.message || 'Logout failed');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const togglePreferences = () => {
@@ -261,6 +236,37 @@ export default function ProfilePage() {
             {isLoggingOut ? 'Logging Out...' : 'Logout'}
           </Text>
         </TouchableOpacity>
+
+        {/* Logout Confirmation Modal */}
+        <Modal
+          visible={showLogoutModal}
+          transparent
+          animationType="fade"
+          onRequestClose={cancelLogout}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContainer, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Confirm Logout</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>Are you sure you want to logout?</Text>
+
+              {logoutError ? <Text style={styles.errorText}>{logoutError}</Text> : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface }]} onPress={cancelLogout}>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.modalButtonConfirm, { backgroundColor: colors.error }]} onPress={confirmLogout} disabled={isLoggingOut}>
+                  {isLoggingOut ? (
+                    <ActivityIndicator color={colors.surface} />
+                  ) : (
+                    <Text style={[styles.modalButtonText, { color: colors.surface }]}>Logout</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </ScrollView>
   );
@@ -410,5 +416,51 @@ const styles = StyleSheet.create({
   themeStatusText: {
     fontSize: 14,
     marginBottom: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  modalContainer: {
+    width: '80%'
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  modalMessage: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center'
+  },
+  errorText: {
+    color: '#ff4d4f',
+    textAlign: 'center',
+    marginBottom: 8
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between'
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginRight: 8,
+    alignItems: 'center'
+  },
+  modalButtonConfirm: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginLeft: 8,
+    alignItems: 'center'
+  },
+  modalButtonText: {
+    fontWeight: 'bold'
   },
 }); 

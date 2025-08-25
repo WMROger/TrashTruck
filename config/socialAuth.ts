@@ -1,10 +1,9 @@
-// import * as AuthSession from 'expo-auth-session';
-// import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import {
   FacebookAuthProvider,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithCredential,
+  signInWithPopup,
 } from 'firebase/auth';
 import { Platform } from 'react-native';
 import { auth } from './firebase';
@@ -30,13 +29,48 @@ export const signInWithGoogle = async (): Promise<{ success: boolean; error?: st
       await signInWithPopup(auth, provider);
       return { success: true };
     } else {
-      // Mobile platform - temporarily disabled due to expo-auth-session compatibility issues
-      console.log('Mobile Google sign-in temporarily disabled - using web fallback');
-      
-      // For now, redirect to web or show a message
-      return { success: false, error: 'Mobile Google sign-in is temporarily unavailable. Please use the web version.' };
-      
-      // TODO: Re-enable when expo-auth-session compatibility is resolved
+      // Mobile platform - use Expo AuthSession to open the browser and get an access token
+      console.log('Using Expo AuthSession for mobile Google sign-in');
+
+      if (!GOOGLE_CLIENT_ID) {
+        throw new Error('Google Client ID not configured for mobile');
+      }
+
+  // Build redirect URI matching app.json scheme
+  // app.json uses "scheme": "myapp" so the redirect URI is:
+  const redirectUri = 'myapp://auth/callback';
+
+      // Use the implicit flow to obtain an access token (works for quick mobile setup)
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        GOOGLE_CLIENT_ID
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
+        'profile email'
+      )}&prompt=select_account`;
+
+      // Open the auth URL in a browser and wait for redirect
+      const wbResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (wbResult.type === 'success' && wbResult.url) {
+        // access_token will be in the fragment (after '#') for implicit flow
+        const fragment = wbResult.url.split('#')[1] || '';
+        const params = new URLSearchParams(fragment);
+        const accessToken = params.get('access_token');
+
+        if (!accessToken) {
+          throw new Error('No access token returned from Google');
+        }
+
+        // Sign in to Firebase using the Google access token (pass as second arg)
+        const credential = GoogleAuthProvider.credential(null, accessToken);
+        await signInWithCredential(auth, credential);
+
+        console.log('Google sign-in successful on mobile');
+        return { success: true };
+      } else if (wbResult.type === 'cancel' || wbResult.type === 'dismiss') {
+        throw new Error('Google authentication was cancelled');
+      } else {
+        throw new Error('Google authentication failed');
+      }
       /*
       if (!GOOGLE_CLIENT_ID) {
         throw new Error('Google Client ID not configured for mobile');

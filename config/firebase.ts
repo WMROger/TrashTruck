@@ -1,14 +1,16 @@
 // Firebase configuration with graceful fallback
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
+
 let app: any = null;
 let db: any = null;
 let functions: any = null;
 let auth: any = null;
 
 try {
-  const { initializeApp } = require('firebase/app');
-  const { getFirestore } = require('firebase/firestore');
-  const { getFunctions } = require('firebase/functions');
-  const { getAuth } = require('firebase/auth');
+  console.log('Firebase: Starting initialization...');
 
   // Your Firebase configuration - Update these with your actual values
   const firebaseConfig = {
@@ -36,32 +38,54 @@ try {
     throw new Error('Missing required Firebase environment variables');
   }
 
+  console.log('Firebase: Config validation passed, initializing app...');
+
   // Initialize Firebase
   app = initializeApp(firebaseConfig);
+  console.log('Firebase: App initialized successfully');
 
   // Initialize Firestore
   db = getFirestore(app);
+  console.log('Firebase: Firestore initialized successfully');
 
   // Initialize Functions
   functions = getFunctions(app);
+  console.log('Firebase: Functions initialized successfully');
 
   // Initialize Authentication
-  auth = getAuth(app);
+  try {
+    console.log('Firebase: Starting auth initialization...');
+    
+    // For now, use standard getAuth for web compatibility
+    auth = getAuth(app);
+    console.log('Firebase: Auth initialization completed with getAuth');
+    
+  } catch (e) {
+    console.error('Firebase: Auth initialization error:', e);
+    // If getAuth fails, try to create a minimal auth object
+    auth = null;
+  }
 
   // Verify that auth is properly initialized
   if (!auth) {
-    console.warn('Firebase Auth is null - not properly initialized');
+    console.error('Firebase: Auth is null - not properly initialized');
   } else if (typeof auth.signOut !== 'function') {
-    console.warn('Firebase Auth missing signOut method - not properly initialized');
+    console.error('Firebase: Auth missing signOut method - not properly initialized');
   } else if (typeof auth.currentUser !== 'undefined') {
-    console.log('Firebase Auth properly initialized with signOut and currentUser');
+    console.log('Firebase: Auth properly initialized with signOut and currentUser');
   } else {
-    console.warn('Firebase Auth may not be fully initialized');
+    console.warn('Firebase: Auth may not be fully initialized');
   }
 
-  console.log('Firebase initialized successfully');
+  console.log('Firebase: Initialization completed successfully');
+  console.log('Firebase: Final auth object:', auth);
+  if (auth) {
+    console.log('Firebase: Auth methods available:', Object.getOwnPropertyNames(auth).filter(name => typeof auth[name] === 'function'));
+  }
+  
 } catch (error: any) {
-  console.log('Firebase not available, using mock mode:', error.message);
+  console.error('Firebase: Initialization failed:', error.message);
+  console.error('Firebase: Error stack:', error.stack);
   // Provide mock implementations
   app = null;
   db = null;

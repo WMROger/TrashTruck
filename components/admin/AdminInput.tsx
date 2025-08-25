@@ -9,6 +9,7 @@ interface AdminInputProps {
   icon: keyof typeof Ionicons.glyphMap;
   secureTextEntry?: boolean;
   rightComponent?: React.ReactNode;
+  editable?: boolean;
 }
 
 export default function AdminInput({
@@ -18,6 +19,7 @@ export default function AdminInput({
   icon,
   secureTextEntry = false,
   rightComponent,
+  editable = true,
 }: AdminInputProps) {
   return (
     <View style={styles.inputContainer}>
@@ -29,6 +31,7 @@ export default function AdminInput({
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
+        editable={editable}
       />
       {rightComponent}
     </View>

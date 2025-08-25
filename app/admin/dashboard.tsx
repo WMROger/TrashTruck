@@ -1,14 +1,74 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { signOut } from 'firebase/auth';
+import React, { useEffect } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuthContext } from '../../components/AuthContext';
+import { auth } from '../../config/firebase';
 
 export default function AdminDashboard() {
+  const { user, isAuthenticated } = useAuthContext();
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      console.log('Admin dashboard: User not authenticated, redirecting to login');
+      router.replace('/admin/login');
+      return;
+    }
+
+    console.log('Admin dashboard: User authenticated:', user?.email);
+  }, [isAuthenticated, user, router]);
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout from admin panel?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('Admin logout: Starting logout process...');
+              await signOut(auth);
+              console.log('Admin logout: Successfully logged out');
+              router.replace('/admin/login');
+            } catch (error) {
+              console.error('Admin logout error:', error);
+              Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Show loading or redirect if not authenticated
+  if (!isAuthenticated) {
+    return null; // Will redirect to login
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Admin Dashboard</Text>
-        <Text style={styles.subtitle}>TrashTruck Management System</Text>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={styles.title}>Admin Dashboard</Text>
+            <Text style={styles.subtitle}>TrashTruck Management System</Text>
+            <Text style={styles.userInfo}>Logged in as: {user?.email}</Text>
+          </View>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={24} color="white" />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
       <ScrollView style={styles.content}>
@@ -71,6 +131,11 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 40,
   },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -80,6 +145,26 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#E8F5E8',
+  },
+  userInfo: {
+    fontSize: 14,
+    color: '#E8F5E8',
+    marginTop: 5,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6347',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  logoutText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
   content: {
     flex: 1,

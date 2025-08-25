@@ -15,9 +15,9 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (loading) return;
-    if (lastAuthState.current === isAuthenticated) return; // Prevent unnecessary navigation
-    
-    lastAuthState.current = isAuthenticated;
+  if (lastAuthState.current === isAuthenticated) return; // Prevent unnecessary navigation
+
+  lastAuthState.current = isAuthenticated;
     const currentSegment = segments[0];
 
     if (!isAuthenticated) {

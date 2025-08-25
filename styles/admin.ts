@@ -39,6 +39,17 @@ export const adminStyles = StyleSheet.create({
     marginBottom: 40,
     textAlign: 'center',
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: '#666',
+    marginLeft: 8,
+  },
   form: {
     width: '100%',
   },

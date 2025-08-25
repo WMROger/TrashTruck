@@ -1,22 +1,66 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import React, { useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
+import { auth } from '../../config/firebase';
 import { adminStyles } from '../../styles/admin';
-
-// Dimensions available if needed for responsive design
-// const { width, height } = Dimensions.get('window');
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
-  const handleLogin = () => {
-    // TODO: Implement login logic
-    console.log('Login attempt:', { username, password, keepLoggedIn });
+  const handleLogin = async () => {
+    if (!username.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please enter both username and password');
+      return;
+    }
+
+    setIsLoading(true);
+    
+    try {
+      console.log('Admin login attempt:', { username, keepLoggedIn });
+      
+      // For admin login, we'll use email format (username@admin.com)
+      const email = username.includes('@') ? username : `${username}@admin.com`;
+      
+      // Attempt to sign in with Firebase
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      console.log('Admin login successful:', user.email);
+      
+      // Check if user has admin privileges (you can add custom claims or role checking here)
+      // For now, we'll assume any successful login is admin
+      
+      // Navigate to admin dashboard
+      router.replace('/admin/dashboard');
+      
+    } catch (error: any) {
+      console.error('Admin login error:', error);
+      
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'Admin account not found.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email format.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      }
+      
+      Alert.alert('Login Failed', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -92,15 +136,26 @@ export default function AdminLogin() {
 
         {/* Right Panel - Login Form */}
         <View style={adminStyles.rightPanel}>
+          {/* Back Button */}
+          <TouchableOpacity 
+            style={adminStyles.backButton} 
+            onPress={() => router.back()}
+            disabled={isLoading}
+          >
+            <Ionicons name="arrow-back" size={20} color="#666" />
+            <Text style={adminStyles.backButtonText}>Back to App</Text>
+          </TouchableOpacity>
+
           <Text style={adminStyles.welcomeText}>Welcome back, Admin</Text>
           
           <View style={adminStyles.form}>
             {/* Username Field */}
             <AdminInput
-              placeholder="Username"
+              placeholder="Username or Email"
               value={username}
               onChangeText={setUsername}
               icon="person"
+              editable={!isLoading}
             />
             
             {/* Password Field */}
@@ -110,6 +165,7 @@ export default function AdminLogin() {
               onChangeText={setPassword}
               icon="key"
               secureTextEntry
+              editable={!isLoading}
               rightComponent={
                 <TouchableOpacity style={adminStyles.forgotPassword}>
                   <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
@@ -122,6 +178,7 @@ export default function AdminLogin() {
               <TouchableOpacity
                 style={[adminStyles.checkbox, keepLoggedIn && adminStyles.checkboxChecked]}
                 onPress={() => setKeepLoggedIn(!keepLoggedIn)}
+                disabled={isLoading}
               >
                 {keepLoggedIn && <Ionicons name="checkmark" size={16} color="white" />}
               </TouchableOpacity>
@@ -129,7 +186,11 @@ export default function AdminLogin() {
             </View>
             
             {/* Login Button */}
-            <AdminButton title="Login" onPress={handleLogin} />
+            <AdminButton 
+              title={isLoading ? "Logging in..." : "Login"} 
+              onPress={handleLogin}
+              disabled={isLoading}
+            />
           </View>
         </View>
       </View>
