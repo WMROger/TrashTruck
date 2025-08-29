@@ -1,15 +1,65 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Tabs, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
+import { useAuthContext } from '@/components/AuthContext';
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
+import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 
 export default function TabLayout() {
   const { theme } = useTheme();
+  const { user } = useAuthContext();
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check if user has admin role and redirect if necessary
+  useEffect(() => {
+    const checkAdminRole = async () => {
+      if (!user || !db) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          if (userData.role === 'admin') {
+            console.log('Tabs layout: Admin user detected, redirecting to admin dashboard');
+            setIsAdmin(true);
+            router.replace('/admin/dashboard');
+            return;
+          }
+        }
+        setIsAdmin(false);
+      } catch (error) {
+        console.error('Error checking admin role in tabs:', error);
+        setIsAdmin(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAdminRole();
+  }, [user, router]);
+
+  // Show loading while checking admin role
+  if (isLoading) {
+    return null; // Will redirect to admin if needed
+  }
+
+  // Don't render tabs if user is admin (they'll be redirected)
+  if (isAdmin) {
+    return null;
+  }
 
   return (
     <Tabs
