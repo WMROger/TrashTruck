@@ -1,8 +1,9 @@
-import { auth } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
+import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -23,6 +24,68 @@ export default function SignupScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const upsertUserProfile = async (provider: string) => {
+    try {
+      if (!auth || !db) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      // Ensure fresh auth token is available to Firestore right after signup
+      try {
+        await currentUser.getIdToken(true);
+      } catch {}
+      const rawEmail = (currentUser.email || email || '').trim().toLowerCase();
+      const userId = currentUser.uid; // Firestore rules expect userId to equal auth.uid
+      const userRef = doc(db, 'users', userId);
+      const snap = await getDoc(userRef);
+      const writeOnce = async () => {
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            uid: currentUser.uid,
+            email: rawEmail || '',
+            displayName: currentUser.displayName || '',
+            photoURL: currentUser.photoURL || '',
+            verified: currentUser.emailVerified === true,
+            role: 'user',
+            provider,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // Ensure we don't overwrite an existing role; just update metadata
+          await setDoc(
+            userRef,
+            {
+              email: rawEmail || '',
+              displayName: currentUser.displayName || '',
+              photoURL: currentUser.photoURL || '',
+              verified: currentUser.emailVerified === true,
+              provider,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      };
+
+      try {
+        await writeOnce();
+      } catch (err: any) {
+        // If immediately after signup, token propagation may lag. Retry once.
+        if (err?.code === 'permission-denied' || /Missing or insufficient permissions/.test(String(err?.message))) {
+          try {
+            await currentUser.getIdToken(true);
+          } catch {}
+          await new Promise(r => setTimeout(r, 300));
+          await writeOnce();
+        } else {
+          throw err;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to upsert user profile:', e);
+    }
+  };
 
   const handleSignUp = async () => {
     if (!email || !password || !confirmPassword) {
@@ -47,14 +110,30 @@ export default function SignupScreen() {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         console.log('User created successfully:', user.email);
+        await upsertUserProfile('password');
         
-        // Navigate to main app (tabs)
-        router.replace('/(tabs)' as any);
+        // Send email verification and redirect to login
+        try {
+          await sendEmailVerification(user);
+          Alert.alert(
+            'Verify your email',
+            'We\'ve sent a verification link to your email. Please verify your email before logging in.'
+          );
+        } catch (verifyError: any) {
+          console.error('Email verification error:', verifyError);
+          Alert.alert('Verification Email Error', 'We could not send a verification email. You can request it again from the login screen.');
+        }
+        
+        // Sign out and redirect to login
+        try {
+          await signOut(auth);
+        } catch {}
+        router.replace('/(auth)/login' as any);
       } else {
         // Fallback to mock signup if Firebase is not available
         await new Promise(resolve => setTimeout(resolve, 1000));
         console.log('Mock signup - Firebase not available');
-        router.replace('/(tabs)' as any);
+        router.replace('/(auth)/login' as any);
       }
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -79,8 +158,9 @@ export default function SignupScreen() {
       setIsLoading(true);
       const result = await signInWithGoogle();
       
-      if (result.success && result.user) {
-        console.log('Google signup successful:', result.user.email);
+      if (result.success) {
+        await upsertUserProfile('google');
+        console.log('Google signup successful');
         router.replace('/(tabs)' as any);
       } else {
         Alert.alert('Google Sign Up Error', result.error || 'Failed to sign up with Google. Please try again.');
@@ -98,8 +178,9 @@ export default function SignupScreen() {
       setIsLoading(true);
       const result = await signInWithFacebook();
       
-      if (result.success && result.user) {
-        console.log('Facebook signup successful:', result.user.email);
+      if (result.success) {
+        await upsertUserProfile('facebook');
+        console.log('Facebook signup successful');
         router.replace('/(tabs)' as any);
       } else {
         Alert.alert('Facebook Sign Up Error', result.error || 'Failed to sign up with Facebook. Please try again.');

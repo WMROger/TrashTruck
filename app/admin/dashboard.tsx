@@ -1,26 +1,67 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import React, { useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
-import { auth } from '../../config/firebase';
+import { auth, db } from '../../config/firebase';
 
 export default function AdminDashboard() {
   const { user, isAuthenticated } = useAuthContext();
   const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is authenticated
-    if (!isAuthenticated) {
-      console.log('Admin dashboard: User not authenticated, redirecting to login');
-      router.replace('/admin/login');
-      return;
-    }
+    const checkAdminAccess = async () => {
+      // Check if user exists (don't use isAuthenticated for admin access)
+      if (!user) {
+        console.log('Admin dashboard: No user found, redirecting to login');
+        router.replace('/admin/login');
+        return;
+      }
 
-    console.log('Admin dashboard: User authenticated:', user?.email);
-  }, [isAuthenticated, user, router]);
+      // Verify admin role in Firestore
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          const userSnap = await getDoc(userRef);
+          
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+            if (userData.role === 'admin') {
+              console.log('Admin dashboard: Admin role confirmed for:', user.email);
+              setIsAdmin(true);
+              setIsLoading(false);
+            } else {
+              console.log('Admin dashboard: User does not have admin role:', user.email);
+              Alert.alert('Access Denied', 'You do not have admin privileges.');
+              await signOut(auth);
+              router.replace('/admin/login');
+            }
+          } else {
+            console.log('Admin dashboard: User document not found in Firestore');
+            Alert.alert('Access Denied', 'User profile not found.');
+            await signOut(auth);
+            router.replace('/admin/login');
+          }
+        } catch (error) {
+          console.error('Admin dashboard: Error checking admin role:', error);
+          Alert.alert('Error', 'Failed to verify admin privileges.');
+          await signOut(auth);
+          router.replace('/admin/login');
+        }
+      } else {
+        console.log('Admin dashboard: Firestore not available, proceeding with auth only');
+        setIsAdmin(true);
+        setIsLoading(false);
+      }
+    };
+
+    checkAdminAccess();
+  }, [user, router]);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -39,6 +80,7 @@ export default function AdminDashboard() {
               console.log('Admin logout: Starting logout process...');
               await signOut(auth);
               console.log('Admin logout: Successfully logged out');
+              setIsAdmin(false);
               router.replace('/admin/login');
             } catch (error) {
               console.error('Admin logout error:', error);
@@ -50,8 +92,19 @@ export default function AdminDashboard() {
     );
   };
 
-  // Show loading or redirect if not authenticated
-  if (!isAuthenticated) {
+  // Show loading while checking admin access
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Verifying admin access...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show loading or redirect if not authenticated or not admin
+  if (!user || !isAdmin) {
     return null; // Will redirect to login
   }
 
@@ -240,5 +293,15 @@ const styles = StyleSheet.create({
   activityTime: {
     fontSize: 12,
     color: '#999',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#333',
   },
 }); 

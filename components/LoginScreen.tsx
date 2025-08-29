@@ -1,8 +1,9 @@
-import { auth } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -22,6 +23,60 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const upsertUserProfile = async (provider: string) => {
+    try {
+      if (!auth || !db) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      // Ensure a fresh token for Firestore security rules
+      try { await currentUser.getIdToken(true); } catch {}
+      const rawEmail = (currentUser.email || email || '').trim().toLowerCase();
+      const userRef = doc(db, 'users', currentUser.uid);
+      const snap = await getDoc(userRef);
+      const writeOnce = async () => {
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            uid: currentUser.uid,
+            email: rawEmail || '',
+            displayName: currentUser.displayName || '',
+            photoURL: currentUser.photoURL || '',
+            verified: currentUser.emailVerified === true,
+            role: 'user',
+            provider,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(
+            userRef,
+            {
+              email: rawEmail || '',
+              displayName: currentUser.displayName || '',
+              photoURL: currentUser.photoURL || '',
+              verified: currentUser.emailVerified === true,
+              provider,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      };
+      try {
+        await writeOnce();
+      } catch (err: any) {
+        if (err?.code === 'permission-denied' || /Missing or insufficient permissions/.test(String(err?.message))) {
+          try { await currentUser.getIdToken(true); } catch {}
+          await new Promise(r => setTimeout(r, 300));
+          await writeOnce();
+        } else {
+          throw err;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to upsert user profile:', e);
+    }
+  };
 
   // Configure authentication on component mount
   useEffect(() => {
@@ -50,8 +105,24 @@ export default function LoginScreen() {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         console.log('User logged in successfully:', user.email);
-        
-        // Navigate to main app (tabs)
+
+        // If password provider and email not verified, block entry, send/resent verification, and sign out
+        const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
+        if (isPasswordProvider && !user.emailVerified) {
+          try {
+            await sendEmailVerification(user);
+            Alert.alert(
+              'Verify your email',
+              'A verification link has been sent to your email. Please verify before logging in.'
+            );
+          } catch (e: any) {
+            Alert.alert('Verification Email Error', 'Could not send verification email. Please check spam and try again.');
+          }
+          try { await signOut(auth); } catch {}
+          return;
+        }
+
+        await upsertUserProfile(isPasswordProvider ? 'password' : 'oauth');
         router.replace('/(tabs)' as any);
       } else {
         // Fallback to mock login if Firebase is not available
@@ -87,6 +158,7 @@ export default function LoginScreen() {
       const result = await signInWithGoogle();
       
       if (result.success) {
+        await upsertUserProfile('google');
         console.log('Google login successful');
         router.replace('/(tabs)' as any);
       } else {
@@ -109,6 +181,7 @@ export default function LoginScreen() {
       const result = await signInWithFacebook();
       
       if (result.success) {
+        await upsertUserProfile('facebook');
         console.log('Facebook login successful');
         router.replace('/(tabs)' as any);
       } else {

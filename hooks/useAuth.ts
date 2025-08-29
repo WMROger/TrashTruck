@@ -59,10 +59,16 @@ export function useAuth() {
     }
   };
 
+  // Consider email/password users without verified email as unauthenticated
+  const isPasswordProvider = (u: User | null) =>
+    !!u && Array.isArray(u.providerData) && u.providerData.some(p => p?.providerId === 'password');
+
+  const isAuthenticated = !!user && (!isPasswordProvider(user) || user.emailVerified === true);
+
   return {
     user,
     loading,
     logout,
-    isAuthenticated: !!user,
+    isAuthenticated,
   };
 }

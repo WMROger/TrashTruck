@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
-import { auth } from '../../config/firebase';
+import { auth, db } from '../../config/firebase';
 import { adminStyles } from '../../styles/admin';
 
 export default function AdminLogin() {
@@ -25,9 +26,9 @@ export default function AdminLogin() {
     setIsLoading(true);
     
     try {
-      console.log('Admin login attempt:', { username, keepLoggedIn });
+      console.log('Admin login attempt:', { username });
       
-      // For admin login, we'll use email format (username@admin.com)
+      // Use the entered email directly
       const email = username.includes('@') ? username : `${username}@admin.com`;
       
       // Attempt to sign in with Firebase
@@ -36,11 +37,31 @@ export default function AdminLogin() {
       
       console.log('Admin login successful:', user.email);
       
-      // Check if user has admin privileges (you can add custom claims or role checking here)
-      // For now, we'll assume any successful login is admin
-      
-      // Navigate to admin dashboard
-      router.replace('/admin/dashboard');
+      // Check if user has admin role in Firestore
+      if (db) {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          if (userData.role === 'admin') {
+            console.log('Admin role confirmed, redirecting to dashboard');
+            router.replace('/admin/dashboard');
+            return;
+          } else {
+            console.log('User does not have admin role');
+            Alert.alert('Access Denied', 'You do not have admin privileges.');
+            return;
+          }
+        } else {
+          console.log('User document not found in Firestore');
+          Alert.alert('Access Denied', 'User profile not found.');
+          return;
+        }
+      } else {
+        console.log('Firestore not available, proceeding with auth only');
+        router.replace('/admin/dashboard');
+      }
       
     } catch (error: any) {
       console.error('Admin login error:', error);

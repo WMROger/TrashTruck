@@ -6,6 +6,29 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
+// Delete users who remain unverified for more than 10 minutes
+exports.deleteStaleUnverifiedUsers = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+  const now = admin.firestore.Timestamp.now();
+  const tenMinutesAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 10 * 60 * 1000);
+
+  const batch = db.batch();
+  const staleSnap = await db
+    .collection('users')
+    .where('verified', '==', false)
+    .where('createdAt', '<=', tenMinutesAgo)
+    .get();
+
+  for (const docSnap of staleSnap.docs) {
+    batch.delete(docSnap.ref);
+  }
+
+  if (!staleSnap.empty) {
+    await batch.commit();
+  }
+
+  return null;
+});
+
 // Sample documents for RAG (you can replace this with your own documents)
 const sampleDocuments = [
   {
