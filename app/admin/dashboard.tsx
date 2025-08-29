@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
 import { auth, db } from '../../config/firebase';
@@ -13,6 +13,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     const checkAdminAccess = async () => {
@@ -64,32 +65,27 @@ export default function AdminDashboard() {
   }, [user, router]);
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout from admin panel?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('Admin logout: Starting logout process...');
-              await signOut(auth);
-              console.log('Admin logout: Successfully logged out');
-              setIsAdmin(false);
-              router.replace('/admin/login');
-            } catch (error) {
-              console.error('Admin logout error:', error);
-              Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    console.log('Admin logout: Button pressed, showing confirmation modal');
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    try {
+      console.log('Admin logout: Starting logout process...');
+      setShowLogoutModal(false);
+      await signOut(auth);
+      console.log('Admin logout: Successfully logged out');
+      setIsAdmin(false);
+      router.replace('/admin/login');
+    } catch (error) {
+      console.error('Admin logout error:', error);
+      Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
+    }
+  };
+
+  const cancelLogout = () => {
+    console.log('Admin logout: Cancelled by user');
+    setShowLogoutModal(false);
   };
 
   // Show loading while checking admin access
@@ -117,7 +113,12 @@ export default function AdminDashboard() {
             <Text style={styles.subtitle}>TrashTruck Management System</Text>
             <Text style={styles.userInfo}>Logged in as: {user?.email}</Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <TouchableOpacity 
+            style={styles.logoutButton} 
+            onPress={handleLogout}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="log-out-outline" size={24} color="white" />
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
@@ -170,6 +171,28 @@ export default function AdminDashboard() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>Are you sure you want to logout from admin panel?</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalButton} onPress={confirmLogout}>
+                <Text style={styles.modalButtonText}>Logout</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalButton} onPress={cancelLogout}>
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -303,5 +326,46 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 18,
     color: '#333',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  modalButton: {
+    backgroundColor: '#FF6347',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 }); 
