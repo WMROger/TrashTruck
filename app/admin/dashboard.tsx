@@ -3,9 +3,10 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
+import { AdminSidebar, AnnouncementsTab, ReportsTab, ScheduleTab } from '../../components/admin';
 import { auth, db } from '../../config/firebase';
 
 export default function AdminDashboard() {
@@ -13,6 +14,8 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('home');
 
   useEffect(() => {
     const checkAdminAccess = async () => {
@@ -103,68 +106,151 @@ export default function AdminDashboard() {
     return null; // Will redirect to login
   }
 
+  const renderHomeContent = () => (
+    <ScrollView style={styles.content}>
+      <View style={styles.statsContainer}>
+        <View style={styles.statCard}>
+          <Ionicons name="trash" size={32} color="#2E8B57" />
+          <Text style={styles.statNumber}>1,234</Text>
+          <Text style={styles.statLabel}>Collections Today</Text>
+        </View>
+        
+        <View style={styles.statCard}>
+          <Ionicons name="car" size={32} color="#4169E1" />
+          <Text style={styles.statNumber}>45</Text>
+          <Text style={styles.statLabel}>Active Trucks</Text>
+        </View>
+        
+        <View style={styles.statCard}>
+          <Ionicons name="people" size={32} color="#FF6347" />
+          <Text style={styles.statNumber}>89</Text>
+          <Text style={styles.statLabel}>Staff Online</Text>
+        </View>
+        
+        <View style={styles.statCard}>
+          <Ionicons name="checkmark-circle" size={32} color="#32CD32" />
+          <Text style={styles.statNumber}>98%</Text>
+          <Text style={styles.statLabel}>Completion Rate</Text>
+        </View>
+      </View>
+      
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Recent Activity</Text>
+        <View style={styles.activityItem}>
+          <Ionicons name="time" size={20} color="#666" />
+          <Text style={styles.activityText}>Truck #12 completed route in Downtown</Text>
+          <Text style={styles.activityTime}>2 minutes ago</Text>
+        </View>
+        <View style={styles.activityItem}>
+          <Ionicons name="alert" size={20} color="#FF6347" />
+          <Text style={styles.activityText}>Maintenance alert: Truck #8 needs service</Text>
+          <Text style={styles.activityTime}>15 minutes ago</Text>
+        </View>
+        <View style={styles.activityItem}>
+          <Ionicons name="checkmark" size={20} color="#32CD32" />
+          <Text style={styles.activityText}>New route assigned to Truck #15</Text>
+          <Text style={styles.activityTime}>1 hour ago</Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
+  const renderScheduleContent = () => <ScheduleTab />;
+
+  const renderAnnouncementsContent = () => <AnnouncementsTab />;
+
+  const renderReportsContent = () => <ReportsTab />;
+
+  const renderHistoryContent = () => (
+    <ScrollView style={styles.content}>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>History</Text>
+        <Text style={styles.placeholderText}>History content will be implemented here</Text>
+      </View>
+    </ScrollView>
+  );
+
+  const renderFeedbacksContent = () => (
+    <ScrollView style={styles.content}>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Feedbacks</Text>
+        <Text style={styles.placeholderText}>Feedbacks management content will be implemented here</Text>
+      </View>
+    </ScrollView>
+  );
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'home':
+        return renderHomeContent();
+      case 'schedule':
+        return renderScheduleContent();
+      case 'announcements':
+        return renderAnnouncementsContent();
+      case 'reports':
+        return renderReportsContent();
+      case 'history':
+        return renderHistoryContent();
+      case 'feedbacks':
+        return renderFeedbacksContent();
+      default:
+        return renderHomeContent();
+    }
+  };
+
+  const handleTabPress = (tab: string) => {
+    setActiveTab(tab);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerContent}>
           <View>
-            <Text style={styles.title}>Admin Dashboard</Text>
-            <Text style={styles.subtitle}>TrashTruck Management System</Text>
+            <Text style={styles.title}>TrashTrack</Text>
+            <Text style={styles.subtitle}>Barangay Sambag 2, Cebu City</Text>
             <Text style={styles.userInfo}>Logged in as: {user?.email}</Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <TouchableOpacity 
+            style={styles.logoutButton} 
+            onPress={handleLogout}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="log-out-outline" size={24} color="white" />
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
       
-      <ScrollView style={styles.content}>
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Ionicons name="trash" size={32} color="#2E8B57" />
-            <Text style={styles.statNumber}>1,234</Text>
-            <Text style={styles.statLabel}>Collections Today</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Ionicons name="car" size={32} color="#4169E1" />
-            <Text style={styles.statNumber}>45</Text>
-            <Text style={styles.statLabel}>Active Trucks</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Ionicons name="people" size={32} color="#FF6347" />
-            <Text style={styles.statNumber}>89</Text>
-            <Text style={styles.statLabel}>Staff Online</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <Ionicons name="checkmark-circle" size={32} color="#32CD32" />
-            <Text style={styles.statNumber}>98%</Text>
-            <Text style={styles.statLabel}>Completion Rate</Text>
+      <View style={styles.mainContainer}>
+        <AdminSidebar activeTab={activeTab} onTabPress={handleTabPress} />
+        <View style={styles.contentContainer}>
+          {renderContent()}
+        </View>
+      </View>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>Are you sure you want to logout from admin panel?</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalButton} onPress={confirmLogout}>
+                <Text style={styles.modalButtonText}>Logout</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalButton} onPress={cancelLogout}>
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-        
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <View style={styles.activityItem}>
-            <Ionicons name="time" size={20} color="#666" />
-            <Text style={styles.activityText}>Truck #12 completed route in Downtown</Text>
-            <Text style={styles.activityTime}>2 minutes ago</Text>
-          </View>
-          <View style={styles.activityItem}>
-            <Ionicons name="alert" size={20} color="#FF6347" />
-            <Text style={styles.activityText}>Maintenance alert: Truck #8 needs service</Text>
-            <Text style={styles.activityTime}>15 minutes ago</Text>
-          </View>
-          <View style={styles.activityItem}>
-            <Ionicons name="checkmark" size={20} color="#32CD32" />
-            <Text style={styles.activityText}>New route assigned to Truck #15</Text>
-            <Text style={styles.activityTime}>1 hour ago</Text>
-          </View>
-        </View>
-      </ScrollView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -311,5 +397,46 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 18,
     color: '#333',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  modalButton: {
+    backgroundColor: '#FF6347',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 }); 
