@@ -7,52 +7,52 @@ const ScheduleTab: React.FC = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.scheduleContainer}>
-        <Text style={styles.sectionTitle}>Schedule Management</Text>
+      <View style={styles.mainSection}>
+        <Text style={styles.title}>Schedule Management</Text>
         
         {/* Waste Category Badges */}
-        <View style={styles.categoryBadges}>
-          <View style={[styles.categoryBadge, { backgroundColor: '#4169E1' }]}>
-            <Text style={styles.categoryBadgeText}>Non-biodegradable</Text>
+        <View style={styles.badgesContainer}>
+          <View style={[styles.badge, { backgroundColor: '#2563EB' }]}>
+            <Text style={styles.badgeText}>Non-biodegradable</Text>
           </View>
-          <View style={[styles.categoryBadge, { backgroundColor: '#FFD700' }]}>
-            <Text style={styles.categoryBadgeText}>Recyclable</Text>
+          <View style={[styles.badge, { backgroundColor: '#EAB308' }]}>
+            <Text style={styles.badgeText}>Recyclable</Text>
           </View>
-          <View style={[styles.categoryBadge, { backgroundColor: '#32CD32' }]}>
-            <Text style={styles.categoryBadgeText}>Biodegradable</Text>
+          <View style={[styles.badge, { backgroundColor: '#22C55E' }]}>
+            <Text style={styles.badgeText}>Biodegradable</Text>
           </View>
-          <View style={[styles.categoryBadge, { backgroundColor: '#9370DB' }]}>
-            <Text style={styles.categoryBadgeText}>Special / Bulk Collection</Text>
+          <View style={[styles.badge, { backgroundColor: '#A855F7' }]}>
+            <Text style={styles.badgeText}>Special / Bulk Collection</Text>
           </View>
         </View>
 
         {/* Action Buttons */}
-        <View style={styles.scheduleActions}>
+        <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={[styles.actionButton, styles.addButton]}
+            style={[styles.button, { backgroundColor: '#22C55E' }]}
             onPress={() => setScheduleMode('add')}
           >
-            <Text style={styles.actionButtonText}>+ Add Schedule</Text>
+            <Text style={styles.buttonText}>+ Add Schedule</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.actionButton, styles.editButton]}
+            style={[styles.button, { backgroundColor: '#2563EB' }]}
             onPress={() => setScheduleMode('edit')}
           >
-            <Text style={styles.actionButtonText}>Edit Schedule</Text>
+            <Text style={styles.buttonText}>Edit Schedule</Text>
           </TouchableOpacity>
         </View>
 
         {/* Two Column Layout */}
-        <View style={styles.scheduleLayout}>
+        <View style={styles.columnsContainer}>
           {/* Left Column - Calendar */}
-          <View style={styles.calendarColumn}>
-            <View style={styles.calendarContainer}>
+          <View style={styles.leftColumn}>
+            <View style={styles.calendarCard}>
               <View style={styles.calendarHeader}>
-                <TouchableOpacity style={styles.calendarNav}>
+                <TouchableOpacity style={styles.calendarButton}>
                   <Ionicons name="chevron-back" size={20} color="#333" />
                 </TouchableOpacity>
                 <Text style={styles.calendarTitle}>April 2021</Text>
-                <TouchableOpacity style={styles.calendarNav}>
+                <TouchableOpacity style={styles.calendarButton}>
                   <Ionicons name="chevron-forward" size={20} color="#333" />
                 </TouchableOpacity>
               </View>
@@ -60,7 +60,7 @@ const ScheduleTab: React.FC = () => {
               <View style={styles.calendarGrid}>
                 {/* Days of week */}
                 {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((day) => (
-                  <Text key={day} style={styles.calendarDayHeader}>{day}</Text>
+                  <Text key={day} style={styles.dayHeader}>{day}</Text>
                 ))}
                 
                 {/* Calendar dates */}
@@ -81,8 +81,8 @@ const ScheduleTab: React.FC = () => {
                       ]}
                     >
                       <Text style={[
-                        styles.calendarDateText,
-                        isHighlighted && styles.calendarDateTextHighlighted
+                        styles.dateText,
+                        isHighlighted && styles.highlightedDateText
                       ]}>
                         {date}
                       </Text>
@@ -94,51 +94,51 @@ const ScheduleTab: React.FC = () => {
           </View>
 
           {/* Right Column - Schedule Form */}
-          <View style={styles.formColumn}>
-            <View style={styles.scheduleForm}>
+          <View style={styles.rightColumn}>
+            <View style={styles.formCard}>
               <Text style={styles.formTitle}>
                 {scheduleMode === 'add' ? 'Add Schedule' : 'Edit Schedule'}
               </Text>
               
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Set date</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select date</Text>
+                  <Text style={styles.fieldLabel}>Set date</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select date</Text>
                     <Ionicons name="calendar" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Set time</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select time</Text>
+                  <Text style={styles.fieldLabel}>Set time</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select time</Text>
                     <Ionicons name="time" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
               </View>
 
               <View style={styles.formField}>
-                <Text style={styles.formLabel}>Barangay Street</Text>
-                <View style={styles.formInput}>
-                  <Text style={styles.formInputText}>Enter barangay/street</Text>
+                <Text style={styles.fieldLabel}>Barangay Street</Text>
+                <View style={styles.inputField}>
+                  <Text style={styles.inputText}>Enter barangay/street</Text>
                   <Ionicons name="search" size={20} color="#666" />
                 </View>
               </View>
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Frequency</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select frequency</Text>
+                  <Text style={styles.fieldLabel}>Frequency</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select frequency</Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Waste Category</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select category</Text>
+                  <Text style={styles.fieldLabel}>Waste Category</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select category</Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
@@ -146,17 +146,17 @@ const ScheduleTab: React.FC = () => {
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Assigned Truck</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select truck</Text>
+                  <Text style={styles.fieldLabel}>Assigned Truck</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select truck</Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Choose Driver</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select driver</Text>
+                  <Text style={styles.fieldLabel}>Choose Driver</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select driver</Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
@@ -164,34 +164,34 @@ const ScheduleTab: React.FC = () => {
 
               {scheduleMode === 'edit' && (
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Status</Text>
-                  <TouchableOpacity style={styles.formInput}>
-                    <Text style={styles.formInputText}>Select status</Text>
+                  <Text style={styles.fieldLabel}>Status</Text>
+                  <TouchableOpacity style={styles.inputField}>
+                    <Text style={styles.inputText}>Select status</Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
               )}
 
               <View style={styles.formField}>
-                <Text style={styles.formLabel}>Note</Text>
-                <View style={styles.formTextArea}>
-                  <Text style={styles.formTextAreaPlaceholder}>Add special instructions</Text>
+                <Text style={styles.fieldLabel}>Note</Text>
+                <View style={styles.textArea}>
+                  <Text style={styles.textAreaPlaceholder}>Add special instructions</Text>
                 </View>
               </View>
 
               {/* Action Buttons */}
-              <View style={styles.formActions}>
+              <View style={styles.formButtons}>
                 {scheduleMode === 'add' ? (
-                  <TouchableOpacity style={styles.addScheduleButton}>
-                    <Text style={styles.addScheduleButtonText}>Add</Text>
+                  <TouchableOpacity style={[styles.formButton, { backgroundColor: '#22C55E' }]}>
+                    <Text style={styles.formButtonText}>Add</Text>
                   </TouchableOpacity>
                 ) : (
                   <>
-                    <TouchableOpacity style={styles.saveButton}>
-                      <Text style={styles.saveButtonText}>Save Changes</Text>
+                    <TouchableOpacity style={[styles.formButton, { backgroundColor: '#2563EB' }]}>
+                      <Text style={styles.formButtonText}>Save Changes</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.cancelButton}>
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    <TouchableOpacity style={[styles.formButton, { backgroundColor: '#EF4444' }]}>
+                      <Text style={styles.formButtonText}>Cancel</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -208,8 +208,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scheduleContainer: {
-    backgroundColor: '#E8F5E8',
+  mainSection: {
+    backgroundColor: '#F0FDF4',
     borderRadius: 12,
     padding: 20,
     marginBottom: 20,
@@ -221,73 +221,69 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
-  sectionTitle: {
+  title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
     marginBottom: 20,
     textAlign: 'center',
   },
-  categoryBadges: {
+  badgesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-around',
     marginBottom: 20,
   },
-  categoryBadge: {
+  badge: {
     paddingVertical: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     borderRadius: 20,
-    marginVertical: 5,
-    marginHorizontal: 5,
+    marginVertical: 4,
+    marginHorizontal: 4,
   },
-  categoryBadgeText: {
+  badgeText: {
     color: 'white',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
   },
-  scheduleActions: {
+  buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 20,
   },
-  actionButton: {
+  button: {
     flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: 'center',
-    marginHorizontal: 5,
+    marginHorizontal: 4,
   },
-  addButton: {
-    backgroundColor: '#2E8B57',
-  },
-  editButton: {
-    backgroundColor: '#4169E1',
-  },
-  actionButtonText: {
+  buttonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  scheduleLayout: {
+  columnsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
   },
-  calendarColumn: {
+  leftColumn: {
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
-  formColumn: {
+  rightColumn: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 8,
   },
-  calendarContainer: {
+  calendarCard: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 15,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -296,53 +292,55 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   calendarHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+  },
+  calendarButton: {
+    padding: 8,
   },
   calendarTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
-  },
-  calendarNav: {
-    padding: 10,
+    color: '#1F2937',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-around',
   },
-  calendarDayHeader: {
-    fontSize: 12,
-    color: '#666',
-    width: '14%', // 7 days
+  dayHeader: {
+    fontSize: 10,
+    color: '#6B7280',
+    width: '14%',
     textAlign: 'center',
-    marginBottom: 3,
+    marginBottom: 4,
   },
   calendarDate: {
-    width: '14%', // 7 days
+    width: '14%',
     aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 8,
-    marginVertical: 3,
+    marginVertical: 2,
   },
-  calendarDateText: {
-    fontSize: 14,
-    color: '#333',
+  dateText: {
+    fontSize: 12,
+    color: '#1F2937',
   },
-  calendarDateTextHighlighted: {
+  highlightedDateText: {
     fontWeight: 'bold',
     color: 'white',
   },
-  scheduleForm: {
+  formCard: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 15,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -351,12 +349,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   formTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
+    color: '#1F2937',
+    marginBottom: 16,
     textAlign: 'center',
   },
   formRow: {
@@ -366,72 +366,50 @@ const styles = StyleSheet.create({
   },
   formField: {
     flex: 1,
-    marginHorizontal: 3,
+    marginHorizontal: 4,
+    marginBottom: 12,
   },
-  formLabel: {
-    fontSize: 13,
-    color: '#666',
+  fieldLabel: {
+    fontSize: 12,
+    color: '#6B7280',
     marginBottom: 4,
+    fontWeight: '500',
   },
-  formInput: {
+  inputField: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  formInputText: {
+  inputText: {
     flex: 1,
-    fontSize: 14,
-    color: '#333',
+    fontSize: 12,
+    color: '#1F2937',
     marginLeft: 8,
   },
-  formTextArea: {
-    backgroundColor: '#F0F0F0',
+  textArea: {
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     padding: 12,
     minHeight: 80,
   },
-  formTextAreaPlaceholder: {
-    fontSize: 14,
-    color: '#999',
-    textAlignVertical: 'top',
+  textAreaPlaceholder: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
-  formActions: {
+  formButtons: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginTop: 20,
   },
-  addScheduleButton: {
-    backgroundColor: '#2E8B57',
+  formButton: {
     paddingVertical: 12,
-    paddingHorizontal: 30,
+    paddingHorizontal: 32,
     borderRadius: 8,
   },
-  addScheduleButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  saveButton: {
-    backgroundColor: '#4169E1',
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    borderRadius: 8,
-  },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  cancelButton: {
-    backgroundColor: '#FF6347',
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    borderRadius: 8,
-  },
-  cancelButtonText: {
+  formButtonText: {
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',

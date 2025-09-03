@@ -67,19 +67,19 @@ const AnnouncementsTab: React.FC = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.announcementsContainer}>
-        <Text style={styles.sectionTitle}>Announcements Dashboard</Text>
+      <View style={styles.mainSection}>
+        <Text style={styles.title}>Announcements Dashboard</Text>
         
-        <View style={styles.layout}>
+        <View style={styles.columnsContainer}>
           {/* Left Column - Create Announcement */}
-          <View style={styles.createColumn}>
-            <View style={styles.createPanel}>
-              <Text style={styles.panelTitle}>Create a New Announcement</Text>
+          <View style={styles.leftColumn}>
+            <View style={styles.formCard}>
+              <Text style={styles.formTitle}>Create a New Announcement</Text>
               
               <View style={styles.formField}>
-                <Text style={styles.formLabel}>Title</Text>
+                <Text style={styles.fieldLabel}>Title</Text>
                 <TextInput
-                  style={styles.titleInput}
+                  style={styles.textInput}
                   value={title}
                   onChangeText={setTitle}
                   placeholder="Enter announcement title"
@@ -88,9 +88,9 @@ const AnnouncementsTab: React.FC = () => {
               </View>
 
               <View style={styles.formField}>
-                <Text style={styles.formLabel}>Description</Text>
+                <Text style={styles.fieldLabel}>Description</Text>
                 <TextInput
-                  style={styles.descriptionInput}
+                  style={styles.textArea}
                   value={description}
                   onChangeText={setDescription}
                   placeholder="Enter announcement description"
@@ -123,32 +123,35 @@ const AnnouncementsTab: React.FC = () => {
                 
                 <TouchableOpacity style={styles.attachmentButton}>
                   <Ionicons name="attach" size={20} color="#666" />
-                  <Text style={styles.attachmentText}>Attachments</Text>
+                  <Text style={styles.dateTimeText}>Attachments</Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={styles.publishButton} onPress={handlePublish}>
+              <TouchableOpacity 
+                style={styles.publishButton}
+                onPress={handlePublish}
+              >
                 <Text style={styles.publishButtonText}>Publish Now</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Right Column - View Announcements */}
-          <View style={styles.viewColumn}>
-            <View style={styles.viewPanel}>
-              <Text style={styles.panelTitle}>Today</Text>
+          <View style={styles.rightColumn}>
+            <View style={styles.listCard}>
+              <Text style={styles.listTitle}>Today</Text>
               
               {announcements.map((announcement) => (
-                <View key={announcement.id} style={styles.announcementCard}>
+                <View key={announcement.id} style={styles.announcementItem}>
                   <View style={styles.announcementHeader}>
-                    <View style={styles.priorityDot} />
+                    <View style={styles.priorityIndicator} />
                     <Text style={styles.announcementTitle}>{announcement.title}</Text>
                     <View style={styles.actionButtons}>
-                      <TouchableOpacity style={styles.editButton}>
+                      <TouchableOpacity style={styles.actionButton}>
                         <Ionicons name="create" size={16} color="#4169E1" />
                       </TouchableOpacity>
                       <TouchableOpacity 
-                        style={styles.deleteButton}
+                        style={styles.actionButton}
                         onPress={() => handleDelete(announcement.id)}
                       >
                         <Ionicons name="trash" size={16} color="#FF6347" />
@@ -177,8 +180,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  announcementsContainer: {
-    backgroundColor: '#E8F5E8',
+  mainSection: {
+    backgroundColor: '#F0FDF4',
     borderRadius: 12,
     padding: 20,
     marginBottom: 20,
@@ -190,27 +193,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
-  sectionTitle: {
+  title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
     marginBottom: 20,
     textAlign: 'center',
   },
-  layout: {
+  columnsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  createColumn: {
+  leftColumn: {
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
-  viewColumn: {
+  rightColumn: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 8,
   },
-  createPanel: {
+  formCard: {
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 20,
@@ -222,161 +227,164 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  viewPanel: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  panelTitle: {
+  formTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
     marginBottom: 20,
     textAlign: 'center',
   },
   formField: {
-    marginBottom: 15,
+    marginBottom: 16,
   },
-  formLabel: {
+  fieldLabel: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     marginBottom: 8,
     fontWeight: '500',
   },
-  titleInput: {
-    backgroundColor: '#F0F0F0',
+  textInput: {
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#333',
+    color: '#1F2937',
   },
-  descriptionInput: {
-    backgroundColor: '#F0F0F0',
+  textArea: {
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#333',
+    color: '#1F2937',
     minHeight: 100,
   },
   formRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 16,
   },
   dateTimeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     flex: 1,
-    marginHorizontal: 5,
+    marginHorizontal: 4,
   },
   dateTimeText: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     marginLeft: 8,
   },
   dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     flex: 1,
-    marginHorizontal: 5,
+    marginHorizontal: 4,
   },
   dropdownText: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
   },
   attachmentButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     flex: 1,
-    marginHorizontal: 5,
-  },
-  attachmentText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
+    marginHorizontal: 4,
   },
   publishButton: {
-    backgroundColor: '#4169E1',
+    backgroundColor: '#2563EB',
     borderRadius: 8,
-    paddingVertical: 15,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   publishButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  announcementCard: {
-    backgroundColor: '#F8F9FA',
+  listCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  listTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  announcementItem: {
+    backgroundColor: '#F9FAFB',
     borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#FFD700',
+    borderLeftColor: '#EAB308',
   },
   announcementHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  priorityDot: {
+  priorityIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FFD700',
-    marginRight: 10,
+    backgroundColor: '#EAB308',
+    marginRight: 12,
   },
   announcementTitle: {
     flex: 1,
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
   },
   actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  editButton: {
-    padding: 5,
-    marginRight: 10,
-  },
-  deleteButton: {
-    padding: 5,
+  actionButton: {
+    padding: 4,
+    marginLeft: 8,
   },
   announcementDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     lineHeight: 20,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   announcementDate: {
     fontSize: 12,
-    color: '#999',
+    color: '#9CA3AF',
     fontStyle: 'italic',
   },
 });

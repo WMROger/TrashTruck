@@ -75,43 +75,61 @@ const ReportsTab: React.FC = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.reportsContainer}>
-        <Text style={styles.sectionTitle}>Reports</Text>
+      <View style={styles.mainSection}>
+        <Text style={styles.title}>Reports</Text>
         
         {/* Filter Options */}
         <View style={styles.filterContainer}>
           <View style={styles.filterButtons}>
             <TouchableOpacity 
-              style={[styles.filterButton, activeFilter === 'today' && styles.activeFilterButton]}
+              style={[
+                styles.filterButton,
+                activeFilter === 'today' && styles.activeFilterButton
+              ]}
               onPress={() => handleFilterChange('today')}
             >
-              <Text style={[styles.filterButtonText, activeFilter === 'today' && styles.activeFilterButtonText]}>
+              <Text style={[
+                styles.filterButtonText,
+                activeFilter === 'today' && styles.activeFilterButtonText
+              ]}>
                 Today
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.filterButton, activeFilter === 'weekly' && styles.activeFilterButton]}
+              style={[
+                styles.filterButton,
+                activeFilter === 'weekly' && styles.activeFilterButton
+              ]}
               onPress={() => handleFilterChange('weekly')}
             >
-              <Text style={[styles.filterButtonText, activeFilter === 'weekly' && styles.activeFilterButtonText]}>
+              <Text style={[
+                styles.filterButtonText,
+                activeFilter === 'weekly' && styles.activeFilterButtonText
+              ]}>
                 Weekly
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.filterButton, activeFilter === 'monthly' && styles.activeFilterButton]}
+              style={[
+                styles.filterButton,
+                activeFilter === 'monthly' && styles.activeFilterButton
+              ]}
               onPress={() => handleFilterChange('monthly')}
             >
-              <Text style={[styles.filterButtonText, activeFilter === 'monthly' && styles.activeFilterButtonText]}>
+              <Text style={[
+                styles.filterButtonText,
+                activeFilter === 'monthly' && styles.activeFilterButtonText
+              ]}>
                 Monthly
               </Text>
             </TouchableOpacity>
           </View>
           
-          <TouchableOpacity style={styles.datePicker}>
+          <TouchableOpacity style={styles.dateButton}>
             <Ionicons name="calendar" size={20} color="#666" />
-            <Text style={styles.datePickerText}>Date</Text>
+            <Text style={styles.dateButtonText}>Date</Text>
           </TouchableOpacity>
         </View>
 
@@ -120,26 +138,24 @@ const ReportsTab: React.FC = () => {
           {reports.map((report) => (
             <View key={report.id} style={styles.reportCard}>
               <View style={styles.reportHeader}>
-                <View style={styles.reportImageContainer}>
-                  <View style={styles.reportImagePlaceholder}>
-                    <Ionicons name="image" size={40} color="#999" />
-                  </View>
+                <View style={styles.reportImage}>
+                  <Ionicons name="image" size={40} color="#999" />
                 </View>
                 
                 <View style={styles.reportContent}>
                   <Text style={styles.reportTitle}>{report.title}</Text>
                   <Text style={styles.reportSubtitle}>{report.subtitle}</Text>
-                  <Text style={styles.reportLocation}>
+                  <View style={styles.locationContainer}>
                     <Ionicons name="location" size={16} color="#666" />
-                    {' '}{report.location}
-                  </Text>
+                    <Text style={styles.locationText}>{report.location}</Text>
+                  </View>
                   <Text style={styles.reportDescription}>{report.description}</Text>
                   
-                  <View style={styles.reportFooter}>
-                    <Text style={styles.reportSubmittedBy}>
+                  <View style={styles.reportMeta}>
+                    <Text style={styles.metaText}>
                       Submitted by: {report.submittedBy}
                     </Text>
-                    <Text style={styles.reportDateTime}>
+                    <Text style={styles.metaText}>
                       Date & Time: {report.dateTime}
                     </Text>
                   </View>
@@ -147,9 +163,14 @@ const ReportsTab: React.FC = () => {
               </View>
               
               {/* Status and Actions */}
-              <View style={styles.reportActions}>
+              <View style={styles.reportFooter}>
                 <View style={styles.statusContainer}>
-                  <View style={[styles.statusDot, { backgroundColor: getStatusColor(report.status) }]} />
+                  <View 
+                    style={[
+                      styles.statusIndicator,
+                      { backgroundColor: getStatusColor(report.status) }
+                    ]}
+                  />
                   <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
                 </View>
                 
@@ -182,8 +203,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  reportsContainer: {
-    backgroundColor: '#E8F5E8',
+  mainSection: {
+    backgroundColor: '#F0FDF4',
     borderRadius: 12,
     padding: 20,
     marginBottom: 20,
@@ -195,11 +216,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
-  sectionTitle: {
+  title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1F2937',
     marginBottom: 20,
     textAlign: 'center',
   },
@@ -221,31 +244,31 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   activeFilterButton: {
-    backgroundColor: '#2E8B57',
+    backgroundColor: '#22C55E',
   },
   filterButtonText: {
     fontSize: 14,
-    color: '#666',
     fontWeight: '500',
+    color: '#6B7280',
   },
   activeFilterButtonText: {
     color: 'white',
   },
-  datePicker: {
+  dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'white',
     borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  datePickerText: {
+  dateButtonText: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     marginLeft: 8,
   },
   reportsList: {
-    gap: 15,
+    gap: 16,
   },
   reportCard: {
     backgroundColor: 'white',
@@ -259,21 +282,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   reportHeader: {
     flexDirection: 'row',
-    marginBottom: 15,
+    marginBottom: 16,
   },
-  reportImageContainer: {
-    marginRight: 15,
-  },
-  reportImagePlaceholder: {
+  reportImage: {
     width: 80,
     height: 80,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 16,
   },
   reportContent: {
     flex: 1,
@@ -281,51 +304,50 @@ const styles = StyleSheet.create({
   reportTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
+    color: '#1F2937',
+    marginBottom: 4,
   },
   reportSubtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#6B7280',
     marginBottom: 8,
   },
-  reportLocation: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
+  locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginLeft: 4,
   },
   reportDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     lineHeight: 20,
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  reportFooter: {
+  reportMeta: {
     gap: 4,
   },
-  reportSubmittedBy: {
+  metaText: {
     fontSize: 12,
-    color: '#999',
+    color: '#9CA3AF',
   },
-  reportDateTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-  reportActions: {
+  reportFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 15,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: '#F3F4F6',
   },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  statusDot: {
+  statusIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -333,24 +355,24 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     fontWeight: '500',
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 15,
+    gap: 16,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
     borderRadius: 6,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F9FAFB',
   },
   actionButtonText: {
     fontSize: 12,
-    color: '#666',
+    color: '#6B7280',
     marginLeft: 4,
     fontWeight: '500',
   },

@@ -20,7 +20,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
   return (
     <View style={styles.sidebar}>
       <View style={styles.header}>
-        <Text style={styles.welcomeText}>Welcome, Admin!</Text>
+        <Text style={styles.headerText}>Welcome, Admin!</Text>
       </View>
       
       <View style={styles.navigation}>
@@ -29,16 +29,22 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
           return (
             <TouchableOpacity
               key={item.id}
-              style={[styles.navItem, isActive && styles.activeNavItem]}
+              style={[
+                styles.navItem,
+                isActive && styles.activeNavItem
+              ]}
               onPress={() => onTabPress(item.id)}
               activeOpacity={0.7}
             >
               <Ionicons
                 name={isActive ? item.activeIcon : item.icon}
                 size={24}
-                color={isActive ? '#2E8B57' : '#666'}
+                color={isActive ? '#2E8B57' : '#E5E7EB'}
               />
-              <Text style={[styles.navText, isActive && styles.activeNavText]}>
+              <Text style={[
+                styles.navText,
+                isActive && styles.activeNavText
+              ]}>
                 {item.label}
               </Text>
             </TouchableOpacity>
@@ -51,27 +57,27 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: 250,
+    width: 256,
     backgroundColor: '#2E8B57',
     borderRightWidth: 1,
-    borderRightColor: '#E0E0E0',
+    borderRightColor: '#1B5E20',
     shadowColor: '#000',
     shadowOffset: {
-      width: 2,
-      height: 0,
+      width: 0,
+      height: 10,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
   },
   header: {
     padding: 20,
     paddingTop: 40,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#1B5E20',
     backgroundColor: '#1B5E20',
   },
-  welcomeText: {
+  headerText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
@@ -85,20 +91,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
-    marginHorizontal: 10,
+    marginHorizontal: 8,
     marginVertical: 2,
     borderRadius: 8,
   },
   activeNavItem: {
-    backgroundColor: '#E8F5E8',
+    backgroundColor: '#F0F9F0',
     borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
+    borderLeftColor: '#2E8B57',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   navText: {
     fontSize: 16,
-    color: 'white',
-    marginLeft: 15,
+    marginLeft: 16,
     fontWeight: '500',
+    color: 'white',
   },
   activeNavText: {
     color: '#2E8B57',
