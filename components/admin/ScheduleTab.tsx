@@ -1,45 +1,405 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// Web-only portal to ensure dropdown overlays escape ScrollView clipping
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - only resolved on web
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { createPortal } from 'react-dom';
+import { auth, db } from '../../config/firebase';
 
 const ScheduleTab: React.FC = () => {
   const [scheduleMode, setScheduleMode] = useState<'add' | 'edit'>('add');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [timeText, setTimeText] = useState('');
+  const [showTimeDropdown, setShowTimeDropdown] = useState(false);
+  const [selectedStreet, setSelectedStreet] = useState('');
+  const [frequency, setFrequency] = useState('');
+  const [wasteCategory, setWasteCategory] = useState('');
+  const [truck, setTruck] = useState('');
+  const [driver, setDriver] = useState('');
+  const [status, setStatus] = useState('');
+  const [note, setNote] = useState('');
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string }>>([]);
+  const [showStreetDropdown, setShowStreetDropdown] = useState(false);
+  const timeAnchorRef = useRef<any>(null);
+  const streetAnchorRef = useRef<any>(null);
+  const [timePortalRect, setTimePortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [streetPortalRect, setStreetPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const freqAnchorRef = useRef<any>(null);
+  const wasteAnchorRef = useRef<any>(null);
+  const truckAnchorRef = useRef<any>(null);
+  const [showFrequencyDropdown, setShowFrequencyDropdown] = useState(false);
+  const [showWasteDropdown, setShowWasteDropdown] = useState(false);
+  const [showTruckDropdown, setShowTruckDropdown] = useState(false);
+  const [freqPortalRect, setFreqPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [wastePortalRect, setWastePortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [truckPortalRect, setTruckPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const driverAnchorRef = useRef<any>(null);
+  const [showDriverDropdown, setShowDriverDropdown] = useState(false);
+  const [driverPortalRect, setDriverPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+
+  const FREQUENCY_OPTIONS = useMemo(() => ['One-time', 'Daily', 'Weekly', 'Monthly' ], []);
+  const WASTE_OPTIONS = useMemo(
+    () => [
+      { label: 'Biodegradable', color: '#22C55E' },
+      { label: 'Non-Biodegradable', color: '#2563EB' },
+      { label: 'Recyclable', color: '#EAB308' },
+      { label: 'Residual', color: '#111827' },
+      { label: 'Hazardous', color: '#EF4444' },
+      { label: 'Special/Bulk', color: '#A855F7' },
+    ],
+    []
+  );
+  const TRUCK_OPTIONS = useMemo(() => ['Truck #1', 'Truck #2', 'Truck #3'], []);
+  const DRIVER_OPTIONS = useMemo(() => ['Driver 1', 'Driver 2'], []);
+
+  // Category color mapping for calendar coloring
+  const CATEGORY_COLORS: Record<string, string> = useMemo(() => ({
+    'Biodegradable': '#22C55E',
+    'Non-Biodegradable': '#2563EB',
+    'Recyclable': '#EAB308',
+    'Residual': '#6B7280',
+    'Hazardous': '#EF4444',
+    'Special/Bulk': '#A855F7',
+  }), []);
+
+  const closeAllDropdowns = () => {
+    setShowTimeDropdown(false);
+    setShowStreetDropdown(false);
+    setShowFrequencyDropdown(false);
+    setShowWasteDropdown(false);
+    setShowTruckDropdown(false);
+    setShowDriverDropdown(false);
+  };
+
+  // Mock streets around Sambag 2, Cebu City for local suggestions
+  const MOCK_STREETS = useMemo(
+    () => [
+      'J. Alcantara Street',
+      'V. Rama Avenue',
+      'B. Rodriguez Street',
+      'Tres de Abril Street',
+      'M. Velez Street',
+      'Sambag 2 Barangay Hall Road',
+    ],
+    []
+  );
+  const openStreetDropdown = () => {
+    setSuggestions(MOCK_STREETS.map((s) => ({ id: s, text: s })));
+    // Ensure only one dropdown is open at a time
+    setShowTimeDropdown(false);
+    setShowStreetDropdown(true);
+    if (Platform.OS === 'web' && streetAnchorRef.current && streetAnchorRef.current.getBoundingClientRect) {
+      const rect = streetAnchorRef.current.getBoundingClientRect();
+      setStreetPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+    }
+  };
+  const closeStreetDropdown = () => setShowStreetDropdown(false);
+
+  const resetForm = () => {
+    setSelectedId(null);
+    setSelectedDate(null);
+    setTimeText('');
+    setSelectedStreet('');
+    setFrequency('');
+    setWasteCategory('');
+    setTruck('');
+    setDriver('');
+    setStatus('');
+    setNote('');
+    setSuggestions([]);
+    setShowStreetDropdown(false);
+  };
+
+  const handleAdd = async () => {
+    const currentUser = auth?.currentUser;
+    if (!currentUser) {
+      console.warn('You must be logged in to add a schedule');
+      return;
+    }
+    if (!selectedDate || !timeText) {
+      console.warn('Please select a future date and time');
+      return;
+    }
+    const when = combineDateTime(selectedDate, timeText);
+    if (!isFutureDateTime(when)) {
+      console.warn('Selected date/time must be in the future');
+      return;
+    }
+    const payload = {
+      id: Date.now().toString(),
+      userId: currentUser.uid,
+      dateText: formatDate(selectedDate),
+      timeText,
+      street: selectedStreet,
+      frequency,
+      wasteCategory,
+      truck,
+      driver,
+      note,
+      createdAt: serverTimestamp(),
+    };
+    try {
+      if (!db) {
+        console.warn('Firestore not initialized; cannot save schedule');
+        console.log('Payload (dry-run):', payload);
+      } else {
+        await addDoc(collection(db, 'schedules'), payload);
+        console.log('Schedule saved to Firestore');
+      }
+      resetForm();
+    } catch (error) {
+      console.error('Failed to add schedule:', error);
+    }
+  };
+
+  const handleSaveEdit = () => {
+    if (!selectedId) return;
+    if (!selectedDate || !timeText) {
+      console.warn('Please select a future date and time');
+      return;
+    }
+    const when = combineDateTime(selectedDate, timeText);
+    if (!isFutureDateTime(when)) {
+      console.warn('Selected date/time must be in the future');
+      return;
+    }
+    const payload: any = {
+      id: selectedId,
+      dateText: formatDate(selectedDate),
+      timeText,
+      street: selectedStreet,
+      frequency,
+      wasteCategory,
+      truck,
+      driver,
+      status,
+      note,
+    };
+    (async () => {
+      try {
+        if (!db) {
+          console.warn('Firestore not initialized; cannot update');
+        } else {
+          await updateDoc(doc(db, 'schedules', selectedId), payload);
+          console.log('Schedule updated');
+        }
+        resetForm();
+        setScheduleMode('add');
+      } catch (e) {
+        console.error('Update failed', e);
+      }
+    })();
+  };
+
+  const handleDelete = async (id?: string) => {
+    const targetId = id || selectedId;
+    if (!targetId) return;
+    try {
+      if (!db) {
+        console.warn('Firestore not initialized');
+        return;
+      }
+      // Debug: log current user UID and schedule userId
+      const currentUserUid = auth?.currentUser?.uid;
+      const scheduleDocRef = doc(db, 'schedules', targetId);
+      const { getDoc } = await import('firebase/firestore');
+      const scheduleSnap = await getDoc(scheduleDocRef);
+      const scheduleData = scheduleSnap.exists() ? scheduleSnap.data() : null;
+      console.log('Attempting delete:', {
+        currentUserUid,
+        targetId,
+        scheduleUserId: scheduleData?.userId,
+        isAdmin: auth?.currentUser?.admin,
+      });
+      await deleteDoc(scheduleDocRef);
+      resetForm();
+      setScheduleMode('add');
+    } catch (e: any) {
+      console.error('Delete failed', e);
+      alert('Delete failed: ' + (e && e.message ? e.message : JSON.stringify(e)));
+    }
+  };
+
+  // Helpers
+  const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const startOfWeekIndex = (d: Date) => {
+    const day = new Date(d.getFullYear(), d.getMonth(), 1).getDay(); // 0 Su - 6 Sa
+    return day === 0 ? 6 : day - 1; // convert to Mon=0
+  };
+  const daysInMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const buildMonthDays = (d: Date): Array<Date | null> => {
+    const leading = startOfWeekIndex(d);
+    const total = daysInMonth(d);
+    const cells: Array<Date | null> = [];
+    for (let i = 0; i < leading; i++) cells.push(null);
+    for (let i = 1; i <= total; i++) cells.push(new Date(d.getFullYear(), d.getMonth(), i));
+    return cells;
+  };
+  const isSameDate = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const isPastDate = (d: Date) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const cmp = new Date(d);
+    cmp.setHours(0,0,0,0);
+    return cmp < today;
+  };
+  const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const combineDateTime = (d: Date, t: string) => {
+    const [hStr, mStr] = t.split(':');
+    const result = new Date(d);
+    result.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0);
+    return result;
+  };
+  const isFutureDateTime = (dt: Date) => dt.getTime() > Date.now();
+  const generateTimeSlots = (date: Date | null) => {
+    const slots: string[] = [];
+    const now = new Date();
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 30) {
+        const hh = h.toString().padStart(2, '0');
+        const mm = m.toString().padStart(2, '0');
+        const label = `${hh}:${mm}`;
+        if (!date) { slots.push(label); continue; }
+        const dt = combineDateTime(date, label);
+        if (dt.getTime() > now.getTime()) slots.push(label);
+      }
+    }
+    return slots;
+  };
+
+  // Firestore schedules state
+  type RawSchedule = {
+    id: string; // custom id field
+    userId: string;
+    dateText: string;
+    timeText: string;
+    street: string;
+    frequency: string;
+    wasteCategory: string;
+    truck: string;
+    driver: string;
+    note?: string;
+    docId: string; // Firestore document ID
+  };
+
+  const [rawSchedules, setRawSchedules] = useState<RawSchedule[]>([]);
+  const [monthScheduleDates, setMonthScheduleDates] = useState<Record<string, RawSchedule[]>>({});
+
+  // Subscribe to schedules
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(collection(db, 'schedules'), (snap) => {
+      const rows: RawSchedule[] = [];
+      snap.forEach((docSnap) => {
+        const d: any = docSnap.data();
+        rows.push({ ...d, docId: docSnap.id });
+      });
+      setRawSchedules(rows);
+    });
+    return () => unsub();
+  }, [db]);
+
+  // Recompute expanded month occurrences when currentMonth or rawSchedules change
+  useEffect(() => {
+    const mapping: Record<string, RawSchedule[]> = {};
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const daysIn = (new Date(year, month + 1, 0)).getDate();
+
+    const push = (d: Date, sched: RawSchedule) => {
+      const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`;
+      if (!mapping[key]) mapping[key] = [];
+      mapping[key].push(sched);
+    };
+
+    for (const s of rawSchedules) {
+      const [monthStr, dayStr, yearStr] = new Date(s.dateText).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).split('/');
+      const base = new Date(parseInt(yearStr,10), parseInt(monthStr,10)-1, parseInt(dayStr,10));
+
+      const isOwner = auth?.currentUser?.uid && s.userId === auth.currentUser.uid;
+
+      switch ((s.frequency || 'One-time').toLowerCase()) {
+        case 'daily': {
+          if (isOwner) {
+            for (let d = 1; d <= daysIn; d++) push(new Date(year, month, d), s);
+          } else {
+            if (base.getFullYear() === year && base.getMonth() === month) push(base, s);
+          }
+          break;
+        }
+        case 'weekly': {
+          if (isOwner) {
+            const targetDow = base.getDay();
+            for (let d = 1; d <= daysIn; d++) {
+              const date = new Date(year, month, d);
+              if (date.getDay() === targetDow) push(date, s);
+            }
+          } else {
+            if (base.getFullYear() === year && base.getMonth() === month) push(base, s);
+          }
+          break;
+        }
+        case 'monthly': {
+          const targetDom = base.getDate();
+          const date = new Date(year, month, Math.min(targetDom, daysIn));
+          push(date, s);
+          break;
+        }
+        default: { // one-time
+          if (base.getFullYear() === year && base.getMonth() === month) push(base, s);
+        }
+      }
+    }
+    setMonthScheduleDates(mapping);
+  }, [currentMonth, rawSchedules]);
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.mainSection}>
         <Text style={styles.title}>Schedule Management</Text>
         
-        {/* Waste Category Badges */}
-        <View style={styles.badgesContainer}>
-          <View style={[styles.badge, { backgroundColor: '#2563EB' }]}>
-            <Text style={styles.badgeText}>Non-biodegradable</Text>
+        {/* Top row: badges left, actions right */}
+        <View style={styles.topRow}>
+          <View style={styles.badgesContainer}>
+            <View style={[styles.badge, { backgroundColor: '#2563EB' }]}>
+              <Text style={styles.badgeText}>Non-biodegradable</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: '#EAB308' }]}>
+              <Text style={styles.badgeText}>Recyclable</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: '#22C55E' }]}>
+              <Text style={styles.badgeText}>Biodegradable</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: '#FF0000' }]}>
+              <Text style={styles.badgeText}>Hazardous</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: '#A855F7' }]}>
+              <Text style={styles.badgeText}>Special / Bulk Collection</Text>
+            </View>
           </View>
-          <View style={[styles.badge, { backgroundColor: '#EAB308' }]}>
-            <Text style={styles.badgeText}>Recyclable</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: '#22C55E' }]}>
-            <Text style={styles.badgeText}>Biodegradable</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: '#A855F7' }]}>
-            <Text style={styles.badgeText}>Special / Bulk Collection</Text>
-          </View>
-        </View>
 
-        {/* Action Buttons */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={[styles.button, { backgroundColor: '#22C55E' }]}
-            onPress={() => setScheduleMode('add')}
-          >
-            <Text style={styles.buttonText}>+ Add Schedule</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.button, { backgroundColor: '#2563EB' }]}
-            onPress={() => setScheduleMode('edit')}
-          >
-            <Text style={styles.buttonText}>Edit Schedule</Text>
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.addButton]}
+              onPress={() => setScheduleMode('add')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={18} color="#234033" style={styles.buttonIcon} />
+              <Text style={[styles.compactButtonText, { color: '#234033' }]}>Add Schedule</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.editButton]}
+              onPress={() => setScheduleMode('edit')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="create-outline" size={16} color="#234033" style={styles.buttonIcon} />
+              <Text style={[styles.compactButtonText, { color: '#234033' }]}>Edit Schedule</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Two Column Layout */}
@@ -48,44 +408,40 @@ const ScheduleTab: React.FC = () => {
           <View style={styles.leftColumn}>
             <View style={styles.calendarCard}>
               <View style={styles.calendarHeader}>
-                <TouchableOpacity style={styles.calendarButton}>
+                <TouchableOpacity style={styles.calendarButton} onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}>
                   <Ionicons name="chevron-back" size={20} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.calendarTitle}>April 2021</Text>
-                <TouchableOpacity style={styles.calendarButton}>
+                <Text style={styles.calendarTitle}>{formatMonthYear(currentMonth)}</Text>
+                <TouchableOpacity style={styles.calendarButton} onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}>
                   <Ionicons name="chevron-forward" size={20} color="#333" />
                 </TouchableOpacity>
               </View>
-              
               <View style={styles.calendarGrid}>
-                {/* Days of week */}
                 {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((day) => (
                   <Text key={day} style={styles.dayHeader}>{day}</Text>
                 ))}
-                
-                {/* Calendar dates */}
-                {Array.from({ length: 30 }, (_, i) => i + 1).map((date) => {
-                  const isHighlighted = [7, 14, 15, 17, 19, 20, 21, 23].includes(date);
-                  const highlightColor = date === 15 ? '#32CD32' : 
-                                       date === 17 ? '#FFD700' : 
-                                       date === 19 ? '#9370DB' : 
-                                       date === 20 ? '#8A2BE2' : 
-                                       date === 21 ? '#87CEEB' : '#4169E1';
-                  
+                {buildMonthDays(currentMonth).map((cell, idx) => {
+                  if (!cell) return <View key={`e-${idx}`} style={styles.calendarEmpty} />;
+                  const isToday = isSameDate(cell, new Date());
+                  const isPast = isPastDate(cell);
+                  const isSelected = selectedDate && isSameDate(cell, selectedDate);
+                  const key = `${cell.getFullYear()}-${(cell.getMonth()+1).toString().padStart(2,'0')}-${cell.getDate().toString().padStart(2,'0')}`;
+                  const items = monthScheduleDates[key] || [];
+                  const color = items.length > 0 ? (CATEGORY_COLORS[items[0].wasteCategory] || '#2563EB') : null;
                   return (
                     <TouchableOpacity
-                      key={date}
+                      key={cell.toISOString()}
+                      disabled={isPast}
+                      onPress={() => setSelectedDate(cell)}
                       style={[
                         styles.calendarDate,
-                        isHighlighted && { backgroundColor: highlightColor }
+                        color ? { backgroundColor: color } : null,
+                        isSelected && { borderWidth: 2, borderColor: '#1E40AF' },
+                        isToday && !isSelected && { borderWidth: 1, borderColor: '#2563EB' },
+                        isPast && { opacity: 0.35 }
                       ]}
                     >
-                      <Text style={[
-                        styles.dateText,
-                        isHighlighted && styles.highlightedDateText
-                      ]}>
-                        {date}
-                      </Text>
+                      <Text style={[styles.dateText, (color || isSelected) ? styles.highlightedDateText : null]}>{cell.getDate()}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -94,8 +450,8 @@ const ScheduleTab: React.FC = () => {
           </View>
 
           {/* Right Column - Schedule Form */}
-          <View style={styles.rightColumn}>
-            <View style={styles.formCard}>
+          <View style={[styles.rightColumn, (showTimeDropdown || showStreetDropdown) ? styles.raiseLayer : null]}>
+            <View style={[styles.formCard, (showTimeDropdown || showStreetDropdown) ? styles.raiseLayer : null]}>
               <Text style={styles.formTitle}>
                 {scheduleMode === 'add' ? 'Add Schedule' : 'Edit Schedule'}
               </Text>
@@ -104,61 +460,298 @@ const ScheduleTab: React.FC = () => {
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Set date</Text>
                   <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select date</Text>
-                    <Ionicons name="calendar" size={20} color="#666" />
+                    <Text style={styles.inputText}>{selectedDate ? formatDate(selectedDate) : 'Set date'}</Text>
+                    <Ionicons name="calendar-outline" size={18} color="#4B5F4F" />
                   </TouchableOpacity>
                 </View>
                 
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Set time</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select time</Text>
-                    <Ionicons name="time" size={20} color="#666" />
-                  </TouchableOpacity>
+                  <View style={[styles.dropdownContainer, showTimeDropdown ? styles.dropdownContainerOpen : null]} ref={timeAnchorRef}>
+                    <TouchableOpacity style={styles.inputField} onPress={() => { setShowStreetDropdown(false); const next = !showTimeDropdown; setShowTimeDropdown(next); if (Platform.OS === 'web' && next && timeAnchorRef.current && timeAnchorRef.current.getBoundingClientRect) { const rect = timeAnchorRef.current.getBoundingClientRect(); setTimePortalRect({ top: rect.bottom, left: rect.left, width: rect.width }); } }}>
+                      <Text style={styles.inputText}>{timeText || 'Set time'}</Text>
+                      <Ionicons name={showTimeDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showTimeDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: timePortalRect.top, left: timePortalRect.left, width: timePortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {generateTimeSlots(selectedDate).map((t) => (
+                                  <TouchableOpacity key={t} style={styles.suggestionItem} onPress={() => { setTimeText(t); setShowTimeDropdown(false); }}>
+                                    <Ionicons name="time-outline" size={16} color="#4B5F4F" />
+                                    <Text style={styles.suggestionText}>{t}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                      <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                        <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                          {generateTimeSlots(selectedDate).map((t) => (
+                            <TouchableOpacity key={t} style={styles.suggestionItem} onPress={() => { setTimeText(t); setShowTimeDropdown(false); }}>
+                              <Ionicons name="time-outline" size={16} color="#4B5F4F" />
+                              <Text style={styles.suggestionText}>{t}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                          )
+                    )}
+                  </View>
                 </View>
               </View>
 
               <View style={styles.formField}>
                 <Text style={styles.fieldLabel}>Barangay Street</Text>
-                <View style={styles.inputField}>
-                  <Text style={styles.inputText}>Enter barangay/street</Text>
-                  <Ionicons name="search" size={20} color="#666" />
+                <View style={[
+                  styles.dropdownContainer,
+                  showStreetDropdown ? styles.dropdownContainerOpen : null
+                ]} ref={streetAnchorRef}>
+                  <TouchableOpacity style={styles.inputField} onPress={showStreetDropdown ? closeStreetDropdown : openStreetDropdown}>
+                    <Text style={styles.inputText}>{selectedStreet || 'Choose street'}</Text>
+                    <Ionicons name={showStreetDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                  </TouchableOpacity>
+                  {showStreetDropdown && (
+                    Platform.OS === 'web'
+                      ? createPortal(
+                          <View style={[styles.suggestionPanelPortal, { top: streetPortalRect.top, left: streetPortalRect.left, width: streetPortalRect.width, pointerEvents: 'auto' }]}>
+                            <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                              {suggestions.map((s) => (
+                                <TouchableOpacity
+                                  key={s.id}
+                                  style={styles.suggestionItem}
+                                  onPress={() => {
+                                    setSelectedStreet(s.text);
+                                    setSuggestions([]);
+                                    setShowStreetDropdown(false);
+                                  }}
+                                >
+                                  <Ionicons name="location-outline" size={16} color="#4B5F4F" />
+                                  <Text style={styles.suggestionText}>{s.text}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          </View>,
+                          document.body
+                        )
+                      : (
+                    <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                      <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                        {suggestions.map((s) => (
+                          <TouchableOpacity
+                            key={s.id}
+                            style={styles.suggestionItem}
+                            onPress={() => {
+                              setSelectedStreet(s.text);
+                              setSuggestions([]);
+                              setShowStreetDropdown(false);
+                            }}
+                          >
+                            <Ionicons name="location-outline" size={16} color="#4B5F4F" />
+                            <Text style={styles.suggestionText}>{s.text}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                        )
+                  )}
                 </View>
               </View>
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Frequency</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select frequency</Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
+                  <View style={[styles.dropdownContainer, showFrequencyDropdown ? styles.dropdownContainerOpen : null]} ref={freqAnchorRef}>
+                    <TouchableOpacity
+                      style={styles.inputField}
+                      onPress={() => {
+                        const next = !showFrequencyDropdown;
+                        closeAllDropdowns();
+                        setShowFrequencyDropdown(next);
+                        if (Platform.OS === 'web' && next && freqAnchorRef.current?.getBoundingClientRect) {
+                          const rect = freqAnchorRef.current.getBoundingClientRect();
+                          setFreqPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                        }
+                      }}
+                    >
+                      <Text style={styles.inputText}>{frequency || 'Frequency'}</Text>
+                      <Ionicons name={showFrequencyDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showFrequencyDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: freqPortalRect.top, left: freqPortalRect.left, width: freqPortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {FREQUENCY_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setFrequency(opt); setShowFrequencyDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                            <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {FREQUENCY_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setFrequency(opt); setShowFrequencyDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
                   </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )
+                    )}
+                  </View>
                 </View>
                 
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Waste Category</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select category</Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
+                  <View style={[styles.dropdownContainer, showWasteDropdown ? styles.dropdownContainerOpen : null]} ref={wasteAnchorRef}>
+                    <TouchableOpacity
+                      style={styles.inputField}
+                      onPress={() => {
+                        const next = !showWasteDropdown;
+                        closeAllDropdowns();
+                        setShowWasteDropdown(next);
+                        if (Platform.OS === 'web' && next && wasteAnchorRef.current?.getBoundingClientRect) {
+                          const rect = wasteAnchorRef.current.getBoundingClientRect();
+                          setWastePortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                        }
+                      }}
+                    >
+                      <Text style={styles.inputText}>{wasteCategory || 'Waste Category'}</Text>
+                      <Ionicons name={showWasteDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showWasteDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: wastePortalRect.top, left: wastePortalRect.left, width: wastePortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {WASTE_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt.label} style={styles.suggestionItem} onPress={() => { setWasteCategory(opt.label); setShowWasteDropdown(false); }}>
+                                    <View style={[styles.colorDot, { backgroundColor: opt.color }]} />
+                                    <Text style={styles.suggestionText}>{opt.label}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                            <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {WASTE_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt.label} style={styles.suggestionItem} onPress={() => { setWasteCategory(opt.label); setShowWasteDropdown(false); }}>
+                                    <View style={[styles.colorDot, { backgroundColor: opt.color }]} />
+                                    <Text style={styles.suggestionText}>{opt.label}</Text>
                   </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )
+                    )}
+                  </View>
                 </View>
               </View>
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Assigned Truck</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select truck</Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
+                  <View style={[styles.dropdownContainer, showTruckDropdown ? styles.dropdownContainerOpen : null]} ref={truckAnchorRef}>
+                    <TouchableOpacity
+                      style={styles.inputField}
+                      onPress={() => {
+                        const next = !showTruckDropdown;
+                        closeAllDropdowns();
+                        setShowTruckDropdown(next);
+                        if (Platform.OS === 'web' && next && truckAnchorRef.current?.getBoundingClientRect) {
+                          const rect = truckAnchorRef.current.getBoundingClientRect();
+                          setTruckPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                        }
+                      }}
+                    >
+                      <Text style={styles.inputText}>{truck || 'Assigned Truck'}</Text>
+                      <Ionicons name={showTruckDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showTruckDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: truckPortalRect.top, left: truckPortalRect.left, width: truckPortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {TRUCK_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setTruck(opt); setShowTruckDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                            <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {TRUCK_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setTruck(opt); setShowTruckDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
                   </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )
+                    )}
+                  </View>
                 </View>
                 
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Choose Driver</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select driver</Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
-                  </TouchableOpacity>
+                  <View style={[styles.dropdownContainer, showDriverDropdown ? styles.dropdownContainerOpen : null]} ref={driverAnchorRef}>
+                    <TouchableOpacity
+                      style={styles.inputField}
+                      onPress={() => {
+                        const next = !showDriverDropdown;
+                        closeAllDropdowns();
+                        setShowDriverDropdown(next);
+                        if (Platform.OS === 'web' && next && driverAnchorRef.current?.getBoundingClientRect) {
+                          const rect = driverAnchorRef.current.getBoundingClientRect();
+                          setDriverPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                        }
+                      }}
+                    >
+                      <Text style={styles.inputText}>{driver || 'Choose Driver'}</Text>
+                      <Ionicons name={showDriverDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showDriverDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: driverPortalRect.top, left: driverPortalRect.left, width: driverPortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {DRIVER_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDriver(opt); setShowDriverDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                            <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {DRIVER_OPTIONS.map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDriver(opt); setShowDriverDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )
+                    )}
+                  </View>
                 </View>
               </View>
 
@@ -166,8 +759,8 @@ const ScheduleTab: React.FC = () => {
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Status</Text>
                   <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Select status</Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
+                    <Text style={styles.inputText}>Status</Text>
+                    <Ionicons name="chevron-down" size={18} color="#4B5F4F" />
                   </TouchableOpacity>
                 </View>
               )}
@@ -179,18 +772,69 @@ const ScheduleTab: React.FC = () => {
                 </View>
               </View>
 
+              {/* Day Schedules List */}
+              {selectedDate && (
+                <View style={styles.dayList}>
+                  <Text style={styles.dayListTitle}>Schedules on {formatDate(selectedDate)}</Text>
+                  {(monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).map((s) => (
+                    <View key={s.docId} style={styles.dayItem}>
+                      <View style={[styles.dayColor, { backgroundColor: CATEGORY_COLORS[s.wasteCategory] || '#94A3B8' }]} />
+                      <Text style={styles.dayItemText}>{s.timeText} • {s.wasteCategory} • {s.street}</Text>
+                      {auth?.currentUser?.uid === s.userId && (
+                        <View style={styles.dayItemActions}>
+                          <TouchableOpacity
+                            style={styles.smallBtn}
+                            onPress={() => {
+                              setScheduleMode('edit');
+                              setSelectedId(s.docId);
+                              setSelectedDate(new Date(s.dateText));
+                              setTimeText(s.timeText);
+                              setSelectedStreet(s.street);
+                              setFrequency(s.frequency);
+                              setWasteCategory(s.wasteCategory);
+                              setTruck(s.truck);
+                              setDriver(s.driver);
+                              setNote(s.note || '');
+                            }}
+                          >
+                            <Text style={styles.smallBtnText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: '#EF4444' }]}
+                            onPress={async () => {
+                              // Debug: log before delete
+                              console.log('Delete button clicked', {
+                                currentUserUid: auth?.currentUser?.uid,
+                                scheduleUserId: s.userId,
+                                scheduleDocId: s.docId,
+                              });
+                              await handleDelete(s.docId);
+                            }}
+                          >
+                            <Text style={styles.smallBtnText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
+
               {/* Action Buttons */}
               <View style={styles.formButtons}>
                 {scheduleMode === 'add' ? (
-                  <TouchableOpacity style={[styles.formButton, { backgroundColor: '#22C55E' }]}>
-                    <Text style={styles.formButtonText}>Add</Text>
+                  <TouchableOpacity style={styles.primaryCta} onPress={handleAdd}>
+                    <Text style={styles.primaryCtaText}>Add</Text>
                   </TouchableOpacity>
                 ) : (
                   <>
-                    <TouchableOpacity style={[styles.formButton, { backgroundColor: '#2563EB' }]}>
+                    <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#2563EB' }]} onPress={handleSaveEdit}>
                       <Text style={styles.formButtonText}>Save Changes</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.formButton, { backgroundColor: '#EF4444' }]}>
+                    <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#EF4444' }]} onPress={() => handleDelete()}>
+                      <Text style={styles.formButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#EF4444' }]} onPress={resetForm}>
                       <Text style={styles.formButtonText}>Cancel</Text>
                     </TouchableOpacity>
                   </>
@@ -209,7 +853,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mainSection: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#ECF8ED',
     borderRadius: 12,
     padding: 20,
     marginBottom: 20,
@@ -234,43 +878,61 @@ const styles = StyleSheet.create({
   badgesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    marginBottom: 20,
+    justifyContent: 'flex-start',
+    marginBottom: 0,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   badge: {
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    marginVertical: 4,
-    marginHorizontal: 4,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginVertical: 6,
+    marginRight: 12,
   },
   badgeText: {
     color: 'white',
     fontSize: 12,
     fontWeight: 'bold',
   },
-  buttonContainer: {
+  buttonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
+    justifyContent: 'flex-end',
+    marginBottom: 16,
   },
-  button: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+  compactButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+    backgroundColor: '#DDEEDB',
+    marginLeft: 12,
   },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  addButton: {
+    backgroundColor: '#DDEEDB',
+  },
+  editButton: {
+    backgroundColor: '#DDEEDB',
+  },
+  compactButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   columnsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
+    overflow: 'visible',
   },
   leftColumn: {
     flex: 1,
@@ -279,6 +941,7 @@ const styles = StyleSheet.create({
   rightColumn: {
     flex: 1,
     marginLeft: 8,
+    overflow: 'visible',
   },
   calendarCard: {
     backgroundColor: 'white',
@@ -303,6 +966,8 @@ const styles = StyleSheet.create({
   },
   calendarButton: {
     padding: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 18,
   },
   calendarTitle: {
     fontSize: 16,
@@ -313,6 +978,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-around',
+  },
+  calendarEmpty: {
+    width: '14%',
+    aspectRatio: 1,
+    marginVertical: 2,
   },
   dayHeader: {
     fontSize: 10,
@@ -328,6 +998,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
     marginVertical: 2,
+    position: 'relative',
   },
   dateText: {
     fontSize: 12,
@@ -351,6 +1022,11 @@ const styles = StyleSheet.create({
     elevation: 5,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    overflow: 'visible',
+  },
+  raiseLayer: {
+    position: 'relative',
+    zIndex: 100000,
   },
   formTitle: {
     fontSize: 18,
@@ -371,43 +1047,173 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#4B5F4F',
     marginBottom: 4,
     fontWeight: '500',
   },
   inputField: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F7FBF7',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
   },
   inputText: {
     flex: 1,
     fontSize: 12,
-    color: '#1F2937',
+    color: '#234033',
     marginLeft: 8,
   },
+  textInputField: {
+    flex: 1,
+    fontSize: 12,
+    color: '#234033',
+    marginLeft: 8,
+    paddingVertical: 0,
+  },
   textArea: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F7FBF7',
     borderRadius: 8,
     padding: 12,
     minHeight: 80,
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+  },
+  suggestionPanel: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+    borderRadius: 8,
+    marginTop: 6,
+    overflow: 'hidden',
+    zIndex: 100000,
+    elevation: 9999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  suggestionPanelPortal: {
+    position: 'fixed',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+    borderRadius: 8,
+    marginTop: 6,
+    overflow: 'hidden',
+    zIndex: 2147483647,
+    boxShadow: '0 6px 12px rgba(0,0,0,0.15)',
+  } as any,
+  suggestionScroll: {
+    maxHeight: 140,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF3EE',
+  },
+  colorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  suggestionText: {
+    marginLeft: 8,
+    fontSize: 12,
+    color: '#234033',
+    flex: 1,
+  },
+  dropdownContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+  dropdownContainerOpen: {
+    zIndex: 100001,
+    elevation: 10000,
   },
   textAreaPlaceholder: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#7C8E80',
   },
   formButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     marginTop: 20,
   },
-  formButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+  dayList: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  dayListTitle: {
+    fontSize: 12,
+    color: '#234033',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  dayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7FBF7',
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
     borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  dayColor: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    marginRight: 8,
+  },
+  dayItemText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#234033',
+  },
+  dayItemActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  smallBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  smallBtnText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  primaryCta: {
+    backgroundColor: '#4E6E58',
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 10,
+  },
+  primaryCtaText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryCta: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginHorizontal: 6,
   },
   formButtonText: {
     color: 'white',

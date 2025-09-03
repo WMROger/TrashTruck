@@ -5,6 +5,32 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 
 const db = admin.firestore();
+// bootstrap-admin.js
+const admin = require('firebase-admin');
+
+// Use your service account JSON
+admin.initializeApp({ credential: admin.credential.applicationDefault() });
+
+(async () => {
+  const uid = 'aJr3uV6lnVgotISwvQzPYa5uuOe2';
+  await admin.auth().setCustomUserClaims(uid, { admin: true });
+  console.log('Admin claim set for', uid);
+  process.exit(0);
+})();
+// Callable to set/unset admin role by email (only admins can call)
+exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.token || context.auth.token.admin !== true) {
+    throw new functions.https.HttpsError('permission-denied', 'Admins only');
+  }
+  const { email, makeAdmin } = data || {};
+  if (!email || typeof email !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'Parameter "email" is required');
+  }
+  const user = await admin.auth().getUserByEmail(email);
+  await admin.auth().setCustomUserClaims(user.uid, { admin: !!makeAdmin });
+  await db.collection('users').doc(user.uid).set({ tokenVersion: Date.now(), role: makeAdmin ? 'admin' : 'user' }, { merge: true });
+  return { uid: user.uid, email: user.email, admin: !!makeAdmin };
+});
 
 // Delete users who remain unverified for more than 10 minutes
 exports.deleteStaleUnverifiedUsers = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {

@@ -1,131 +1,116 @@
+// Firestore security rules
 rules_version = '2';
 
 service cloud.firestore {
+  // Helpers
+  function isAuthenticated() {
+    return request.auth != null;
+  }
+  function isOwner(userId) {
+    return request.auth != null && request.auth.uid == userId;
+  }
+  function isAdmin() {
+    return isAuthenticated() && ('admin' in request.auth.token) && request.auth.token.admin == true;
+  }
+
   match /databases/{database}/documents {
-    
-    // Helper functions for authentication and authorization
-    function isAuthenticated() {
-      return request.auth != null;
+    // Waste collection schedules
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      allow update, delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
     }
-    
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-    
-    function isValidUser() {
-      return isAuthenticated() && 
-             request.auth.token.email_verified == true;
-    }
-    
-    function isAdmin() {
-      return isAuthenticated() && 
-             ('admin' in request.auth.token) && 
-             request.auth.token.admin == true;
-    }
-    
-    // User profiles - users can only access their own profile
+    // User profiles
     match /users/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin(); // Admins can read all user profiles
+      allow read: if isAdmin();
     }
-    
-    // User settings - users can only access their own settings
+
+    // User settings
     match /user_settings/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
     }
-    
-    // Chat logs - users can only access their own chat history
+
+    // Chat logs
     match /chat_logs/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin(); // Admins can read all chat logs for support
+      allow read: if isAdmin();
     }
-    
-    // Chat messages subcollection - tied to user's chat log
     match /chat_logs/{userId}/messages/{messageId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
       allow read: if isAdmin();
     }
-    
-    // Waste collection schedules - users can read all schedules, but only create/update their own
-    match /schedules/{scheduleId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isOwner(resource.data.userId);
-      allow update, delete: if isAuthenticated() && 
-                            (isOwner(resource.data.userId) || isAdmin());
-    }
-    
-    // Waste collection requests - users can only access their own requests
+
+  // ...existing code...
+
+    // Collection requests
     match /collection_requests/{requestId} {
       allow read, write: if isAuthenticated() && isOwner(resource.data.userId);
-      allow read, write: if isAdmin(); // Admins can manage all requests
+      
+      allow read, write: if isAdmin();
     }
-    
-    // Feedback and reports - users can create feedback, admins can read all
+
+    // Feedback
     match /feedback/{feedbackId} {
       allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
-      allow read: if isAuthenticated() && 
-                  (isOwner(resource.data.userId) || isAdmin());
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
       allow update, delete: if isAdmin();
     }
-    
-    // Public data that all authenticated users can read
+
+    // Public data
     match /public_data/{document} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
-    
-    // App configuration and settings - only admins can modify
+
+    // App configuration
     match /app_config/{document} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
-    
-    // Admin-only collections
+
+    // Admin-only
     match /admin/{document=**} {
       allow read, write: if isAdmin();
     }
-    
-    // Analytics and logs - admin only
+
+    // Analytics and logs
     match /analytics/{document=**} {
       allow read, write: if isAdmin();
     }
-    
-    // Error logs - admin only
     match /error_logs/{document=**} {
       allow read, write: if isAdmin();
     }
-    
-    // Notifications - users can read their own notifications
+
+    // Notifications
     match /notifications/{userId} {
       allow read: if isAuthenticated() && isOwner(userId);
-      allow write: if isAdmin(); // Only admins can create notifications
+      allow write: if isAdmin();
     }
-    
     match /notifications/{userId}/messages/{notificationId} {
       allow read: if isAuthenticated() && isOwner(userId);
       allow write: if isAdmin();
     }
-    
-    // Location data - users can only access their own location data
+
+    // Locations
     match /user_locations/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
       allow read: if isAdmin();
     }
-    
-    // Waste tracking - users can track their own waste
+
+    // Waste tracking
     match /waste_tracking/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
       allow read: if isAdmin();
     }
-    
     match /waste_tracking/{userId}/entries/{entryId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
       allow read: if isAdmin();
     }
-    
-    // Default rule - deny all other access
+
+    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
   }
-} 
+}
