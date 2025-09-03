@@ -47,6 +47,9 @@ functions/node_modules/
 functions/.env
 functions/.runtimeconfig.json
 
+# Google Cloud Service Account Key
+serviceAccountKey.json
+
 # IDE
 .vscode/
 .idea/
