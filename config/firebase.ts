@@ -3,23 +3,25 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
+import { getStorage } from 'firebase/storage';
 
 let app: any = null;
 let db: any = null;
 let functions: any = null;
 let auth: any = null;
+let storage: any = null;
 
 try {
   console.log('Firebase: Starting initialization...');
 
   // Your Firebase configuration - Update these with your actual values
   const firebaseConfig = {
-    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "your-api-key",
-    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
-    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "your-project-id",
-    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
-    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "your-sender-id",
-    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "your-app-id"
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID 
   };
 
   // Debug: Log environment variables (without exposing sensitive data)
@@ -51,6 +53,11 @@ try {
   // Initialize Functions
   functions = getFunctions(app);
   console.log('Firebase: Functions initialized successfully');
+
+  // Initialize Storage with proper configuration for web
+  storage = getStorage(app);
+  console.log('Firebase: Storage initialized successfully');
+  console.log('Firebase: Storage bucket:', storage._delegate?._host || 'Not available');
 
   // Initialize Authentication
   try {
@@ -91,8 +98,9 @@ try {
   db = null;
   functions = null;
   auth = null;
+  storage = null;
 }
 
 // Export with fallbacks
-export { auth, db, functions };
+export { auth, db, functions, storage };
 export default app; 

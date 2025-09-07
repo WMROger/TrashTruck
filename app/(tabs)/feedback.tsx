@@ -1,5 +1,7 @@
+import { auth, db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { addDoc, collection } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -15,6 +17,28 @@ export default function FeedbackScreen() {
     { label: 'Good', emoji: '🙂' },
     { label: 'Loved it', emoji: '😍' },
   ];
+
+  // Upload feedback to Firestore
+  const handleSendFeedback = async () => {
+    if (selected === null || !text.trim()) {
+      alert('Please select a rating and enter your feedback.');
+      return;
+    }
+    const rating = sentiments[selected].label;
+    try {
+      await addDoc(collection(db, 'feedback'), {
+        rating,
+        description: text,
+        userId: auth.currentUser?.uid,
+        createdAt: new Date().toISOString(),
+      });
+      alert('Thank you for your feedback!');
+      setSelected(null);
+      setText('');
+    } catch (err) {
+      alert('Failed to send feedback. Please try again.');
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
@@ -52,7 +76,11 @@ export default function FeedbackScreen() {
           style={[styles.input, { borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }]}
         />
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]}>
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: colors.primary }]}
+          onPress={handleSendFeedback}
+          
+        >
           <Text style={styles.buttonText}>Send feedback</Text>
         </TouchableOpacity>
       </View>

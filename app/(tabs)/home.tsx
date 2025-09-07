@@ -1,14 +1,57 @@
+import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { doc, getDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function HomePage() {
   const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
+  const { user } = useAuthContext();
+  const [userProfile, setUserProfile] = useState<{
+    displayName?: string;
+    photoURL?: string;
+  } | null>(null);
+
+  // Fetch user profile data from Firestore
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!user || !db) return;
+
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          setUserProfile({
+            displayName: userData.displayName || user.displayName || 'User',
+            photoURL: userData.photoURL || user.photoURL || null,
+          });
+        } else {
+          // Fallback to auth data if Firestore document doesn't exist
+          setUserProfile({
+            displayName: user.displayName || 'User',
+            photoURL: user.photoURL || null,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+        // Fallback to auth data on error
+        setUserProfile({
+          displayName: user.displayName || 'User',
+          photoURL: user.photoURL || null,
+        });
+      }
+    };
+
+    fetchUserProfile();
+  }, [user]);
 
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
@@ -21,10 +64,18 @@ export default function HomePage() {
       <View style={styles.header}>
         <View style={styles.profileSection}>
           <View style={[styles.profileIcon, { backgroundColor: colors.primary }]}>
-            <IconSymbol name="person.fill" size={24} color={colors.surface} />
+            {userProfile?.photoURL ? (
+              <Image 
+                source={{ uri: userProfile.photoURL }} 
+                style={styles.profileImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <IconSymbol name="person.fill" size={24} color={colors.surface} />
+            )}
           </View>
           <Text style={[styles.greeting, { color: colors.textPrimary }]}>
-            Hello, Pusher!
+            Hello, {userProfile?.displayName || 'User'}!
           </Text>
         </View>
         
@@ -46,14 +97,11 @@ export default function HomePage() {
         {/* Featured Image */}
         <View style={styles.featuredImageContainer}>
           <View style={[styles.featuredImage, { backgroundColor: colors.surface }]}>
-            <IconSymbol name="person.3.fill" size={60} color={colors.primary} />
-
-            
-            {/* <View style={[styles.aiIcon, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.aiText, { color: colors.surface }]}>A</Text>
-            </View> */}
-
-
+            <Image
+              source={require('../../assets/images/Dashboard_mobile.png')}
+              style={styles.heroImage}
+              resizeMode="cover"
+            />
           </View>
         </View>
 
@@ -147,7 +195,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: 60,
+    paddingTop: 30,
   },
   profileSection: {
     flexDirection: 'row',
@@ -160,6 +208,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  profileImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   greeting: {
     fontSize: 20,
@@ -209,6 +263,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
   },
   aiIcon: {
     position: 'absolute',

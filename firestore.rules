@@ -46,14 +46,35 @@ service cloud.firestore {
     // Collection requests
     match /collection_requests/{requestId} {
       allow read, write: if isAuthenticated() && isOwner(resource.data.userId);
-      
       allow read, write: if isAdmin();
     }
 
-    // Feedback
+
+    // Feedback (singular)
     match /feedback/{feedbackId} {
       allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
       allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // Feedbacks (plural) - for admin dashboard
+    match /feedbacks/{feedbackId} {
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // Reports
+    match /reports/{reportId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // Announcements
+    match /announcements/{announcementId} {
+      allow create: if isAdmin();
+      allow read: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 

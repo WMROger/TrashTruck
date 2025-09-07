@@ -54,23 +54,31 @@ function RootLayoutNav() {
     const currentSegment = segments[0];
 
     if (!isAuthenticated) {
+      // Not authenticated - redirect to appropriate login
       if (isDesktopWeb) {
+        // Desktop: redirect to admin login
         if (currentSegment !== 'admin') {
           router.replace('/admin/login' as any);
         }
       } else {
+        // Mobile: redirect to user auth
         if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)') {
           router.replace('/auth' as any);
         }
       }
-    } else if (isAuthenticated && (currentSegment === '(auth)' || currentSegment === 'admin')) {
-      // Don't redirect admin users away from admin section
-      if (currentSegment === 'admin' && isAdmin) {
-        // Admin user in admin section - let them stay
-        return;
+    } else if (isAuthenticated) {
+      // Authenticated - redirect based on device type
+      if (isDesktopWeb) {
+        // Desktop: redirect to admin dashboard
+        if (currentSegment !== 'admin') {
+          router.replace('/admin/dashboard' as any);
+        }
+      } else {
+        // Mobile: redirect to user tabs
+        if (currentSegment === '(auth)' || currentSegment === 'admin' || currentSegment === 'splash') {
+          router.replace('/(tabs)' as any);
+        }
       }
-      // Regular user or admin user in auth section - redirect to tabs
-      router.replace('/(tabs)' as any);
     }
   }, [isAuthenticated, loading, segments, router, isDesktopWeb, isAdmin]);
 

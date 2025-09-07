@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 // Web-only portal to ensure dropdown overlays escape ScrollView clipping
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - only resolved on web
@@ -40,6 +40,11 @@ const ScheduleTab: React.FC = () => {
   const driverAnchorRef = useRef<any>(null);
   const [showDriverDropdown, setShowDriverDropdown] = useState(false);
   const [driverPortalRect, setDriverPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  
+  // Delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetInfo, setDeleteTargetInfo] = useState<{ date: string; time: string; street: string; category: string } | null>(null);
 
   const FREQUENCY_OPTIONS = useMemo(() => ['One-time', 'Daily', 'Weekly', 'Monthly' ], []);
   const WASTE_OPTIONS = useMemo(
@@ -73,6 +78,18 @@ const ScheduleTab: React.FC = () => {
     setShowWasteDropdown(false);
     setShowTruckDropdown(false);
     setShowDriverDropdown(false);
+  };
+
+  const showDeleteConfirmation = (id: string, info: { date: string; time: string; street: string; category: string }) => {
+    setDeleteTargetId(id);
+    setDeleteTargetInfo(info);
+    setShowDeleteModal(true);
+  };
+
+  const hideDeleteConfirmation = () => {
+    setShowDeleteModal(false);
+    setDeleteTargetId(null);
+    setDeleteTargetInfo(null);
   };
 
   // Mock streets around Sambag 2, Cebu City for local suggestions
@@ -218,9 +235,16 @@ const ScheduleTab: React.FC = () => {
       await deleteDoc(scheduleDocRef);
       resetForm();
       setScheduleMode('add');
+      hideDeleteConfirmation();
     } catch (e: any) {
       console.error('Delete failed', e);
       alert('Delete failed: ' + (e && e.message ? e.message : JSON.stringify(e)));
+    }
+  };
+
+  const confirmDelete = () => {
+    if (deleteTargetId) {
+      handleDelete(deleteTargetId);
     }
   };
 
@@ -801,14 +825,13 @@ const ScheduleTab: React.FC = () => {
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.smallBtn, { backgroundColor: '#EF4444' }]}
-                            onPress={async () => {
-                              // Debug: log before delete
-                              console.log('Delete button clicked', {
-                                currentUserUid: auth?.currentUser?.uid,
-                                scheduleUserId: s.userId,
-                                scheduleDocId: s.docId,
+                            onPress={() => {
+                              showDeleteConfirmation(s.docId, {
+                                date: s.dateText,
+                                time: s.timeText,
+                                street: s.street,
+                                category: s.wasteCategory
                               });
-                              await handleDelete(s.docId);
                             }}
                           >
                             <Text style={styles.smallBtnText}>Delete</Text>
@@ -831,7 +854,22 @@ const ScheduleTab: React.FC = () => {
                     <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#2563EB' }]} onPress={handleSaveEdit}>
                       <Text style={styles.formButtonText}>Save Changes</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#EF4444' }]} onPress={() => handleDelete()}>
+                    <TouchableOpacity 
+                      style={[styles.secondaryCta, { backgroundColor: '#EF4444' }]} 
+                      onPress={() => {
+                        if (selectedId) {
+                          const schedule = rawSchedules.find(s => s.docId === selectedId);
+                          if (schedule) {
+                            showDeleteConfirmation(selectedId, {
+                              date: schedule.dateText,
+                              time: schedule.timeText,
+                              street: schedule.street,
+                              category: schedule.wasteCategory
+                            });
+                          }
+                        }
+                      }}
+                    >
                       <Text style={styles.formButtonText}>Delete</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.secondaryCta, { backgroundColor: '#EF4444' }]} onPress={resetForm}>
@@ -844,6 +882,69 @@ const ScheduleTab: React.FC = () => {
           </View>
         </View>
       </View>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={hideDeleteConfirmation}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="warning" size={24} color="#EF4444" />
+              <Text style={styles.modalTitle}>Confirm Delete</Text>
+            </View>
+            
+            <View style={styles.modalContent}>
+              <Text style={styles.modalMessage}>
+                Are you sure you want to delete this schedule?
+              </Text>
+              
+              {deleteTargetInfo && (
+                <View style={styles.scheduleInfo}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Date:</Text>
+                    <Text style={styles.infoValue}>{deleteTargetInfo.date}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Time:</Text>
+                    <Text style={styles.infoValue}>{deleteTargetInfo.time}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Street:</Text>
+                    <Text style={styles.infoValue}>{deleteTargetInfo.street}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Category:</Text>
+                    <Text style={styles.infoValue}>{deleteTargetInfo.category}</Text>
+                  </View>
+                </View>
+              )}
+              
+              <Text style={styles.warningText}>
+                This action cannot be undone.
+              </Text>
+            </View>
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={hideDeleteConfirmation}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.deleteButton]}
+                onPress={confirmDelete}
+              >
+                <Text style={styles.deleteButtonText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -1219,6 +1320,114 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 0,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginLeft: 12,
+  },
+  modalContent: {
+    padding: 20,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  scheduleInfo: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#1F2937',
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  warningText: {
+    fontSize: 14,
+    color: '#EF4444',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    padding: 20,
+    paddingTop: 0,
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
   },
 });
 

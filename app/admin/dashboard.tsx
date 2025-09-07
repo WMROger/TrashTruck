@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
-import { AdminSidebar, AnnouncementsTab, ReportsTab, ScheduleTab } from '../../components/admin';
+import { AdminSidebar, AnnouncementsTab, FeedbackTab, ReportsTab, ScheduleTab } from '../../components/admin';
 import { auth, db } from '../../config/firebase';
 
 export default function AdminDashboard() {
@@ -170,14 +170,7 @@ export default function AdminDashboard() {
     </ScrollView>
   );
 
-  const renderFeedbacksContent = () => (
-    <ScrollView style={styles.content}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Feedbacks</Text>
-        <Text style={styles.placeholderText}>Feedbacks management content will be implemented here</Text>
-      </View>
-    </ScrollView>
-  );
+  const renderFeedbacksContent = () => <FeedbackTab />;
 
   const renderContent = () => {
     switch (activeTab) {
