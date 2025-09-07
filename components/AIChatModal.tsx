@@ -3,27 +3,33 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { getN8nWebhookUrl } from '@/config/n8n';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Message {
   id: string;
   role: 'user' | 'ai';
   text: string;
   timestamp: Date;
+}
+
+interface AIChatModalProps {
+  visible: boolean;
+  onClose: () => void;
 }
 
 // Call n8n webhook for AI processing
@@ -103,8 +109,8 @@ function applyGuardrails(response: string, originalQuery: string): string {
   return response;
 }
 
-export default function ChatScreen() {
-  const { theme, setTheme } = useTheme();
+export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
+  const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -116,9 +122,6 @@ export default function ChatScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  // Used for keyboard handling logic (auto-scroll when keyboard appears/hides)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const scrollToBottom = () => {
@@ -133,12 +136,10 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const keyboardDidShow = () => {
-      setIsKeyboardVisible(true);
       setTimeout(scrollToBottom, 100);
     };
 
     const keyboardDidHide = () => {
-      setIsKeyboardVisible(false);
       setTimeout(scrollToBottom, 100);
     };
 
@@ -194,72 +195,76 @@ export default function ChatScreen() {
     }
   };
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-  };
-
   const renderMessage = ({ item }: { item: Message }) => (
     <ChatMessage message={item} />
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
-          TrashTrack AI Assistant
-        </Text>
-       
-      </View>
-
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        style={styles.messagesList}
-        contentContainerStyle={styles.messagesContainer}
-        showsVerticalScrollIndicator={false}
-      />
-
-      {isLoading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-            AI is thinking...
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>
+            TrashTrack AI Assistant
           </Text>
-        </View>
-      )}
-
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={[styles.inputContainer, { borderTopColor: colors.border }]}
-      >
-        <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
-          <TextInput
-            style={[styles.input, { color: colors.textPrimary }]}
-            value={input}
-            onChangeText={setInput}
-            placeholder="Ask me about waste management..."
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            maxLength={500}
-            onSubmitEditing={sendMessage}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: colors.primary }]}
-            onPress={sendMessage}
-            disabled={!input.trim() || isLoading}
-          >
-            <IconSymbol 
-              name="paperplane.fill" 
-              size={20} 
-              color={colors.surface} 
-            />
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <Ionicons name="close" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          style={styles.messagesList}
+          contentContainerStyle={styles.messagesContainer}
+          showsVerticalScrollIndicator={false}
+        />
+
+        {isLoading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+              AI is thinking...
+            </Text>
+          </View>
+        )}
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={[styles.inputContainer, { borderTopColor: colors.border }]}
+        >
+          <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
+            <TextInput
+              style={[styles.input, { color: colors.textPrimary }]}
+              value={input}
+              onChangeText={setInput}
+              placeholder="Ask me about waste management..."
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              maxLength={500}
+              onSubmitEditing={sendMessage}
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, { backgroundColor: colors.primary }]}
+              onPress={sendMessage}
+              disabled={!input.trim() || isLoading}
+            >
+              <IconSymbol 
+                name="paperplane.fill" 
+                size={20} 
+                color={colors.surface} 
+              />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
   );
 }
 
@@ -279,7 +284,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  themeToggle: {
+  closeButton: {
     padding: 8,
   },
   messagesList: {
@@ -303,7 +308,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    marginBottom: 60,
   },
   inputWrapper: {
     flexDirection: 'row',

@@ -27,6 +27,7 @@ export default function ScheduleScreen() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [rawSchedules, setRawSchedules] = useState<RawSchedule[]>([]);
   const [monthScheduleDates, setMonthScheduleDates] = useState<Record<string, RawSchedule[]>>({});
+  const [showLegend, setShowLegend] = useState(false);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -53,6 +54,15 @@ export default function ScheduleScreen() {
     'Hazardous': '#EF4444',
     'Special/Bulk': '#A855F7',
   }), []);
+
+  const LEGEND_ITEMS = useMemo(() => [
+    { name: 'Non-biodegradable', color: '#2563EB' },
+    { name: 'Recyclable', color: '#EAB308' },
+    { name: 'Residual', color: '#6B7280' },
+    { name: 'Hazardous', color: '#EF4444' },
+    { name: 'Biodegradable', color: '#22C55E' },
+    { name: 'Special / Bulk Collection', color: '#A855F7' },
+  ], []);
 
   // Robust US long-date parser (e.g., "September 4, 2025") for iOS JSC
   const MONTH_INDEX: Record<string, number> = useMemo(() => ({
@@ -184,6 +194,36 @@ export default function ScheduleScreen() {
         </View>
       </View>
 
+      {/* Legend Dropdown */}
+      <View style={[styles.legendCard, { backgroundColor: colors.surface }]}>
+        <TouchableOpacity 
+          style={styles.legendHeader}
+          onPress={() => setShowLegend(!showLegend)}
+        >
+          <Text style={[styles.legendTitle, { color: colors.textPrimary }]}>
+            Waste Category Legend
+          </Text>
+          <IconSymbol 
+            name={showLegend ? "chevron.up" : "chevron.down"} 
+            size={20} 
+            color={colors.textSecondary} 
+          />
+        </TouchableOpacity>
+        
+        {showLegend && (
+          <View style={styles.legendContent}>
+            {LEGEND_ITEMS.map((item, index) => (
+              <View key={index} style={styles.legendItem}>
+                <View style={[styles.legendColorBox, { backgroundColor: item.color }]} />
+                <Text style={[styles.legendText, { color: colors.textPrimary }]}>
+                  {item.name}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
       {/* Pickup location info (API-backed) */}
       <View style={styles.infoSection}>
         <Text style={[styles.infoTitle, { color: colors.textSecondary }]}>Pickup Location Info</Text>
@@ -277,6 +317,46 @@ const styles = StyleSheet.create({
   },
   calendarDay: {
     color: '#333',
+  },
+  legendCard: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  legendHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  legendTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  legendContent: {
+    marginTop: 12,
+    gap: 8,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  legendColorBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontSize: 14,
+    flex: 1,
   },
   fabAIBadge: {
     position: 'absolute',

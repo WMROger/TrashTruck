@@ -1,10 +1,11 @@
+import AIChatModal from '@/components/AIChatModal';
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -17,6 +18,15 @@ export default function HomePage() {
     displayName?: string;
     photoURL?: string;
   } | null>(null);
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [announcements, setAnnouncements] = useState<{
+    id: string;
+    title: string;
+    description: string;
+    priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+    category: string;
+    createdAt: any;
+  }[]>([]);
 
   // Fetch user profile data from Firestore
   useEffect(() => {
@@ -31,13 +41,13 @@ export default function HomePage() {
           const userData = userSnap.data();
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
-            photoURL: userData.photoURL || user.photoURL || null,
+            photoURL: userData.photoURL || user.photoURL || undefined,
           });
         } else {
           // Fallback to auth data if Firestore document doesn't exist
           setUserProfile({
             displayName: user.displayName || 'User',
-            photoURL: user.photoURL || null,
+            photoURL: user.photoURL || undefined,
           });
         }
       } catch (error) {
@@ -45,7 +55,7 @@ export default function HomePage() {
         // Fallback to auth data on error
         setUserProfile({
           displayName: user.displayName || 'User',
-          photoURL: user.photoURL || null,
+          photoURL: user.photoURL || undefined,
         });
       }
     };
@@ -53,9 +63,87 @@ export default function HomePage() {
     fetchUserProfile();
   }, [user]);
 
+  // Fetch announcements from Firestore
+  useEffect(() => {
+    if (!db) return;
+
+    console.log('Setting up announcements listener for home...');
+    
+    const announcementsRef = collection(db, 'announcements');
+    const q = query(
+      announcementsRef, 
+      where('isPublished', '==', true)
+    );
+    
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        console.log('Home announcements snapshot received:', snapshot.docs.length, 'documents');
+        
+        const announcementsData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || '',
+            description: data.description || '',
+            priority: data.priority || 'Medium',
+            category: data.category || 'General',
+            createdAt: data.createdAt
+          };
+        });
+        
+        // Sort by creation date (newest first) and take only the first 2
+        announcementsData.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+          return dateB.getTime() - dateA.getTime();
+        });
+        
+        setAnnouncements(announcementsData.slice(0, 2)); // Show only latest 2 announcements
+      },
+      (error) => {
+        console.error('Error fetching announcements for home:', error);
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up home announcements listener');
+      unsubscribe();
+    };
+  }, []);
+
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
     router.replace('/splash');
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'Urgent':
+        return '#EF4444';
+      case 'High':
+        return '#F97316';
+      case 'Medium':
+        return '#EAB308';
+      case 'Low':
+        return '#22C55E';
+      default:
+        return '#6B7280';
+    }
+  };
+
+  const getPriorityIcon = (priority: string) => {
+    switch (priority) {
+      case 'Urgent':
+        return 'alert-circle';
+      case 'High':
+        return 'warning';
+      case 'Medium':
+        return 'information-circle';
+      case 'Low':
+        return 'checkmark-circle';
+      default:
+        return 'ellipse';
+    }
   };
 
   return (
@@ -116,59 +204,62 @@ export default function HomePage() {
         <View style={styles.announcementsSection}>
           <View style={[styles.sectionDivider, { backgroundColor: colors.textTertiary }]} />
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            Announcements
+            Latest Announcements
           </Text>
           
-          {/* Regular Trash */}
-          <View style={[styles.announcementCard, { backgroundColor: '#D9D9D9' }]}>
-            <View style={styles.announcementLeft}>
-              <IconSymbol name="trash.fill" size={24} color={colors.primary} />
-              <View style={styles.announcementText}>
-                <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
-                  Regular Trash
-                </Text>
-                <Text style={[styles.announcementSubtitle, { color: colors.textSecondary }]}>
-                  Every Monday
-                </Text>
+          {announcements.length === 0 ? (
+            <View style={[styles.announcementCard, { backgroundColor: colors.surface }]}>
+              <View style={styles.announcementLeft}>
+                <IconSymbol name="megaphone" size={24} color={colors.textSecondary} />
+                <View style={styles.announcementText}>
+                  <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
+                    No announcements yet
+                  </Text>
+                  <Text style={[styles.announcementSubtitle, { color: colors.textSecondary }]}>
+                    Check back later for updates
+                  </Text>
+                </View>
               </View>
             </View>
-            <View style={styles.announcementRight}>
-              <Text style={[styles.nextPickupLabel, { color: colors.textSecondary }]}>
-                Next pickup:
-              </Text>
-              <Text style={[styles.nextPickupDate, { color: colors.textPrimary }]}>
-                Oct 30
-              </Text>
-            </View>
-          </View>
-
-          {/* Recyclables */}
-          <View style={[styles.announcementCard, { backgroundColor: '#D9D9D9' }]}>
-            <View style={styles.announcementLeft}>
-              <IconSymbol name="arrow.triangle.2.circlepath" size={24} color={colors.primary} />
-              <View style={styles.announcementText}>
-                <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
-                  Recyclables
-                </Text>
-                <Text style={[styles.announcementSubtitle, { color: colors.textSecondary }]}>
-                  Every Thursday
-                </Text>
+          ) : (
+            announcements.map((announcement) => (
+              <View key={announcement.id} style={[styles.announcementCard, { backgroundColor: colors.surface }]}>
+                <View style={styles.announcementLeft}>
+                  <IconSymbol 
+                    name={getPriorityIcon(announcement.priority)} 
+                    size={24} 
+                    color={getPriorityColor(announcement.priority)} 
+                  />
+                  <View style={styles.announcementText}>
+                    <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
+                      {announcement.title}
+                    </Text>
+                    <Text style={[styles.announcementSubtitle, { color: colors.textSecondary }]}>
+                      {announcement.description.length > 50 
+                        ? `${announcement.description.substring(0, 50)}...` 
+                        : announcement.description}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.announcementRight}>
+                  <Text style={[styles.nextPickupLabel, { color: colors.textSecondary }]}>
+                    {announcement.priority}
+                  </Text>
+                  <Text style={[styles.nextPickupDate, { color: getPriorityColor(announcement.priority) }]}>
+                    {announcement.category}
+                  </Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.announcementRight}>
-              <Text style={[styles.nextPickupLabel, { color: colors.textSecondary }]}>
-                Next pickup:
-              </Text>
-              <Text style={[styles.nextPickupDate, { color: colors.textPrimary }]}>
-                Nov 2
-              </Text>
-            </View>
-          </View>
+            ))
+          )}
 
           {/* View More Link */}
-          <TouchableOpacity style={styles.viewMoreButton}>
+          <TouchableOpacity 
+            style={styles.viewMoreButton}
+            onPress={() => router.push('/(tabs)/announcements')}
+          >
             <Text style={[styles.viewMoreText, { color: colors.primary }]}>
-              View more
+              View all announcements
             </Text>
           </TouchableOpacity>
         </View>
@@ -177,10 +268,16 @@ export default function HomePage() {
       {/* Floating Action Button */}
       <TouchableOpacity 
         style={[styles.fab, { backgroundColor: colors.primary }]}
-        onPress={() => router.push('/(tabs)/explore')}
+        onPress={() => setShowAIChat(true)}
       >
         <IconSymbol name="message.fill" size={24} color={colors.surface} />
       </TouchableOpacity>
+
+      {/* AI Chat Modal */}
+      <AIChatModal 
+        visible={showAIChat} 
+        onClose={() => setShowAIChat(false)} 
+      />
     </ScrollView>
   );
 }
@@ -360,7 +457,7 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 0, // Lower position, closer to the tab bar
     right: 20,
     width: 56,
     height: 56,

@@ -24,6 +24,63 @@ export default function SignupScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+
+  // Email validation
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Clear specific error
+  const clearError = (field: string) => {
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[field];
+      return newErrors;
+    });
+  };
+
+  // Show error popup
+  const showError = (message: string) => {
+    setErrors({ general: message });
+    setShowErrorPopup(true);
+    setTimeout(() => setShowErrorPopup(false), 4000);
+  };
+
+  // Password strength validation
+  const validatePasswordStrength = (password: string) => {
+    const requirements = {
+      length: password.length >= 8,
+      lowercase: /[a-z]/.test(password),
+      uppercase: /[A-Z]/.test(password),
+      special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
+    };
+    
+    const isValid = Object.values(requirements).every(req => req);
+    const strength = Object.values(requirements).filter(req => req).length;
+    
+    return { requirements, isValid, strength };
+  };
+
+  const getPasswordStrengthText = (strength: number) => {
+    switch (strength) {
+      case 0:
+      case 1:
+        return { text: 'Very Weak', color: '#EF4444' };
+      case 2:
+        return { text: 'Weak', color: '#F97316' };
+      case 3:
+        return { text: 'Good', color: '#EAB308' };
+      case 4:
+        return { text: 'Strong', color: '#22C55E' };
+      default:
+        return { text: 'Very Weak', color: '#EF4444' };
+    }
+  };
 
   const upsertUserProfile = async (provider: string) => {
     try {
@@ -88,18 +145,38 @@ export default function SignupScreen() {
   };
 
   const handleSignUp = async () => {
-    if (!email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+    // Clear previous errors
+    setErrors({});
+
+    // Validate email
+    if (!email) {
+      showError('Please enter your email address');
+      return;
+    }
+    if (!validateEmail(email)) {
+      showError('Please enter a valid email address');
       return;
     }
 
+    // Validate password
+    if (!password) {
+      showError('Please enter a password');
+      return;
+    }
+
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.isValid) {
+      showError('Password must contain at least 8 characters, 1 uppercase letter, 1 lowercase letter, and 1 special character');
+      return;
+    }
+
+    // Validate confirm password
+    if (!confirmPassword) {
+      showError('Please confirm your password');
+      return;
+    }
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
+      showError('Passwords do not match');
       return;
     }
 
@@ -145,9 +222,13 @@ export default function SignupScreen() {
         errorMessage = 'Invalid email address.';
       } else if (error.code === 'auth/weak-password') {
         errorMessage = 'Password is too weak. Please choose a stronger password.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many attempts. Please try again later.';
       }
       
-      Alert.alert('Sign Up Error', errorMessage);
+      showError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -223,53 +304,146 @@ export default function SignupScreen() {
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Email</Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                email.length > 0 && !validateEmail(email) && styles.inputError
+              ]}
               placeholder="Enter your email"
               placeholderTextColor="#999"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                if (text.length > 0 && !validateEmail(text)) {
+                  setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
+                } else {
+                  clearError('email');
+                }
+              }}
               keyboardType="email-address"
               autoCapitalize="none"
             />
+            {errors.email && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                <Text style={styles.errorText}>{errors.email}</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              placeholderTextColor="#999"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter your password"
+                placeholderTextColor="#999"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color="#666"
+                />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Password Strength Indicator */}
+            {password.length > 0 && (
+              <View style={styles.passwordStrengthContainer}>
+                <View style={styles.passwordStrengthBar}>
+                  <View
+                    style={[
+                      styles.passwordStrengthFill,
+                      {
+                        width: `${(validatePasswordStrength(password).strength / 4) * 100}%`,
+                        backgroundColor: getPasswordStrengthText(validatePasswordStrength(password).strength).color,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.passwordStrengthText,
+                    { color: getPasswordStrengthText(validatePasswordStrength(password).strength).color },
+                  ]}
+                >
+                  {getPasswordStrengthText(validatePasswordStrength(password).strength).text}
+                </Text>
+              </View>
+            )}
+            
+            {/* Password Requirements */}
+            {password.length > 0 && (
+              <View style={styles.requirementsContainer}>
+                <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+                {Object.entries(validatePasswordStrength(password).requirements).map(([key, isValid]) => (
+                  <View key={key} style={styles.requirementItem}>
+                    <Ionicons
+                      name={isValid ? "checkmark-circle" : "close-circle"}
+                      size={16}
+                      color={isValid ? "#22C55E" : "#EF4444"}
+                    />
+                    <Text style={[styles.requirementText, { color: isValid ? "#22C55E" : "#EF4444" }]}>
+                      {key === 'length' && 'At least 8 characters'}
+                      {key === 'lowercase' && 'One lowercase letter'}
+                      {key === 'uppercase' && 'One uppercase letter'}
+                      {key === 'special' && 'One special character'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Confirm Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Confirm your password"
-              placeholderTextColor="#999"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-            />
-          </View>
-
-          {/* Remember Me */}
-          <View style={styles.rememberMeContainer}>
-            <TouchableOpacity 
-              style={styles.rememberMeButton}
-              onPress={() => setRememberMe(!rememberMe)}
-            >
-              <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                {rememberMe && <Ionicons name="checkmark" size={16} color="white" />}
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Confirm your password"
+                placeholderTextColor="#999"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color="#666"
+                />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Password Match Indicator */}
+            {confirmPassword.length > 0 && (
+              <View style={styles.passwordMatchContainer}>
+                <Ionicons
+                  name={password === confirmPassword ? "checkmark-circle" : "close-circle"}
+                  size={16}
+                  color={password === confirmPassword ? "#22C55E" : "#EF4444"}
+                />
+                <Text
+                  style={[
+                    styles.passwordMatchText,
+                    { color: password === confirmPassword ? "#22C55E" : "#EF4444" },
+                  ]}
+                >
+                  {password === confirmPassword ? "Passwords match" : "Passwords do not match"}
+                </Text>
               </View>
-              <Text style={styles.rememberMeText}>Remember me</Text>
-            </TouchableOpacity>
+            )}
           </View>
-
+        
           {/* Sign Up Button */}
           <TouchableOpacity 
             style={[styles.primaryButton, isLoading && styles.disabledButton]}
@@ -312,6 +486,22 @@ export default function SignupScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Error Popup */}
+        {showErrorPopup && errors.general && (
+          <View style={styles.errorPopup}>
+            <View style={styles.errorPopupContent}>
+              <Ionicons name="alert-circle" size={24} color="#EF4444" />
+              <Text style={styles.errorPopupText}>{errors.general}</Text>
+              <TouchableOpacity
+                style={styles.errorPopupClose}
+                onPress={() => setShowErrorPopup(false)}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -371,6 +561,76 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: '#333',
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  passwordInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingRight: 8,
+  },
+  eyeButton: {
+    padding: 4,
+  },
+  passwordStrengthContainer: {
+    marginTop: 8,
+  },
+  passwordStrengthBar: {
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  passwordStrengthFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  passwordStrengthText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  requirementsContainer: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  requirementsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  requirementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  requirementText: {
+    fontSize: 12,
+    marginLeft: 6,
+  },
+  passwordMatchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  passwordMatchText: {
+    fontSize: 12,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   rememberMeContainer: {
     marginBottom: 30,
@@ -468,5 +728,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#007AFF',
     fontWeight: '600',
+  },
+  // Error styles
+  inputError: {
+    borderColor: '#EF4444',
+    borderWidth: 2,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  errorPopup: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  errorPopupContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    maxWidth: '90%',
+  },
+  errorPopupText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1F2937',
+    marginLeft: 12,
+    marginRight: 12,
+    lineHeight: 22,
+  },
+  errorPopupClose: {
+    padding: 4,
   },
 });

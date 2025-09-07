@@ -127,7 +127,7 @@ const FeedbackTab: React.FC = () => {
 
   const getRatingBarWidth = (rating: string) => {
     const percentage = getRatingPercentage(rating);
-    return `${percentage}%`;
+    return percentage;
   };
 
   const formatDate = (timestamp: any) => {
@@ -206,28 +206,28 @@ const FeedbackTab: React.FC = () => {
                 <View style={styles.ratingBar}>
                   <Text style={styles.ratingEmoji}>😀</Text>
                   <View style={styles.barContainer}>
-                    <View style={[styles.bar, { width: getRatingBarWidth('Loved it') }]} />
+                    <View style={[styles.bar, { width: `${getRatingBarWidth('Loved it')}%` }]} />
                   </View>
                 </View>
                 
                 <View style={styles.ratingBar}>
                   <Text style={styles.ratingEmoji}>😊</Text>
                   <View style={styles.barContainer}>
-                    <View style={[styles.bar, { width: getRatingBarWidth('Good') }]} />
+                    <View style={[styles.bar, { width: `${getRatingBarWidth('Good')}%` }]} />
                   </View>
                 </View>
                 
                 <View style={styles.ratingBar}>
                   <Text style={styles.ratingEmoji}>😐</Text>
                   <View style={styles.barContainer}>
-                    <View style={[styles.bar, { width: getRatingBarWidth('Bad') }]} />
+                    <View style={[styles.bar, { width: `${getRatingBarWidth('Bad')}%` }]} />
                   </View>
                 </View>
                 
                 <View style={styles.ratingBar}>
                   <Text style={styles.ratingEmoji}>😠</Text>
                   <View style={styles.barContainer}>
-                    <View style={[styles.bar, { width: getRatingBarWidth('Terrible') }]} />
+                    <View style={[styles.bar, { width: `${getRatingBarWidth('Terrible')}%` }]} />
                   </View>
                 </View>
               </View>

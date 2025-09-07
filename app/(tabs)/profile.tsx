@@ -19,8 +19,16 @@ export default function ProfilePage() {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editName, setEditName] = useState(user?.displayName || '');
-  const [editPhotoURL, setEditPhotoURL] = useState(user?.photoURL || null);
+  const [editPhotoURL, setEditPhotoURL] = useState<string | undefined>(user?.photoURL || undefined);
   const [isSaving, setIsSaving] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
     photoURL?: string;
@@ -40,21 +48,21 @@ export default function ProfilePage() {
           const userData = userSnap.data();
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
-            photoURL: userData.photoURL || user.photoURL || null,
+            photoURL: userData.photoURL || user.photoURL || undefined,
           });
         } else {
-          // Fallback to auth data if Firestore document doesn't exist
-          setUserProfile({
-            displayName: user.displayName || 'User',
-            photoURL: user.photoURL || null,
-          });
+        // Fallback to auth data if Firestore document doesn't exist
+        setUserProfile({
+          displayName: user.displayName || 'User',
+          photoURL: user.photoURL || undefined,
+        });
         }
       } catch (error) {
         console.error('Error fetching user profile:', error);
         // Fallback to auth data on error
         setUserProfile({
           displayName: user.displayName || 'User',
-          photoURL: user.photoURL || null,
+          photoURL: user.photoURL || undefined,
         });
       }
     };
@@ -100,13 +108,13 @@ export default function ProfilePage() {
   const handleEditProfile = () => {
     setIsEditMode(true);
     setEditName(userProfile?.displayName || user?.displayName || '');
-    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || null);
+    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || undefined);
   };
 
   const handleCancelEdit = () => {
     setIsEditMode(false);
     setEditName(userProfile?.displayName || user?.displayName || '');
-    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || null);
+    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || undefined);
   };
 
   const handleSaveProfile = async () => {
@@ -156,6 +164,97 @@ export default function ProfilePage() {
       }
       
       setEditPhotoURL(selectedImageUri);
+    }
+  };
+
+  const handleChangePassword = () => {
+    setShowChangePassword(true);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleCancelChangePassword = () => {
+    setShowChangePassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  const validatePassword = (password: string) => {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!/(?=.*[a-z])/.test(password)) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!/(?=.*[A-Z])/.test(password)) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!/(?=.*\d)/.test(password)) {
+      return 'Password must contain at least one number';
+    }
+    if (!/(?=.*[@$!%*?&])/.test(password)) {
+      return 'Password must contain at least one special character (@$!%*?&)';
+    }
+    return null;
+  };
+
+  const handleSavePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in all password fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'New passwords do not match');
+      return;
+    }
+
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) {
+      Alert.alert('Password Requirements', passwordError);
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      // Import Firebase Auth functions
+      const { signInWithEmailAndPassword, updatePassword } = await import('firebase/auth');
+      const { auth } = await import('@/config/firebase');
+      
+      if (!auth || !user?.email) {
+        throw new Error('Authentication not available');
+      }
+
+      // Re-authenticate user with current password
+      await signInWithEmailAndPassword(auth, user.email, currentPassword);
+      
+      // Update password
+      await updatePassword(user, newPassword);
+      
+      Alert.alert('Success', 'Password updated successfully');
+      handleCancelChangePassword();
+    } catch (error: any) {
+      console.error('Password change error:', error);
+      let errorMessage = 'Failed to change password';
+      
+      if (error?.code === 'auth/wrong-password') {
+        errorMessage = 'Current password is incorrect';
+      } else if (error?.code === 'auth/weak-password') {
+        errorMessage = 'New password is too weak';
+      } else if (error?.code === 'auth/requires-recent-login') {
+        errorMessage = 'Please log out and log back in before changing your password';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -244,6 +343,17 @@ export default function ProfilePage() {
               )}
             </TouchableOpacity>
           )}
+
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]} 
+            onPress={handleChangePassword}
+          >
+            <IconSymbol name="lock.rotation" size={24} color={colors.primary} />
+            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
+              Change Password
+            </Text>
+            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
 
           <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
             <IconSymbol name="bell" size={24} color={colors.primary} />
@@ -421,6 +531,126 @@ export default function ProfilePage() {
                     <ActivityIndicator color={colors.surface} />
                   ) : (
                     <Text style={[styles.modalButtonText, { color: colors.surface }]}>Logout</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Change Password Modal */}
+        <Modal
+          visible={showChangePassword}
+          transparent
+          animationType="slide"
+          onRequestClose={handleCancelChangePassword}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Change Password</Text>
+              
+              {/* Current Password */}
+              <View style={styles.passwordInputContainer}>
+                <Text style={[styles.passwordLabel, { color: colors.textPrimary }]}>Current Password</Text>
+                <View style={[styles.passwordInputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <TextInput
+                    style={[styles.passwordInput, { color: colors.textPrimary }]}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    placeholder="Enter current password"
+                    placeholderTextColor={colors.textTertiary}
+                    secureTextEntry={!showCurrentPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                  >
+                    <IconSymbol 
+                      name={showCurrentPassword ? "eye.slash" : "eye"} 
+                      size={20} 
+                      color={colors.textSecondary} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* New Password */}
+              <View style={styles.passwordInputContainer}>
+                <Text style={[styles.passwordLabel, { color: colors.textPrimary }]}>New Password</Text>
+                <View style={[styles.passwordInputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <TextInput
+                    style={[styles.passwordInput, { color: colors.textPrimary }]}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Enter new password"
+                    placeholderTextColor={colors.textTertiary}
+                    secureTextEntry={!showNewPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                  >
+                    <IconSymbol 
+                      name={showNewPassword ? "eye.slash" : "eye"} 
+                      size={20} 
+                      color={colors.textSecondary} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Confirm Password */}
+              <View style={styles.passwordInputContainer}>
+                <Text style={[styles.passwordLabel, { color: colors.textPrimary }]}>Confirm New Password</Text>
+                <View style={[styles.passwordInputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <TextInput
+                    style={[styles.passwordInput, { color: colors.textPrimary }]}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Confirm new password"
+                    placeholderTextColor={colors.textTertiary}
+                    secureTextEntry={!showConfirmPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    <IconSymbol 
+                      name={showConfirmPassword ? "eye.slash" : "eye"} 
+                      size={20} 
+                      color={colors.textSecondary} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Password Requirements */}
+              <View style={styles.passwordRequirements}>
+                <Text style={[styles.requirementsTitle, { color: colors.textSecondary }]}>Password Requirements:</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 8 characters</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One uppercase letter</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One lowercase letter</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One number</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One special character (@$!%*?&)</Text>
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
+                  onPress={handleCancelChangePassword}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.modalButtonConfirm, { backgroundColor: colors.primary }]} 
+                  onPress={handleSavePassword} 
+                  disabled={isChangingPassword}
+                >
+                  {isChangingPassword ? (
+                    <ActivityIndicator color={colors.surface} />
+                  ) : (
+                    <Text style={[styles.modalButtonText, { color: colors.surface }]}>Change Password</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -651,5 +881,50 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  passwordModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 12,
+    padding: 20,
+  },
+  passwordInputContainer: {
+    marginBottom: 16,
+  },
+  passwordLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  passwordInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  passwordInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 12,
+  },
+  eyeButton: {
+    padding: 8,
+  },
+  passwordRequirements: {
+    marginBottom: 20,
+    padding: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 8,
+  },
+  requirementsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  requirementText: {
+    fontSize: 12,
+    marginBottom: 2,
   },
 }); 
