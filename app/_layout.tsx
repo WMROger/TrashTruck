@@ -74,10 +74,11 @@ function RootLayoutNav() {
           router.replace('/admin/dashboard' as any);
         }
       } else {
-        // Mobile: redirect to user tabs
-        if (currentSegment === '(auth)' || currentSegment === 'admin' || currentSegment === 'splash') {
-          router.replace('/(tabs)' as any);
+        // Mobile: redirect to user tabs (but allow loading page to show first)
+        if (currentSegment === 'admin' || currentSegment === 'splash') {
+          router.replace('/home' as any);
         }
+        // Don't redirect if user is on loading page - let it handle its own navigation
       }
     }
   }, [isAuthenticated, loading, segments, router, isDesktopWeb, isAdmin]);

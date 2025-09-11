@@ -189,12 +189,12 @@ export default function LoginScreen() {
         }
 
         await upsertUserProfile(isPasswordProvider ? 'password' : 'oauth');
-        router.replace('/home' as any);
+        router.replace('/(auth)/loading' as any);
       } else {
         // Fallback to mock login if Firebase is not available
         await new Promise(resolve => setTimeout(resolve, 1000));
         console.log('Mock login - Firebase not available');
-        router.replace('/home' as any);
+        router.replace('/(auth)/loading' as any);
       }
     } catch (error: any) {
       console.error('Login error:', error);
@@ -230,7 +230,7 @@ export default function LoginScreen() {
       if (result.success) {
         await upsertUserProfile('google');
         console.log('Google login successful');
-        router.replace('/home' as any);
+        router.replace('/(auth)/loading' as any);
       } else {
         console.error('Google login failed:', result.error);
         Alert.alert('Google Sign-In Error', result.error || 'Google sign-in failed');
@@ -253,7 +253,7 @@ export default function LoginScreen() {
       if (result.success) {
         await upsertUserProfile('facebook');
         console.log('Facebook login successful');
-        router.replace('/home' as any);
+        router.replace('/(auth)/loading' as any);
       } else {
         console.error('Facebook login failed:', result.error);
         Alert.alert('Facebook Sign-In Error', result.error || 'Facebook sign-in failed');

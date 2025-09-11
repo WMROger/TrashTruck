@@ -1,14 +1,13 @@
 import { Tabs, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Image, Platform } from 'react-native';
 
 import { useAuthContext } from '@/components/AuthContext';
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 
 export default function TabLayout() {
@@ -65,7 +64,8 @@ export default function TabLayout() {
     <Tabs
       initialRouteName="home"
       screenOptions={{
-        tabBarActiveTintColor: Colors[theme ?? 'light'].tint,
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: 'rgba(255,255,255,0.8)',
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
@@ -73,8 +73,13 @@ export default function TabLayout() {
           ios: {
             // Use a transparent background on iOS to show the blur effect
             position: 'absolute',
+            backgroundColor: 'transparent',
+            borderTopWidth: 0,
           },
-          default: {},
+          default: {
+            backgroundColor: 'transparent',
+            borderTopWidth: 0,
+          },
         }),
       }}>
       <Tabs.Screen
@@ -95,7 +100,13 @@ export default function TabLayout() {
         name="announcements"
         options={{
           title: 'Announcements',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="megaphone.fill" color={color} />,
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('../../assets/images/AnnouncementIcon.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tabs.Screen
@@ -109,7 +120,13 @@ export default function TabLayout() {
         name="report"
         options={{
           title: 'Report',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="exclamationmark.triangle.fill" color={color} />,
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('../../assets/images/ReportIcon.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tabs.Screen

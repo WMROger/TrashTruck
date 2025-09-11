@@ -78,6 +78,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Comments on announcements
+    match /comments/{commentId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
     // Public data
     match /public_data/{document} {
       allow read: if isAuthenticated();

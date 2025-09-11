@@ -2,6 +2,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { ScheduleData, ScheduleNotificationService } from '@/services/scheduleNotificationService';
 import { collection, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -10,18 +11,7 @@ export default function ScheduleScreen() {
   const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
 
-  type RawSchedule = {
-    id: string;
-    userId: string;
-    dateText: string; // e.g., "August 17, 2025"
-    timeText: string; // e.g., "07:00"
-    street: string;
-    frequency: string; // One-time | Daily | Weekly | Monthly
-    wasteCategory: string;
-    truck?: string;
-    driver?: string;
-    note?: string;
-  };
+  type RawSchedule = ScheduleData;
 
   const [currentMonth, setCurrentMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -85,13 +75,20 @@ export default function ScheduleScreen() {
   // Subscribe to schedules from backend (Firestore)
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(collection(db, 'schedules'), (snap) => {
+    const unsub = onSnapshot(collection(db, 'schedules'), async (snap) => {
       const rows: RawSchedule[] = [];
       snap.forEach((doc) => {
         const d: any = doc.data();
         rows.push({ id: doc.id, ...d });
       });
       setRawSchedules(rows);
+      
+      // Schedule notifications for all schedules
+      try {
+        await ScheduleNotificationService.schedulePickupNotifications(rows);
+      } catch (error) {
+        console.error('Error scheduling pickup notifications:', error);
+      }
     });
     return () => unsub();
   }, []);

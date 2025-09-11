@@ -4,6 +4,8 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { NotificationService } from '@/services/notificationService';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -27,6 +29,20 @@ export default function HomePage() {
     category: string;
     createdAt: any;
   }[]>([]);
+  const [lastAnnouncementId, setLastAnnouncementId] = useState<string | null>(null);
+
+  // Request notification permissions on mount
+  useEffect(() => {
+    const requestPermissions = async () => {
+      try {
+        await NotificationService.requestPermissions();
+      } catch (error) {
+        console.error('Error requesting notification permissions:', error);
+      }
+    };
+    
+    requestPermissions();
+  }, []);
 
   // Fetch user profile data from Firestore
   useEffect(() => {
@@ -76,7 +92,7 @@ export default function HomePage() {
     );
     
     const unsubscribe = onSnapshot(q, 
-      (snapshot) => {
+      async (snapshot) => {
         console.log('Home announcements snapshot received:', snapshot.docs.length, 'documents');
         
         const announcementsData = snapshot.docs.map(doc => {
@@ -98,6 +114,20 @@ export default function HomePage() {
           return dateB.getTime() - dateA.getTime();
         });
         
+        // Check for new announcements and send notifications
+        if (announcementsData.length > 0) {
+          const latestAnnouncement = announcementsData[0];
+          if (lastAnnouncementId !== latestAnnouncement.id) {
+            // New announcement detected, send notification
+            try {
+              await NotificationService.scheduleAnnouncementNotification(latestAnnouncement);
+              setLastAnnouncementId(latestAnnouncement.id);
+            } catch (error) {
+              console.error('Error sending announcement notification:', error);
+            }
+          }
+        }
+        
         setAnnouncements(announcementsData.slice(0, 2)); // Show only latest 2 announcements
       },
       (error) => {
@@ -109,7 +139,7 @@ export default function HomePage() {
       console.log('Cleaning up home announcements listener');
       unsubscribe();
     };
-  }, []);
+  }, [lastAnnouncementId]);
 
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
@@ -169,7 +199,11 @@ export default function HomePage() {
         
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.notificationButton}>
-            <IconSymbol name="bell.fill" size={24} color={colors.textSecondary} />
+            <Image 
+              source={require('../../assets/images/NotificationIcon.png')}
+              style={{ width: 24, height: 24, tintColor: colors.textSecondary }}
+              resizeMode="contain"
+            />
             <View style={[styles.notificationBadge, { backgroundColor: colors.error }]}>
               <Text style={[styles.notificationText, { color: colors.surface }]}>1</Text>
             </View>
@@ -223,7 +257,15 @@ export default function HomePage() {
             </View>
           ) : (
             announcements.map((announcement) => (
-              <View key={announcement.id} style={[styles.announcementCard, { backgroundColor: colors.surface }]}>
+              <TouchableOpacity 
+                key={announcement.id} 
+                style={[styles.announcementCard, { backgroundColor: colors.surface }]}
+                onPress={() => router.push({
+                  pathname: '/(tabs)/announcements',
+                  params: { openModal: 'true', announcementId: announcement.id }
+                })}
+                activeOpacity={0.7}
+              >
                 <View style={styles.announcementLeft}>
                   <IconSymbol 
                     name={getPriorityIcon(announcement.priority)} 
@@ -249,7 +291,7 @@ export default function HomePage() {
                     {announcement.category}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           )}
 
@@ -267,10 +309,21 @@ export default function HomePage() {
 
       {/* Floating Action Button */}
       <TouchableOpacity 
-        style={[styles.fab, { backgroundColor: colors.primary }]}
+        style={styles.fab}
         onPress={() => setShowAIChat(true)}
       >
-        <IconSymbol name="message.fill" size={24} color={colors.surface} />
+        <LinearGradient
+          colors={['#73946B', '#242E21']}
+          style={styles.fabGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Image 
+            source={require('../../assets/images/AIChatBot.png')} 
+            style={styles.aiChatIcon}
+            resizeMode="contain"
+          />
+        </LinearGradient>
       </TouchableOpacity>
 
       {/* AI Chat Modal */}
@@ -462,12 +515,21 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  fabGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiChatIcon: {
+    width: 32,
+    height: 32,
   },
 }); 

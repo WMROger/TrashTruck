@@ -68,7 +68,7 @@ export default function ReportScreen() {
   };
   
   const BARANGAYS = useMemo(() => [
-    'Sambag 2', 'Sambag 1', 'Lahug', 'Guadalupe', 'Capitol Site', 'Labangon',
+    'Sambag 2',
   ], []);
 
   const LANDMARKS = useMemo(() => [
@@ -108,9 +108,19 @@ export default function ReportScreen() {
       const blob = await response.blob();
       console.log('Image blob size:', blob.size, 'bytes');
       
-      // Upload the file
+      // Check if image is too large (Firestore field limit is ~1MB)
+      if (blob.size > 1000000) { // 1MB limit
+        throw new Error('Image too large. Please choose a smaller image.');
+      }
+      
+      // Upload the file with timeout
       console.log('Uploading to Firebase Storage...');
-      const uploadTask = await uploadBytes(imageRef, blob);
+      const uploadPromise = uploadBytes(imageRef, blob);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timeout')), 10000)
+      );
+      
+      const uploadTask = await Promise.race([uploadPromise, timeoutPromise]) as any;
       console.log('Upload completed:', uploadTask.metadata);
       
       // Get the download URL
@@ -122,13 +132,16 @@ export default function ReportScreen() {
     } catch (error) {
       console.error('Error uploading image:', error);
       
-      // Check if it's a CORS error
+      // Check if it's a CORS error or timeout
       if (error instanceof Error && (
         error.message.includes('CORS') || 
         error.message.includes('Access to XMLHttpRequest') ||
-        error.message.includes('preflight request')
+        error.message.includes('preflight request') ||
+        error.message.includes('ERR_FAILED') ||
+        error.message.includes('blocked by CORS policy') ||
+        error.message.includes('Upload timeout')
       )) {
-        console.warn('CORS error detected - Firebase Storage blocked in development');
+        console.warn('CORS or timeout error detected - Firebase Storage blocked in development');
         throw new Error('CORS_ERROR');
       }
       
@@ -155,11 +168,63 @@ export default function ReportScreen() {
     try {
       let imageURL = null;
       
-      // Store image URI directly (like profile.tsx) to avoid CORS issues
+      // Upload image to Firebase Storage if available
       if (imageUri) {
-        console.log('Using local image URI (avoiding CORS issues):', imageUri);
-        imageURL = imageUri; // Store local URI directly
-        setUploadProgress(75);
+        try {
+          console.log('Uploading image to Firebase Storage...');
+          setUploadProgress(25);
+          
+          // Check if we're in development mode (web) and skip upload
+          if (Platform.OS === 'web' && window.location.hostname === 'localhost') {
+            console.warn('Skipping image upload in development mode due to CORS restrictions');
+            Alert.alert(
+              'Development Mode', 
+              'Image upload is disabled in development mode due to CORS restrictions. Your report will be submitted without the photo.',
+              [{ text: 'OK' }]
+            );
+            imageURL = null;
+            setUploadProgress(75);
+          } else {
+            imageURL = await uploadImageToStorage(imageUri);
+            setUploadProgress(75);
+            console.log('Image uploaded successfully:', imageURL);
+          }
+        } catch (uploadError) {
+          console.warn('Image upload failed, proceeding without image:', uploadError);
+          
+          // Show user-friendly error message for specific cases
+          if (uploadError instanceof Error) {
+            if (uploadError.message.includes('too large')) {
+              Alert.alert(
+                'Image Too Large', 
+                'The selected image is too large. Please choose a smaller image or submit without a photo.',
+                [
+                  { text: 'Submit Without Photo', onPress: () => {} },
+                  { text: 'Choose Different Image', onPress: () => pickImage() }
+                ]
+              );
+            } else if (uploadError.message.includes('CORS_ERROR') || 
+                      uploadError.message.includes('CORS') || 
+                      uploadError.message.includes('ERR_FAILED') ||
+                      uploadError.message.includes('blocked by CORS policy')) {
+              Alert.alert(
+                'Upload Issue', 
+                'Image upload is not available in development mode. Your report will be submitted without the photo.',
+                [{ text: 'OK' }]
+              );
+            } else {
+              // Generic error message for other upload failures
+              Alert.alert(
+                'Upload Issue', 
+                'Image upload failed. Your report will be submitted without the photo.',
+                [{ text: 'OK' }]
+              );
+            }
+          }
+          
+          // If upload fails, proceed without image rather than failing the entire report
+          imageURL = null;
+        }
       } else {
         imageURL = null;
       }
@@ -169,6 +234,7 @@ export default function ReportScreen() {
       console.log('Image URL to be saved:', imageURL);
       console.log('Current user UID:', auth.currentUser.uid);
       console.log('DB available:', !!db);
+      console.log('Proceeding with report submission...');
       
       const reportData = {
         title,
@@ -253,15 +319,16 @@ export default function ReportScreen() {
   };
 
   const pickImage = async () => {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    allowsEditing: true,
-    quality: 0.7,
-  });
-  if (!result.canceled && result.assets && result.assets.length > 0) {
-    setImageUri(result.assets[0].uri);
-  }
-};
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5, // Reduced quality to reduce file size
+      aspect: [4, 3], // Fixed aspect ratio for consistency
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
 
 
   return (
@@ -279,8 +346,8 @@ export default function ReportScreen() {
 
       {/* Title */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Title</Text>
-        <Text style={styles.sublabel}>What you’re reporting?</Text>
+        <Text style={styles.label}>Title <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.sublabel}>What you're reporting?</Text>
         <View style={styles.inputField}>
           <TextInput
             value={title}
@@ -297,106 +364,115 @@ export default function ReportScreen() {
         <Text style={styles.sectionTitle}>Location of the Trash Pile</Text>
 
         {/* Barangay dropdown */}
-        <View style={[styles.dropdownContainer, showBarangay ? styles.dropdownContainerOpen : null]} ref={brgyAnchorRef}>
-          <TouchableOpacity
-            style={styles.inputField}
-            onPress={() => {
-              const next = !showBarangay;
-              setShowBarangay(next);
-              if (Platform.OS === 'web' && next && brgyAnchorRef.current?.getBoundingClientRect) {
-                const rect = brgyAnchorRef.current.getBoundingClientRect();
-                setBrgyPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.inputText, barangay ? undefined : styles.placeholder]}>
-              {barangay || 'Barangay'}
-            </Text>
-            <Ionicons name={showBarangay ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
-          </TouchableOpacity>
-          {showBarangay && (
-            Platform.OS === 'web'
-              ? createPortal(
-                  <View style={[styles.dropdownPanelPortal, { top: brgyPortalRect.top, left: brgyPortalRect.left, width: brgyPortalRect.width }] }>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Barangay <Text style={styles.required}>*</Text></Text>
+          <View style={[styles.dropdownContainer, showBarangay ? styles.dropdownContainerOpen : null]} ref={brgyAnchorRef}>
+            <TouchableOpacity
+              style={styles.inputField}
+              onPress={() => {
+                const next = !showBarangay;
+                setShowBarangay(next);
+                if (Platform.OS === 'web' && next && brgyAnchorRef.current?.getBoundingClientRect) {
+                  const rect = brgyAnchorRef.current.getBoundingClientRect();
+                  setBrgyPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.inputText, barangay ? undefined : styles.placeholder]}>
+                {barangay || 'Barangay'}
+              </Text>
+              <Ionicons name={showBarangay ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+            </TouchableOpacity>
+            {showBarangay && (
+              Platform.OS === 'web'
+                ? createPortal(
+                    <View style={[styles.dropdownPanelPortal, { top: brgyPortalRect.top, left: brgyPortalRect.left, width: brgyPortalRect.width }] }>
+                      {BARANGAYS.map((b) => (
+                        <TouchableOpacity key={b} style={styles.dropdownItem} onPress={() => { setBarangay(b); setShowBarangay(false); }}>
+                          <Text style={styles.dropdownText}>{b}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>,
+                    document.body
+                  )
+                : (
+                  <View style={styles.dropdownPanel}>
                     {BARANGAYS.map((b) => (
                       <TouchableOpacity key={b} style={styles.dropdownItem} onPress={() => { setBarangay(b); setShowBarangay(false); }}>
                         <Text style={styles.dropdownText}>{b}</Text>
                       </TouchableOpacity>
                     ))}
-                  </View>,
-                  document.body
+                  </View>
                 )
-              : (
-                <View style={styles.dropdownPanel}>
-                  {BARANGAYS.map((b) => (
-                    <TouchableOpacity key={b} style={styles.dropdownItem} onPress={() => { setBarangay(b); setShowBarangay(false); }}>
-                      <Text style={styles.dropdownText}>{b}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )
-          )}
+            )}
+          </View>
         </View>
 
         {/* Street input */}
-        <View style={styles.inputField}>
-          <TextInput
-            value={street}
-            onChangeText={setStreet}
-            placeholder="Street name or purok/sitio"
-            placeholderTextColor="#7C8E80"
-            style={styles.inputText}
-          />
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Street <Text style={styles.required}>*</Text></Text>
+          <View style={styles.inputField}>
+            <TextInput
+              value={street}
+              onChangeText={setStreet}
+              placeholder="Street name or purok/sitio"
+              placeholderTextColor="#7C8E80"
+              style={styles.inputText}
+            />
+          </View>
         </View>
 
         {/* Landmark dropdown */}
-        <View style={[styles.dropdownContainer, showLandmark ? styles.dropdownContainerOpen : null]} ref={landmarkAnchorRef}>
-          <TouchableOpacity
-            style={styles.inputField}
-            onPress={() => {
-              const next = !showLandmark;
-              setShowLandmark(next);
-              if (Platform.OS === 'web' && next && landmarkAnchorRef.current?.getBoundingClientRect) {
-                const rect = landmarkAnchorRef.current.getBoundingClientRect();
-                setLandmarkPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.inputText, landmark ? undefined : styles.placeholder]}>
-              {landmark || 'Nearby landmarks'}
-            </Text>
-            <Ionicons name={showLandmark ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
-          </TouchableOpacity>
-          {showLandmark && (
-            Platform.OS === 'web'
-              ? createPortal(
-                  <View style={[styles.dropdownPanelPortal, { top: landmarkPortalRect.top, left: landmarkPortalRect.left, width: landmarkPortalRect.width }] }>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Landmark</Text>
+          <View style={[styles.dropdownContainer, showLandmark ? styles.dropdownContainerOpen : null]} ref={landmarkAnchorRef}>
+            <TouchableOpacity
+              style={styles.inputField}
+              onPress={() => {
+                const next = !showLandmark;
+                setShowLandmark(next);
+                if (Platform.OS === 'web' && next && landmarkAnchorRef.current?.getBoundingClientRect) {
+                  const rect = landmarkAnchorRef.current.getBoundingClientRect();
+                  setLandmarkPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.inputText, landmark ? undefined : styles.placeholder]}>
+                {landmark || 'Nearby landmarks'}
+              </Text>
+              <Ionicons name={showLandmark ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+            </TouchableOpacity>
+            {showLandmark && (
+              Platform.OS === 'web'
+                ? createPortal(
+                    <View style={[styles.dropdownPanelPortal, { top: landmarkPortalRect.top, left: landmarkPortalRect.left, width: landmarkPortalRect.width }] }>
+                      {LANDMARKS.map((l) => (
+                        <TouchableOpacity key={l} style={styles.dropdownItem} onPress={() => { setLandmark(l); setShowLandmark(false); }}>
+                          <Text style={styles.dropdownText}>{l}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>,
+                    document.body
+                  )
+                : (
+                  <View style={styles.dropdownPanel}>
                     {LANDMARKS.map((l) => (
                       <TouchableOpacity key={l} style={styles.dropdownItem} onPress={() => { setLandmark(l); setShowLandmark(false); }}>
                         <Text style={styles.dropdownText}>{l}</Text>
                       </TouchableOpacity>
                     ))}
-                  </View>,
-                  document.body
+                  </View>
                 )
-              : (
-                <View style={styles.dropdownPanel}>
-                  {LANDMARKS.map((l) => (
-                    <TouchableOpacity key={l} style={styles.dropdownItem} onPress={() => { setLandmark(l); setShowLandmark(false); }}>
-                      <Text style={styles.dropdownText}>{l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )
-          )}
+            )}
+          </View>
         </View>
       </View>
 
       {/* Description */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Description of Trash</Text>
+        <Text style={styles.label}>Description of Trash <Text style={styles.required}>*</Text></Text>
         <Text style={styles.sublabel}>What do you see? Please describe the type and amount of trash.</Text>
         <View style={styles.textArea}>
           <TextInput
@@ -474,6 +550,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 12, fontWeight: '700', color: '#234033', marginBottom: 6 },
   label: { fontSize: 12, fontWeight: '700', color: '#234033' },
   sublabel: { fontSize: 10, color: '#4B5F4F', marginBottom: 6 },
+  required: { color: '#FF4444', fontWeight: '700' },
 
   inputField: {
     flexDirection: 'row',
