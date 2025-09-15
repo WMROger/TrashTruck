@@ -20,8 +20,11 @@ export default function ReportScreen() {
   const [brgyPortalRect, setBrgyPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const [landmarkPortalRect, setLandmarkPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const MAX_FIRESTORE_FIELD_BYTES = 1000000; // ~1MB safe cap
 
   // Debug function to check Firebase configuration
   const checkFirebaseConfig = () => {
@@ -90,9 +93,11 @@ export default function ReportScreen() {
     try {
       console.log('Uploading image with URI:', uri);
       
-      // Create a unique filename
+      // Create a unique filename and honor MIME extension
       const timestamp = Date.now();
-      const filename = `reports/${auth.currentUser.uid}/${timestamp}.jpg`;
+      const mime = imageMimeType || 'image/jpeg';
+      const extension = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      const filename = `reports/${auth.currentUser.uid}/${timestamp}.${extension}`;
       console.log('Uploading to path:', filename);
       
       // Create a reference to the file
@@ -108,14 +113,9 @@ export default function ReportScreen() {
       const blob = await response.blob();
       console.log('Image blob size:', blob.size, 'bytes');
       
-      // Check if image is too large (Firestore field limit is ~1MB)
-      if (blob.size > 1000000) { // 1MB limit
-        throw new Error('Image too large. Please choose a smaller image.');
-      }
-      
       // Upload the file with timeout
       console.log('Uploading to Firebase Storage...');
-      const uploadPromise = uploadBytes(imageRef, blob);
+      const uploadPromise = uploadBytes(imageRef, blob, { contentType: mime });
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Upload timeout')), 10000)
       );
@@ -129,8 +129,11 @@ export default function ReportScreen() {
       console.log('Download URL obtained:', downloadURL);
       
       return downloadURL;
-    } catch (error) {
-      console.error('Error uploading image:', error);
+    } catch (error: any) {
+      try {
+        const payload = error?.serverResponse || error?.customData || error;
+        console.error('Error uploading image:', error?.code || error?.message || error, payload);
+      } catch {}
       
       // Check if it's a CORS error or timeout
       if (error instanceof Error && (
@@ -147,6 +150,33 @@ export default function ReportScreen() {
       
       throw error;
     }
+  };
+
+  // Web-only helper: compress to small thumbnail data URL
+  const createWebThumbnailDataUrl = async (sourceDataUrl: string, maxSize: number, quality: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        if (Platform.OS !== 'web') return resolve(sourceDataUrl);
+        const img: any = new (window as any).Image();
+        img.onload = () => {
+          const canvas: any = document.createElement('canvas');
+          const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
+          const width = Math.round(img.width * ratio);
+          const height = Math.round(img.height * ratio);
+          canvas.width = width;
+          canvas.height = height;
+          const ctx: any = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('Canvas context unavailable'));
+          ctx.drawImage(img, 0, 0, width, height);
+          const out: string = canvas.toDataURL('image/jpeg', quality);
+          resolve(out);
+        };
+        img.onerror = (e: any) => reject(e);
+        img.src = sourceDataUrl;
+      } catch (e) {
+        reject(e);
+      }
+    });
   };
   
   const handleSendReport = async () => {
@@ -182,7 +212,24 @@ export default function ReportScreen() {
               'Image upload is disabled in development mode due to CORS restrictions. Your report will be submitted without the photo.',
               [{ text: 'OK' }]
             );
-            imageURL = null;
+            // Use inline base64 data URL if available so admins can still preview; ensure <1MB
+            let inline = imageDataUrl || null;
+            try {
+              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
+                inline = await createWebThumbnailDataUrl(inline, 640, 0.5);
+              }
+              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
+                inline = await createWebThumbnailDataUrl(inline, 320, 0.35);
+              }
+              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
+                console.warn('Thumbnail still exceeds Firestore field limit, dropping image');
+                inline = null;
+              }
+            } catch (thumbErr) {
+              console.warn('Failed to generate thumbnail, dropping image:', thumbErr);
+              inline = null;
+            }
+            imageURL = inline;
             setUploadProgress(75);
           } else {
             imageURL = await uploadImageToStorage(imageUri);
@@ -273,6 +320,7 @@ export default function ReportScreen() {
       setLandmark('');
       setDescription('');
       setImageUri(null);
+      setImageDataUrl(null);
       
     } catch (err) {
       console.error('Report submission error:', err);
@@ -319,14 +367,26 @@ export default function ReportScreen() {
   };
 
   const pickImage = async () => {
+    const mediaTypes = (ImagePicker as any).MediaType
+      ? [(ImagePicker as any).MediaType.image]
+      : ((ImagePicker as any).MediaTypeOptions?.Images ?? ImagePicker.MediaTypeOptions.Images);
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: mediaTypes as any,
       allowsEditing: true,
       quality: 0.5, // Reduced quality to reduce file size
       aspect: [4, 3], // Fixed aspect ratio for consistency
-    });
+      base64: Platform.OS === 'web',
+    } as any);
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setImageUri(result.assets[0].uri);
+      const asset = result.assets[0] as any;
+      setImageUri(asset.uri);
+      const mime = (asset as any).mimeType || 'image/jpeg';
+      setImageMimeType(mime);
+      if (asset.base64) {
+        setImageDataUrl(`data:${mime};base64,${asset.base64}`);
+      } else {
+        setImageDataUrl(null);
+      }
     }
   };
 

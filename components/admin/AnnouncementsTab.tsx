@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuthContext } from '../AuthContext';
 
@@ -33,6 +33,7 @@ const AnnouncementsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -44,6 +45,16 @@ const AnnouncementsTab: React.FC = () => {
   // Refs for time picker scroll views
   const hourScrollRef = useRef<ScrollView>(null);
   const minuteScrollRef = useRef<ScrollView>(null);
+  // Time wheel constants for looping behavior
+  const ITEM_HEIGHT = 40;
+  const HOUR_COUNT = 24;
+  const MIN_COUNT = 60;
+  const HOUR_MULTIPLIER = 5; // number of loops rendered
+  const MIN_MULTIPLIER = 5;
+  const getHourLoopSize = () => HOUR_COUNT * HOUR_MULTIPLIER;
+  const getMinLoopSize = () => MIN_COUNT * MIN_MULTIPLIER;
+  const middleHourBase = Math.floor(HOUR_MULTIPLIER / 2) * HOUR_COUNT;
+  const middleMinBase = Math.floor(MIN_MULTIPLIER / 2) * MIN_COUNT;
 
   // Set future time when time picker opens
   useEffect(() => {
@@ -56,6 +67,7 @@ const AnnouncementsTab: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
+  const [publishNow, setPublishNow] = useState(false);
 
   const priorityOptions: { value: 'Low' | 'Medium' | 'High' | 'Urgent'; label: string; color: string }[] = [
     { value: 'Low', label: 'Low Priority', color: '#10B981' },
@@ -208,6 +220,7 @@ const AnnouncementsTab: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
+              setIsDeletingId(id);
               console.log('Deleting announcement:', id);
               await deleteDoc(doc(db, 'announcements', id));
               console.log('Announcement deleted successfully');
@@ -215,6 +228,8 @@ const AnnouncementsTab: React.FC = () => {
             } catch (error) {
               console.error('Error deleting announcement:', error);
               Alert.alert('Error', 'Failed to delete announcement. Please try again.');
+            } finally {
+              setIsDeletingId(null);
             }
           }
         }
@@ -495,6 +510,7 @@ const AnnouncementsTab: React.FC = () => {
     setDescription(announcement.description);
     setSelectedPriority(announcement.priority);
     setSelectedCategory(announcement.category);
+    setPublishNow(!!announcement.isPublished);
     // Parse the date from the stored format
     if (announcement.createdAt) {
       const date = announcement.createdAt.toDate ? announcement.createdAt.toDate() : new Date(announcement.createdAt);
@@ -540,8 +556,8 @@ const AnnouncementsTab: React.FC = () => {
         priority: selectedPriority,
         category: selectedCategory,
         updatedAt: serverTimestamp(),
-        isPublished: now >= scheduledDateTime, // Publish immediately if scheduled time has passed
-        publishedAt: now >= scheduledDateTime ? serverTimestamp() : null
+        isPublished: publishNow || now >= scheduledDateTime,
+        publishedAt: (publishNow || now >= scheduledDateTime) ? serverTimestamp() : null
       };
 
       await updateDoc(doc(db, 'announcements', editingAnnouncement.id), announcementData);
@@ -616,7 +632,7 @@ const AnnouncementsTab: React.FC = () => {
               <Text style={styles.formTitle}>Schedule New Announcement</Text>
               
               <View style={styles.formField}>
-                <Text style={styles.fieldLabel}>Title</Text>
+                <Text style={styles.fieldLabel}>Title<Text style={{ color: '#EF4444' }}> *</Text></Text>
                 <TextInput
                   style={styles.textInput}
                   value={title}
@@ -627,7 +643,7 @@ const AnnouncementsTab: React.FC = () => {
               </View>
 
               <View style={styles.formField}>
-                <Text style={styles.fieldLabel}>Description</Text>
+                <Text style={styles.fieldLabel}>Description<Text style={{ color: '#EF4444' }}> *</Text></Text>
                 <TextInput
                   style={styles.textArea}
                   value={description}
@@ -668,6 +684,10 @@ const AnnouncementsTab: React.FC = () => {
                     })}
                   </Text>
                 </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontSize: 14, color: '#6B7280', fontWeight: '500' }}>Publish now</Text>
+                <Switch value={publishNow} onValueChange={setPublishNow} />
               </View>
 
               <View style={styles.formRow}>
@@ -768,14 +788,20 @@ const AnnouncementsTab: React.FC = () => {
                         <TouchableOpacity 
                           style={styles.actionButton}
                           onPress={() => handleEdit(announcement)}
+                          disabled={isDeletingId === announcement.id}
                         >
                           <Ionicons name="create" size={16} color="#4169E1" />
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={styles.actionButton}
                           onPress={() => handleDelete(announcement.id)}
+                          disabled={isDeletingId === announcement.id}
                         >
-                          <Ionicons name="trash" size={16} color="#FF6347" />
+                          {isDeletingId === announcement.id ? (
+                            <ActivityIndicator size="small" color="#FF6347" />
+                          ) : (
+                            <Ionicons name="trash" size={16} color="#FF6347" />
+                          )}
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -840,7 +866,7 @@ const AnnouncementsTab: React.FC = () => {
 
             <ScrollView style={styles.editModalContent}>
               <View style={styles.formField}>
-                <Text style={styles.fieldLabel}>Title</Text>
+                <Text style={styles.fieldLabel}>Title<Text style={{ color: '#EF4444' }}> *</Text></Text>
                 <TextInput
                   style={styles.textInput}
                   value={title}
@@ -851,7 +877,7 @@ const AnnouncementsTab: React.FC = () => {
               </View>
 
               <View style={styles.formField}>
-                <Text style={styles.fieldLabel}>Description</Text>
+                <Text style={styles.fieldLabel}>Description<Text style={{ color: '#EF4444' }}> *</Text></Text>
                 <TextInput
                   style={styles.textArea}
                   value={description}
@@ -981,6 +1007,12 @@ const AnnouncementsTab: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.pickerModal}>
+            <TouchableOpacity
+              onPress={() => setShowDatePicker(false)}
+              style={{ position: 'absolute', top: 12, right: 12, padding: 6 }}
+            >
+              <Ionicons name="close" size={20} color="#111" />
+            </TouchableOpacity>
             <Text style={styles.pickerTitle}>Select Date</Text>
             <Text style={styles.pickerSubtitle}>Choose a future date for your announcement</Text>
             
@@ -1051,6 +1083,12 @@ const AnnouncementsTab: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.pickerModal}>
+            <TouchableOpacity
+              onPress={() => setShowTimePicker(false)}
+              style={{ position: 'absolute', top: 12, right: 12, padding: 6 }}
+            >
+              <Ionicons name="close" size={20} color="#111" />
+            </TouchableOpacity>
             <Text style={styles.pickerTitle}>Select Time</Text>
             <Text style={styles.pickerSubtitle}>Choose a time for your announcement</Text>
             
@@ -1069,31 +1107,43 @@ const AnnouncementsTab: React.FC = () => {
                     ref={hourScrollRef}
                     style={styles.timeScrollView}
                     showsVerticalScrollIndicator={false}
-                    snapToInterval={40}
+                    snapToInterval={ITEM_HEIGHT}
                     decelerationRate="fast"
-                    onMomentumScrollEnd={(event) => {
-                      const index = Math.round(event.nativeEvent.contentOffset.y / 40);
-                      const hour = Math.max(0, Math.min(23, index));
+                    nestedScrollEnabled
+                    scrollEventThrottle={16}
+                    onScroll={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
+                      const hour = (index + HOUR_COUNT) % HOUR_COUNT;
                       handleTimeChange(hour, selectedTime.getMinutes());
+                    }}
+                    onMomentumScrollEnd={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
+                      const hour = (index + HOUR_COUNT) % HOUR_COUNT;
+                      handleTimeChange(hour, selectedTime.getMinutes());
+                      // recenter near middle to preserve infinite feel
+                      const targetY = (middleHourBase + hour) * ITEM_HEIGHT;
+                      hourScrollRef.current?.scrollTo({ y: targetY, animated: false });
                     }}
                     onLayout={() => {
                       // Scroll to current hour when modal opens
-                      hourScrollRef.current?.scrollTo({
-                        y: selectedTime.getHours() * 40,
-                        animated: false
-                      });
+                      const h = selectedTime.getHours();
+                      const targetY = (middleHourBase + h) * ITEM_HEIGHT;
+                      hourScrollRef.current?.scrollTo({ y: targetY, animated: false });
                     }}
                   >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <View key={i} style={styles.timeOption}>
-                        <Text style={[
-                          styles.timeOptionText,
-                          selectedTime.getHours() === i && styles.timeOptionSelected
-                        ]}>
-                          {i.toString().padStart(2, '0')}
-                        </Text>
-                      </View>
-                    ))}
+                    {Array.from({ length: getHourLoopSize() }, (_, i) => {
+                      const val = i % HOUR_COUNT;
+                      const selected = selectedTime.getHours() === val;
+                      return (
+                        <View key={i} style={styles.timeOption}>
+                          <Text style={[styles.timeOptionText, selected && styles.timeOptionSelected]}>
+                            {val.toString().padStart(2, '0')}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </ScrollView>
                 </View>
                 
@@ -1103,31 +1153,41 @@ const AnnouncementsTab: React.FC = () => {
                     ref={minuteScrollRef}
                     style={styles.timeScrollView}
                     showsVerticalScrollIndicator={false}
-                    snapToInterval={40}
+                    snapToInterval={ITEM_HEIGHT}
                     decelerationRate="fast"
-                    onMomentumScrollEnd={(event) => {
-                      const index = Math.round(event.nativeEvent.contentOffset.y / 40);
-                      const minute = Math.max(0, Math.min(59, index));
+                    nestedScrollEnabled
+                    scrollEventThrottle={16}
+                    onScroll={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
+                      const minute = (index + MIN_COUNT) % MIN_COUNT;
                       handleTimeChange(selectedTime.getHours(), minute);
                     }}
+                    onMomentumScrollEnd={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
+                      const minute = (index + MIN_COUNT) % MIN_COUNT;
+                      handleTimeChange(selectedTime.getHours(), minute);
+                      const targetY = (middleMinBase + minute) * ITEM_HEIGHT;
+                      minuteScrollRef.current?.scrollTo({ y: targetY, animated: false });
+                    }}
                     onLayout={() => {
-                      // Scroll to current minute when modal opens
-                      minuteScrollRef.current?.scrollTo({
-                        y: selectedTime.getMinutes() * 40,
-                        animated: false
-                      });
+                      const m = selectedTime.getMinutes();
+                      const targetY = (middleMinBase + m) * ITEM_HEIGHT;
+                      minuteScrollRef.current?.scrollTo({ y: targetY, animated: false });
                     }}
                   >
-                    {Array.from({ length: 60 }, (_, i) => (
-                      <View key={i} style={styles.timeOption}>
-                        <Text style={[
-                          styles.timeOptionText,
-                          selectedTime.getMinutes() === i && styles.timeOptionSelected
-                        ]}>
-                          {i.toString().padStart(2, '0')}
-                        </Text>
-                      </View>
-                    ))}
+                    {Array.from({ length: getMinLoopSize() }, (_, i) => {
+                      const val = i % MIN_COUNT;
+                      const selected = selectedTime.getMinutes() === val;
+                      return (
+                        <View key={i} style={styles.timeOption}>
+                          <Text style={[styles.timeOptionText, selected && styles.timeOptionSelected]}>
+                            {val.toString().padStart(2, '0')}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </ScrollView>
                 </View>
               </View>

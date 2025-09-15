@@ -17,7 +17,12 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.trashtrack"
+      "bundleIdentifier": "com.yourcompany.trashtrack",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to attach photos to reports.",
+        "NSCameraUsageDescription": "We need access to your camera so you can take photos for reports.",
+        "NSMicrophoneUsageDescription": "Microphone is used when recording videos with sound (not required for photos)."
+      }
     },
     "android": {
       "adaptiveIcon": {

@@ -176,6 +176,12 @@ export default function HomePage() {
     }
   };
 
+  const formatAnnouncementDate = (createdAt: any) => {
+    if (!createdAt) return '';
+    const dateObj = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+    return `${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header Section */}
@@ -280,6 +286,9 @@ export default function HomePage() {
                       {announcement.description.length > 50 
                         ? `${announcement.description.substring(0, 50)}...` 
                         : announcement.description}
+                    </Text>
+                    <Text style={[styles.announcementDate, { color: colors.textTertiary }]}>
+                      {formatAnnouncementDate(announcement.createdAt)}
                     </Text>
                   </View>
                 </View>
@@ -488,6 +497,10 @@ const styles = StyleSheet.create({
   announcementSubtitle: {
     fontSize: 14,
   },
+  announcementDate: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   announcementRight: {
     alignItems: 'flex-end',
     gap: 4,
@@ -532,4 +545,4 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
   },
-}); 
+});

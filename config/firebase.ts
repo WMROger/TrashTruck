@@ -15,14 +15,17 @@ try {
   console.log('Firebase: Starting initialization...');
 
   // Your Firebase configuration - Update these with your actual values
+  const inferredBucket = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID
+    ? `${process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID}.appspot.com`
+    : undefined;
   const firebaseConfig = {
     apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
     projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || inferredBucket,
     messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID 
-  };
+  } as any;
 
   // Debug: Log environment variables (without exposing sensitive data)
   console.log('Firebase Config Check:');
@@ -54,10 +57,18 @@ try {
   functions = getFunctions(app);
   console.log('Firebase: Functions initialized successfully');
 
-  // Initialize Storage with proper configuration for web
-  storage = getStorage(app);
+  // Initialize Storage with explicit bucket binding if available
+  const bucket = (firebaseConfig as any).storageBucket;
+  storage = bucket ? getStorage(app, `gs://${bucket}`) : getStorage(app);
   console.log('Firebase: Storage initialized successfully');
-  console.log('Firebase: Storage bucket:', storage._delegate?._host || 'Not available');
+  try {
+    // _location / _host internals differ by SDK builds; try multiple
+    const bucketFromEnv = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    const host = (storage as any)?._delegate?._host || (storage as any)?._host || bucketFromEnv || 'Not available';
+    console.log('Firebase: Storage bucket/host:', host);
+  } catch (e) {
+    console.log('Firebase: Could not read storage host');
+  }
 
   // Initialize Authentication
   try {

@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDoc, onSnapshot, orderBy, query } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { db } from '../../config/firebase';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { db, storage } from '../../config/firebase';
 import { useAuthContext } from '../AuthContext';
 
 interface Feedback {
@@ -10,6 +10,7 @@ interface Feedback {
   userId: string;
   userEmail: string;
   userName: string;
+  photoURL?: string;
   rating: string; // "Loved it", "Good", "Bad", "Terrible"
   title: string;
   message: string;
@@ -22,6 +23,22 @@ const FeedbackTab: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Resolve storage path to download URL if needed
+  const resolvePhotoURL = async (maybePath?: string) => {
+    try {
+      if (!maybePath) return undefined;
+      const isHttp = /^https?:\/\//i.test(maybePath);
+      if (isHttp) return maybePath;
+      if (!storage) return undefined;
+      const { getDownloadURL, ref } = await import('firebase/storage');
+      const r = ref(storage, maybePath);
+      return await getDownloadURL(r);
+    } catch (e) {
+      console.warn('FeedbackTab: Failed to resolve photo URL:', e);
+      return undefined;
+    }
+  };
 
   // Fetch feedbacks from Firestore
   useEffect(() => {
@@ -48,6 +65,7 @@ const FeedbackTab: React.FC = () => {
             const data = docSnapshot.data();
             let userName = 'User';
             let userEmail = '';
+            let photoURL: string | undefined = undefined;
             
             // Fetch user data from users collection
             if (data.userId) {
@@ -57,6 +75,7 @@ const FeedbackTab: React.FC = () => {
                   const userData = userDoc.data();
                   userName = userData.displayName || userData.email?.split('@')[0] || 'User';
                   userEmail = userData.email || '';
+                  photoURL = await resolvePhotoURL(userData.photoURL || userData.avatar || undefined);
                 }
               } catch (error) {
                 console.error('Error fetching user data:', error);
@@ -70,6 +89,7 @@ const FeedbackTab: React.FC = () => {
               userId: data.userId || '',
               userEmail: userEmail,
               userName: userName,
+              photoURL,
               rating: data.rating || 'Good',
               title: data.title || '',
               message: data.description || data.message || '',
@@ -263,7 +283,11 @@ const FeedbackTab: React.FC = () => {
                     <View style={styles.feedbackHeader}>
                       <View style={styles.userInfo}>
                         <View style={styles.avatarContainer}>
-                          <Ionicons name="person" size={24} color="#9CA3AF" />
+                          {feedback.photoURL ? (
+                            <Image source={{ uri: feedback.photoURL }} style={styles.avatarImage} />
+                          ) : (
+                            <Ionicons name="person" size={24} color="#9CA3AF" />
+                          )}
                           <View style={styles.ratingBadge}>
                             <Text style={styles.ratingBadgeEmoji}>
                               {getRatingEmoji(feedback.rating)}
@@ -433,6 +457,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
     position: 'relative',
+  },
+  avatarImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   ratingBadge: {
     position: 'absolute',

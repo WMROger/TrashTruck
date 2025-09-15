@@ -45,6 +45,8 @@ const ScheduleTab: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteTargetInfo, setDeleteTargetInfo] = useState<{ date: string; time: string; street: string; category: string } | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [busyText, setBusyText] = useState('');
 
   const FREQUENCY_OPTIONS = useMemo(() => ['One-time', 'Daily', 'Weekly', 'Monthly' ], []);
   const WASTE_OPTIONS = useMemo(
@@ -137,10 +139,12 @@ const ScheduleTab: React.FC = () => {
       console.warn('You must be logged in to add a schedule');
       return;
     }
-    if (!selectedDate || !timeText) {
-      console.warn('Please select a future date and time');
-      return;
-    }
+    if (!selectedDate || !timeText) { console.warn('Please select a future date and time'); return; }
+    if (!selectedStreet.trim()) { console.warn('Please choose a street'); return; }
+    if (!frequency) { console.warn('Please select frequency'); return; }
+    if (!wasteCategory) { console.warn('Please choose waste category'); return; }
+    if (!truck) { console.warn('Please select assigned truck'); return; }
+    if (!driver) { console.warn('Please choose driver'); return; }
     const when = combineDateTime(selectedDate, timeText);
     if (!isFutureDateTime(when)) {
       console.warn('Selected date/time must be in the future');
@@ -160,6 +164,8 @@ const ScheduleTab: React.FC = () => {
       createdAt: serverTimestamp(),
     };
     try {
+      setBusyText('Saving schedule...');
+      setIsBusy(true);
       if (!db) {
         console.warn('Firestore not initialized; cannot save schedule');
         console.log('Payload (dry-run):', payload);
@@ -170,15 +176,20 @@ const ScheduleTab: React.FC = () => {
       resetForm();
     } catch (error) {
       console.error('Failed to add schedule:', error);
+    } finally {
+      setIsBusy(false);
+      setBusyText('');
     }
   };
 
   const handleSaveEdit = () => {
     if (!selectedId) return;
-    if (!selectedDate || !timeText) {
-      console.warn('Please select a future date and time');
-      return;
-    }
+    if (!selectedDate || !timeText) { console.warn('Please select a future date and time'); return; }
+    if (!selectedStreet.trim()) { console.warn('Please choose a street'); return; }
+    if (!frequency) { console.warn('Please select frequency'); return; }
+    if (!wasteCategory) { console.warn('Please choose waste category'); return; }
+    if (!truck) { console.warn('Please select assigned truck'); return; }
+    if (!driver) { console.warn('Please choose driver'); return; }
     const when = combineDateTime(selectedDate, timeText);
     if (!isFutureDateTime(when)) {
       console.warn('Selected date/time must be in the future');
@@ -198,6 +209,8 @@ const ScheduleTab: React.FC = () => {
     };
     (async () => {
       try {
+        setBusyText('Updating schedule...');
+        setIsBusy(true);
         if (!db) {
           console.warn('Firestore not initialized; cannot update');
         } else {
@@ -208,6 +221,9 @@ const ScheduleTab: React.FC = () => {
         setScheduleMode('add');
       } catch (e) {
         console.error('Update failed', e);
+      } finally {
+        setIsBusy(false);
+        setBusyText('');
       }
     })();
   };
@@ -216,6 +232,8 @@ const ScheduleTab: React.FC = () => {
     const targetId = id || selectedId;
     if (!targetId) return;
     try {
+      setBusyText('Deleting schedule...');
+      setIsBusy(true);
       if (!db) {
         console.warn('Firestore not initialized');
         return;
@@ -239,6 +257,9 @@ const ScheduleTab: React.FC = () => {
     } catch (e: any) {
       console.error('Delete failed', e);
       alert('Delete failed: ' + (e && e.message ? e.message : JSON.stringify(e)));
+    } finally {
+      setIsBusy(false);
+      setBusyText('');
     }
   };
 
@@ -482,7 +503,7 @@ const ScheduleTab: React.FC = () => {
               
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Set date</Text>
+                  <Text style={styles.fieldLabel}>Set date<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <TouchableOpacity style={styles.inputField}>
                     <Text style={styles.inputText}>{selectedDate ? formatDate(selectedDate) : 'Set date'}</Text>
                     <Ionicons name="calendar-outline" size={18} color="#4B5F4F" />
@@ -490,7 +511,7 @@ const ScheduleTab: React.FC = () => {
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Set time</Text>
+                  <Text style={styles.fieldLabel}>Set time<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showTimeDropdown ? styles.dropdownContainerOpen : null]} ref={timeAnchorRef}>
                     <TouchableOpacity style={styles.inputField} onPress={() => { setShowStreetDropdown(false); const next = !showTimeDropdown; setShowTimeDropdown(next); if (Platform.OS === 'web' && next && timeAnchorRef.current && timeAnchorRef.current.getBoundingClientRect) { const rect = timeAnchorRef.current.getBoundingClientRect(); setTimePortalRect({ top: rect.bottom, left: rect.left, width: rect.width }); } }}>
                       <Text style={styles.inputText}>{timeText || 'Set time'}</Text>
@@ -529,7 +550,7 @@ const ScheduleTab: React.FC = () => {
               </View>
 
               <View style={styles.formField}>
-                <Text style={styles.fieldLabel}>Barangay Street</Text>
+                <Text style={styles.fieldLabel}>Barangay Street<Text style={{ color: '#EF4444' }}> *</Text></Text>
                 <View style={[
                   styles.dropdownContainer,
                   showStreetDropdown ? styles.dropdownContainerOpen : null
@@ -587,7 +608,7 @@ const ScheduleTab: React.FC = () => {
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Frequency</Text>
+                  <Text style={styles.fieldLabel}>Frequency<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showFrequencyDropdown ? styles.dropdownContainerOpen : null]} ref={freqAnchorRef}>
                     <TouchableOpacity
                       style={styles.inputField}
@@ -634,7 +655,7 @@ const ScheduleTab: React.FC = () => {
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Waste Category</Text>
+                  <Text style={styles.fieldLabel}>Waste Category<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showWasteDropdown ? styles.dropdownContainerOpen : null]} ref={wasteAnchorRef}>
                     <TouchableOpacity
                       style={styles.inputField}
@@ -685,7 +706,7 @@ const ScheduleTab: React.FC = () => {
 
               <View style={styles.formRow}>
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Assigned Truck</Text>
+                  <Text style={styles.fieldLabel}>Assigned Truck<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showTruckDropdown ? styles.dropdownContainerOpen : null]} ref={truckAnchorRef}>
                     <TouchableOpacity
                       style={styles.inputField}
@@ -732,7 +753,7 @@ const ScheduleTab: React.FC = () => {
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.fieldLabel}>Choose Driver</Text>
+                  <Text style={styles.fieldLabel}>Choose Driver<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showDriverDropdown ? styles.dropdownContainerOpen : null]} ref={driverAnchorRef}>
                     <TouchableOpacity
                       style={styles.inputField}
@@ -945,6 +966,14 @@ const ScheduleTab: React.FC = () => {
           </View>
         </View>
       </Modal>
+      {isBusy && (
+        <View style={styles.busyOverlay} pointerEvents="auto">
+          <View style={styles.busyBox}>
+            <Ionicons name="sync" size={20} color="#234033" />
+            <Text style={styles.busyText}>{busyText || 'Working...'}</Text>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 };
@@ -1428,6 +1457,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  busyOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  busyBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7FBF7',
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 8,
+  },
+  busyText: {
+    color: '#234033',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
 

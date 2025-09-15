@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuthContext } from '../AuthContext';
 
@@ -21,7 +21,6 @@ interface Report {
 
 const ReportsTab: React.FC = () => {
   const { user } = useAuthContext();
-  const [activeFilter, setActiveFilter] = useState<'today' | 'weekly' | 'monthly'>('today');
   const [selectedDate, setSelectedDate] = useState('');
   const [reports, setReports] = useState<Report[]>([]);
   const [filteredReports, setFilteredReports] = useState<Report[]>([]);
@@ -34,6 +33,7 @@ const ReportsTab: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  const [isResolving, setIsResolving] = useState(false);
 
   // Fetch reports from Firestore
   useEffect(() => {
@@ -87,9 +87,8 @@ const ReportsTab: React.FC = () => {
     };
   }, []);
 
-  const handleFilterChange = (filter: 'today' | 'weekly' | 'monthly') => {
-    setActiveFilter(filter);
-    // TODO: Implement date filtering
+  const handleFilterChange = (_filter: 'today' | 'weekly' | 'monthly') => {
+    // Filter UI not implemented yet
   };
 
   const handleStatusChange = async (reportId: string, newStatus: Report['status']) => {
@@ -159,24 +158,93 @@ const ReportsTab: React.FC = () => {
   };
 
   const handleViewReport = (report: Report) => {
+    console.log('[ReportsTab] Opening report modal for id:', report.id);
     setSelectedReport(report);
     setModalVisible(true);
   };
 
   const handleCloseModal = () => {
+    console.log('[ReportsTab] Closing report modal');
     setModalVisible(false);
     setSelectedReport(null);
   };
 
   const handleMarkAsResolved = async () => {
     if (!selectedReport) return;
-    
+
+    const performResolve = async () => {
+      try {
+        console.log('[Resolve] Start for reportId:', selectedReport.id);
+        setIsResolving(true);
+        if (!db) {
+          console.error('[Resolve] db is not initialized');
+          Alert.alert('Error', 'Database not available');
+          setIsResolving(false);
+          return;
+        }
+        // 1) Update status to resolved
+        try {
+          await handleStatusChange(selectedReport.id, 'resolved');
+          console.log('[Resolve] Status updated');
+        } catch (e) {
+          console.error('[Resolve] Failed to update status:', e);
+          Alert.alert('Error', 'Failed to update status to resolved.');
+          setIsResolving(false);
+          return;
+        }
+
+        // 2) Re-fetch the latest report data to persist to history
+        const reportRef = doc(db as any, 'reports', selectedReport.id);
+        console.log('[Resolve] Fetching latest report snapshot...');
+        const snap = await getDoc(reportRef);
+        console.log('[Resolve] Snapshot exists:', snap.exists());
+        const data = snap.exists() ? snap.data() : selectedReport;
+        console.log('[Resolve] Data prepared for history:', data);
+
+        // 3) Write to history collection
+        const historyRef = collection(db as any, 'history');
+        console.log('[Resolve] Writing to history collection...');
+        try {
+          const written = await addDoc(historyRef, {
+            ...data,
+            id: selectedReport.id,
+            status: 'resolved',
+            resolvedAt: serverTimestamp(),
+          });
+          console.log('[Resolve] History doc id:', written.id);
+        } catch (writeErr) {
+          console.error('[Resolve] Failed to write history doc:', writeErr);
+        }
+
+        console.log('[Resolve] Keeping resolved item in reports collection');
+        handleCloseModal();
+        Alert.alert('Success', 'Report marked as resolved');
+        setIsResolving(false);
+      } catch (e) {
+        console.error('[Resolve] Flow failed:', e);
+        Alert.alert('Error', 'Failed to move report to history. Please try again.');
+        setIsResolving(false);
+      }
+    };
+
+    // On web, RN Alert's confirm buttons don't work; use native confirm
+    if (Platform.OS === 'web') {
+      const ok = (typeof window !== 'undefined') ? window.confirm('Mark this report as resolved?') : true;
+      if (ok) await performResolve();
+      return;
+    }
+
     try {
-      await handleStatusChange(selectedReport.id, 'resolved');
-      handleCloseModal();
-      Alert.alert('Success', 'Report marked as resolved');
+      Alert.alert(
+        'Mark as resolved',
+        'Are you sure you want to mark this report as resolved?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Yes, resolve', style: 'default', onPress: performResolve },
+        ]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to mark report as resolved');
+      await performResolve();
     }
   };
 
@@ -264,6 +332,8 @@ const ReportsTab: React.FC = () => {
 
   const getFilteredReports = () => {
     let filtered = [...reports];
+    // Hide resolved items from the Reports tab. They will appear in History.
+    filtered = filtered.filter(r => r.status !== 'resolved');
     
     // Apply search filter
     if (searchQuery.trim()) {
@@ -383,60 +453,7 @@ const ReportsTab: React.FC = () => {
       <View style={styles.mainSection}>
         <Text style={styles.title}>Reports</Text>
         
-        {/* Filter Options */}
-        <View style={styles.filterContainer}>
-          <View style={styles.filterButtons}>
-            <TouchableOpacity 
-              style={[
-                styles.filterButton,
-                activeFilter === 'today' && styles.activeFilterButton
-              ]}
-              onPress={() => handleFilterChange('today')}
-            >
-              <Text style={[
-                styles.filterButtonText,
-                activeFilter === 'today' && styles.activeFilterButtonText
-              ]}>
-                Today
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.filterButton,
-                activeFilter === 'weekly' && styles.activeFilterButton
-              ]}
-              onPress={() => handleFilterChange('weekly')}
-            >
-              <Text style={[
-                styles.filterButtonText,
-                activeFilter === 'weekly' && styles.activeFilterButtonText
-              ]}>
-                Weekly
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.filterButton,
-                activeFilter === 'monthly' && styles.activeFilterButton
-              ]}
-              onPress={() => handleFilterChange('monthly')}
-            >
-              <Text style={[
-                styles.filterButtonText,
-                activeFilter === 'monthly' && styles.activeFilterButtonText
-              ]}>
-                Monthly
-              </Text>
-            </TouchableOpacity>
-          </View>
-          
-          <TouchableOpacity style={styles.dateButton}>
-            <Ionicons name="calendar" size={20} color="#666" />
-            <Text style={styles.dateButtonText}>Date</Text>
-          </TouchableOpacity>
-        </View>
+        
 
         {/* Search Input */}
         <View style={styles.searchContainer}>
@@ -486,9 +503,9 @@ const ReportsTab: React.FC = () => {
           </View>
         )}
 
-        {/* Reports Table */}
+        {/* Reports List (Card style) */}
         {!loading && !error && (
-          <View style={styles.reportsTable}>
+          <View style={styles.cardListContainer}>
             {getFilteredReports().length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="document-outline" size={64} color="#9CA3AF" />
@@ -500,145 +517,40 @@ const ReportsTab: React.FC = () => {
                 </Text>
               </View>
             ) : (
-              <>
-                {/* Table Header */}
-                <View style={styles.tableHeader}>
-                  <TouchableOpacity 
-                    style={[styles.headerCell, styles.nameColumn]}
-                    onPress={() => handleSort('name')}
-                  >
-                    <Text style={styles.headerText}>Name</Text>
-                    <Ionicons 
-                      name={getSortIcon('name') as any} 
-                      size={16} 
-                      color={sortColumn === 'name' ? '#22C55E' : '#9CA3AF'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.headerCell, styles.barangayColumn]}
-                    onPress={() => handleSort('barangay')}
-                  >
-                    <Text style={styles.headerText}>Barangay</Text>
-                    <Ionicons 
-                      name={getSortIcon('barangay') as any} 
-                      size={16} 
-                      color={sortColumn === 'barangay' ? '#22C55E' : '#9CA3AF'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.headerCell, styles.streetColumn]}
-                    onPress={() => handleSort('street')}
-                  >
-                    <Text style={styles.headerText}>Street</Text>
-                    <Ionicons 
-                      name={getSortIcon('street') as any} 
-                      size={16} 
-                      color={sortColumn === 'street' ? '#22C55E' : '#9CA3AF'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.headerCell, styles.dateColumn]}
-                    onPress={() => handleSort('date')}
-                  >
-                    <Text style={styles.headerText}>Date</Text>
-                    <Ionicons 
-                      name={getSortIcon('date') as any} 
-                      size={16} 
-                      color={sortColumn === 'date' ? '#22C55E' : '#9CA3AF'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.headerCell, styles.titleColumn]}
-                    onPress={() => handleSort('title')}
-                  >
-                    <Text style={styles.headerText}>Title</Text>
-                    <Ionicons 
-                      name={getSortIcon('title') as any} 
-                      size={16} 
-                      color={sortColumn === 'title' ? '#22C55E' : '#9CA3AF'} 
-                    />
-                  </TouchableOpacity>
-                  
-                  <View style={[styles.headerCell, styles.actionsColumn]}>
-                    <Text style={styles.headerText}>Actions</Text>
-                  </View>
-                </View>
-                
-                {/* Table Rows */}
-                {getPaginatedReports().map((report, index) => (
-                  <TouchableOpacity 
-                    key={report.id} 
-                    style={[
-                      styles.tableRow,
-                      index % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd
-                    ]}
-                    onPress={() => handleViewReport(report)}
-                  >
-                    <Text style={[styles.cellText, styles.nameColumn]} numberOfLines={1}>
-                      {report.userEmail.split('@')[0]}
-                    </Text>
-                    <Text style={[styles.cellText, styles.barangayColumn]} numberOfLines={1}>
-                      {report.barangay}
-                    </Text>
-                    <Text style={[styles.cellText, styles.streetColumn]} numberOfLines={1}>
-                      {report.street}
-                    </Text>
-                    <Text style={[styles.cellText, styles.dateColumn]} numberOfLines={1}>
-                      {formatDate(report.createdAt).split(',')[0]}
-                    </Text>
-                    <Text style={[styles.cellText, styles.titleColumn]} numberOfLines={1}>
-                      {report.title}
-                    </Text>
-                    <View style={[styles.actionCell, styles.actionsColumn]}>
-                      <TouchableOpacity 
-                        style={styles.tableActionButton}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleViewReport(report);
-                        }}
-                      >
-                        <Ionicons name="eye" size={16} color="#4169E1" />
-                      </TouchableOpacity>
-                      
-                      {report.status === 'in-progress' ? (
-                        <TouchableOpacity 
-                          style={styles.tableActionButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleStatusChange(report.id, 'pending');
-                          }}
-                        >
-                          <Ionicons name="stop" size={16} color="#EF4444" />
-                        </TouchableOpacity>
+              getPaginatedReports().map((report) => (
+                <TouchableOpacity
+                  key={report.id}
+                  style={styles.reportCardBlock}
+                  activeOpacity={0.85}
+                  onPress={() => handleViewReport(report)}
+                >
+                  <View style={styles.reportCardInner}>
+                    <View style={styles.cardImageWrap}>
+                      {report.imageURL ? (
+                        <Image source={{ uri: report.imageURL }} style={styles.cardImage} resizeMode="cover" />
                       ) : (
-                        <TouchableOpacity 
-                          style={styles.tableActionButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleStatusChange(report.id, 'in-progress');
-                          }}
-                        >
-                          <Ionicons name="play" size={16} color="#4169E1" />
-                        </TouchableOpacity>
+                        <View style={styles.cardImagePlaceholder}>
+                          <Ionicons name="image" size={32} color="#9CA3AF" />
+                        </View>
                       )}
-                      
-                      <TouchableOpacity 
-                        style={styles.tableActionButton}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleStatusChange(report.id, 'resolved');
-                        }}
-                      >
-                        <Ionicons name="checkmark" size={16} color="#32CD32" />
-                      </TouchableOpacity>
                     </View>
-                  </TouchableOpacity>
-                ))}
-              </>
+                    <View style={styles.cardDetails}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>{report.title}</Text>
+                      <Text style={styles.cardSubtitle} numberOfLines={1}>Title: {report.title}</Text>
+                      <Text style={styles.cardLocation} numberOfLines={2}>
+                        Location: {report.street ? `${report.street}, ` : ''}{report.barangay}
+                      </Text>
+                      <Text style={styles.cardDescription} numberOfLines={2}>
+                        Description: {report.description || 'No description provided.'}
+                      </Text>
+                      <Text style={styles.cardSubmittedBy} numberOfLines={1}>
+                        Submitted by: {report.userEmail.split('@')[0]}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardDateText}>Date & Time: {formatDate(report.createdAt)}</Text>
+                </TouchableOpacity>
+              ))
             )}
           </View>
         )}
@@ -711,10 +623,11 @@ const ReportsTab: React.FC = () => {
 
                 {/* Action Button */}
                 <TouchableOpacity 
-                  style={styles.modalActionButton}
+                  style={[styles.modalActionButton, isResolving && { opacity: 0.6 }]}
                   onPress={handleMarkAsResolved}
+                  disabled={isResolving}
                 >
-                  <Text style={styles.modalActionButtonText}>Mark as resolved</Text>
+                  <Text style={styles.modalActionButtonText}>{isResolving ? 'Marking…' : 'Mark as resolved'}</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -794,91 +707,75 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   // Table Styles
-  reportsTable: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    overflow: 'hidden',
+  cardListContainer: {
+    backgroundColor: '#E7F6EA',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#CDE8D2',
+    padding: 12,
+    gap: 12,
   },
-  tableHeader: {
+  reportCardBlock: {
+    backgroundColor: '#F4FBF6',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D9F1DE',
+    padding: 12,
+  },
+  reportCardInner: {
     flexDirection: 'row',
-    backgroundColor: '#F0FDF4',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#D1FAE5',
+    gap: 12,
+    alignItems: 'flex-start',
   },
-  headerCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
+  cardImageWrap: {
+    width: 140,
+    height: 90,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#ECF5EE',
   },
-  headerText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    textAlign: 'left',
+  cardImage: {
+    width: '100%',
+    height: '100%',
   },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    alignItems: 'center',
-  },
-  tableRowEven: {
-    backgroundColor: '#F9FAFB',
-  },
-  tableRowOdd: {
-    backgroundColor: 'white',
-  },
-  cellText: {
-    fontSize: 14,
-    color: '#1F2937',
-    textAlign: 'left',
-    paddingHorizontal: 4,
-  },
-  // Column Width Styles
-  nameColumn: {
-    width: '15%',
-    minWidth: 80,
-  },
-  barangayColumn: {
-    width: '18%',
-    minWidth: 100,
-  },
-  streetColumn: {
-    width: '20%',
-    minWidth: 120,
-  },
-  dateColumn: {
-    width: '12%',
-    minWidth: 80,
-  },
-  titleColumn: {
-    width: '25%',
-    minWidth: 150,
-  },
-  actionsColumn: {
-    width: '10%',
-    minWidth: 100,
-  },
-  actionCell: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 4,
-  },
-  tableActionButton: {
-    padding: 6,
-    borderRadius: 4,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
+  cardImagePlaceholder: {
+    flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardDetails: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F3A2C',
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    color: '#1F3A2C',
+    marginTop: 4,
+  },
+  cardLocation: {
+    fontSize: 12,
+    color: '#1F3A2C',
+    marginTop: 4,
+  },
+  cardDescription: {
+    fontSize: 12,
+    color: '#1F3A2C',
+    marginTop: 4,
+  },
+  cardSubmittedBy: {
+    fontSize: 12,
+    color: '#1F3A2C',
+    marginTop: 4,
+  },
+  cardDateText: {
+    fontSize: 10,
+    color: '#1F3A2C',
+    textAlign: 'right',
+    marginTop: 8,
   },
   loadingContainer: {
     alignItems: 'center',

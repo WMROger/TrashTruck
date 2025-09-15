@@ -97,6 +97,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="feedback"
+        options={{
+          title: 'Feedback',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="hand.thumbsup" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="announcements"
         options={{
           title: 'Announcements',
@@ -107,13 +114,6 @@ export default function TabLayout() {
               resizeMode="contain"
             />
           ),
-        }}
-      />
-      <Tabs.Screen
-        name="feedback"
-        options={{
-          title: 'Feedback',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="hand.thumbsup" color={color} />,
         }}
       />
       <Tabs.Screen

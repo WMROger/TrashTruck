@@ -1,13 +1,13 @@
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { db } from '@/config/firebase';
+import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
   const { theme, setTheme, toggleSystem } = useTheme();
@@ -33,7 +33,30 @@ export default function ProfilePage() {
     displayName?: string;
     photoURL?: string;
   } | null>(null);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [enableAnnouncementNotifs, setEnableAnnouncementNotifs] = useState(true);
+  const [enableScheduleNotifs, setEnableScheduleNotifs] = useState(true);
   const router = useRouter();
+
+  // Resolve storage path to public URL if needed
+  const resolvePhotoURL = async (maybePath?: string) => {
+    try {
+      if (!maybePath) return undefined;
+      const isHttp = /^https?:\/\//i.test(maybePath);
+      const isDataOrLocal = /^(data:|file:|content:|asset(s)?:\/\/|blob:|expo-file:)/i.test(maybePath);
+      if (isHttp || isDataOrLocal) return maybePath;
+      if (!storage) return undefined;
+      const { getDownloadURL, ref } = await import('firebase/storage');
+      // Treat non-URL strings as storage paths or gs:// URLs
+      const r = ref(storage, maybePath);
+      return await getDownloadURL(r);
+    } catch (e) {
+      console.warn('Failed to resolve photo URL:', e);
+      return undefined;
+    }
+  };
 
   // Fetch user profile data from Firestore
   useEffect(() => {
@@ -46,23 +69,26 @@ export default function ProfilePage() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
+          const resolved = await resolvePhotoURL(userData.photoURL || user.photoURL);
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
-            photoURL: userData.photoURL || user.photoURL || undefined,
+            photoURL: resolved,
           });
         } else {
         // Fallback to auth data if Firestore document doesn't exist
+        const resolved = await resolvePhotoURL(user.photoURL || undefined);
         setUserProfile({
           displayName: user.displayName || 'User',
-          photoURL: user.photoURL || undefined,
+          photoURL: resolved,
         });
         }
       } catch (error) {
         console.error('Error fetching user profile:', error);
         // Fallback to auth data on error
+        const resolved = await resolvePhotoURL(user?.photoURL || undefined);
         setUserProfile({
           displayName: user.displayName || 'User',
-          photoURL: user.photoURL || undefined,
+          photoURL: resolved,
         });
       }
     };
@@ -147,13 +173,18 @@ export default function ProfilePage() {
   };
 
   const pickImage = async () => {
+    const mediaTypes = (ImagePicker as any).MediaType
+      ? [(ImagePicker as any).MediaType.image]
+      : ((ImagePicker as any).MediaTypeOptions?.Images ?? ImagePicker.MediaTypeOptions.Images);
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: mediaTypes as any,
       allowsEditing: true,
       quality: 0.7,
-    });
+      base64: Platform.OS === 'web',
+    } as any);
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const selectedImageUri = result.assets[0].uri;
+      const asset: any = result.assets[0];
+      const selectedImageUri = asset.uri;
       
       // Check if the URI is too long for Firebase Auth
       if (selectedImageUri.length > 2000) {
@@ -163,7 +194,12 @@ export default function ProfilePage() {
         );
       }
       
-      setEditPhotoURL(selectedImageUri);
+      if (asset.base64) {
+        const mime = asset.mimeType || 'image/jpeg';
+        setEditPhotoURL(`data:${mime};base64,${asset.base64}`);
+      } else {
+        setEditPhotoURL(selectedImageUri);
+      }
     }
   };
 
@@ -355,7 +391,10 @@ export default function ProfilePage() {
             <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]}
+            onPress={() => setShowNotificationsModal(true)}
+          >
             <IconSymbol name="bell" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               Notifications
@@ -363,13 +402,7 @@ export default function ProfilePage() {
             <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
-            <IconSymbol name="lock" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Privacy & Security
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-          </TouchableOpacity>
+         
         </View>
 
         <View style={styles.section}>
@@ -473,7 +506,10 @@ export default function ProfilePage() {
             </View>
           )}
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]}
+            onPress={() => setShowHelpModal(true)}
+          >
             <IconSymbol name="questionmark.circle" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               Help & Support
@@ -481,7 +517,10 @@ export default function ProfilePage() {
             <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]}
+            onPress={() => setShowAboutModal(true)}
+          >
             <IconSymbol name="info.circle" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               About TrashTrack
@@ -538,6 +577,132 @@ export default function ProfilePage() {
           </View>
         </Modal>
 
+        {/* Notifications Modal */}
+        <Modal
+          visible={showNotificationsModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowNotificationsModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}> 
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Notifications</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>Choose what you want to be notified about.</Text>
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity 
+                  style={[
+                    styles.selectableItem,
+                    {
+                      backgroundColor: enableAnnouncementNotifs ? '#242E21' : colors.background,
+                      borderColor: enableAnnouncementNotifs ? '#242E21' : colors.border
+                    }
+                  ]}
+                  onPress={() => setEnableAnnouncementNotifs(!enableAnnouncementNotifs)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[
+                    styles.selectableLabel, 
+                    { color: enableAnnouncementNotifs ? '#FFFFFF' : colors.textPrimary }
+                  ]}>Announcements</Text>
+                  <IconSymbol 
+                    name={enableAnnouncementNotifs ? 'checkmark.circle.fill' : 'circle'} 
+                    size={22} 
+                    color={enableAnnouncementNotifs ? '#FFFFFF' : colors.textTertiary} 
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[
+                    styles.selectableItem,
+                    {
+                      backgroundColor: enableScheduleNotifs ? '#242E21' : colors.background,
+                      borderColor: enableScheduleNotifs ? '#242E21' : colors.border
+                    }
+                  ]}
+                  onPress={() => setEnableScheduleNotifs(!enableScheduleNotifs)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[
+                    styles.selectableLabel, 
+                    { color: enableScheduleNotifs ? '#FFFFFF' : colors.textPrimary }
+                  ]}>Pickup reminders</Text>
+                  <IconSymbol 
+                    name={enableScheduleNotifs ? 'checkmark.circle.fill' : 'circle'} 
+                    size={22} 
+                    color={enableScheduleNotifs ? '#FFFFFF' : colors.textTertiary} 
+                  />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} onPress={() => setShowNotificationsModal(false)}>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Help & Support Modal */}
+        <Modal
+          visible={showHelpModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowHelpModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}> 
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Help & Support</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>How can we help you?</Text>
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity 
+                  style={[styles.menuItem, { backgroundColor: colors.background }]}
+                  onPress={() => {
+                    const mailto = 'mailto:support@trashtrack.app?subject=Support%20Request&body=Describe%20your%20issue...';
+                    try { (window as any).location.href = mailto; } catch {}
+                  }}
+                >
+                  <IconSymbol name="envelope" size={22} color={colors.primary} />
+                  <Text style={[styles.menuText, { color: colors.textPrimary }]}>Email support</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.menuItem, { backgroundColor: colors.background }]}
+                  onPress={() => {
+                    try { (window as any).open?.('https://docs.trashtrack.app', '_blank'); } catch {}
+                  }}
+                >
+                  <IconSymbol name="book" size={22} color={colors.primary} />
+                  <Text style={[styles.menuText, { color: colors.textPrimary }]}>View documentation</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} onPress={() => setShowHelpModal(false)}>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* About Modal */}
+        <Modal
+          visible={showAboutModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowAboutModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}> 
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>About TrashTrack</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>TrashTrack helps you keep your community clean with schedules, reports, and announcements.</Text>
+              <Text style={[styles.modalMessage, { color: colors.textTertiary }]}>Version 1.0.0</Text>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} onPress={() => setShowAboutModal(false)}>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
         {/* Change Password Modal */}
         <Modal
           visible={showChangePassword}
@@ -728,6 +893,19 @@ const styles = StyleSheet.create({
     marginLeft: 20,
     gap: 16,
     paddingVertical: 8,
+  },
+  selectableItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  selectableLabel: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   toggleContainer: {
     alignItems: 'center',
