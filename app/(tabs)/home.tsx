@@ -1,13 +1,14 @@
 import AIChatModal from '@/components/AIChatModal';
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import { db } from '@/config/firebase';
+import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationService } from '@/services/notificationService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -44,6 +45,22 @@ export default function HomePage() {
     requestPermissions();
   }, []);
 
+  // Resolve storage path to public URL if needed
+  const resolvePhotoURL = async (maybePath?: string) => {
+    try {
+      if (!maybePath) return undefined;
+      const isHttp = /^https?:\/\//i.test(maybePath);
+      const isDataOrLocal = /^(data:|file:|content:|asset(s)?:\/\/|blob:|expo-file:)/i.test(maybePath);
+      if (isHttp || isDataOrLocal) return maybePath;
+      if (!storage) return undefined;
+      const r = ref(storage, maybePath);
+      return await getDownloadURL(r);
+    } catch (e) {
+      console.warn('Failed to resolve home photo URL:', e);
+      return undefined;
+    }
+  };
+
   // Fetch user profile data from Firestore
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -55,23 +72,26 @@ export default function HomePage() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
+          const resolved = await resolvePhotoURL(userData.photoURL || user.photoURL);
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
-            photoURL: userData.photoURL || user.photoURL || undefined,
+            photoURL: resolved,
           });
         } else {
           // Fallback to auth data if Firestore document doesn't exist
+          const resolved = await resolvePhotoURL(user.photoURL || undefined);
           setUserProfile({
             displayName: user.displayName || 'User',
-            photoURL: user.photoURL || undefined,
+            photoURL: resolved,
           });
         }
       } catch (error) {
         console.error('Error fetching user profile:', error);
         // Fallback to auth data on error
+        const resolved = await resolvePhotoURL(user.photoURL || undefined);
         setUserProfile({
           displayName: user.displayName || 'User',
-          photoURL: user.photoURL || undefined,
+          photoURL: resolved,
         });
       }
     };

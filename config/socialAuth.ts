@@ -1,3 +1,5 @@
+import * as AuthSession from 'expo-auth-session';
+import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import {
   FacebookAuthProvider,
@@ -12,7 +14,9 @@ import { auth } from './firebase';
 WebBrowser.maybeCompleteAuthSession();
 
 // Google OAuth configuration
-const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+// Prefer platform-specific client IDs. For iOS implicit flow, use the iOS client ID.
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
 
 // Facebook OAuth configuration  
@@ -29,48 +33,58 @@ export const signInWithGoogle = async (): Promise<{ success: boolean; error?: st
       await signInWithPopup(auth, provider);
       return { success: true };
     } else {
-      // Mobile platform - use Expo AuthSession to open the browser and get an access token
-      console.log('Using Expo AuthSession for mobile Google sign-in');
+      // Mobile platform - OAuth compliant: use proxy in Expo Go, custom scheme in dev/prod builds
+      console.log('Using AuthSession for mobile Google sign-in');
 
-      if (!GOOGLE_CLIENT_ID) {
-        throw new Error('Google Client ID not configured for mobile');
+      // In Expo Go, always use the Web client ID to match the https proxy redirect
+      const isExpoGo = Constants.appOwnership === 'expo';
+      const clientId = isExpoGo
+        ? (GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID)
+        : (Platform.OS === 'ios' ? (GOOGLE_IOS_CLIENT_ID) : (GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID));
+      if (!clientId) {
+        throw new Error('Google Client ID not configured');
       }
 
-  // Build redirect URI matching app.json scheme
-  // app.json uses "scheme": "myapp" so the redirect URI is:
-  const redirectUri = 'myapp://auth/callback';
+      // Compute redirect URI. In Expo Go, hardcode the proxy URL to avoid accidental exp:// redirects.
+      const expoOwner = (Constants as any)?.expoConfig?.owner || (Constants as any)?.easConfig?.owner;
+      const expoSlug = (Constants as any)?.expoConfig?.slug || 'trashtrack';
+      const proxyBase = expoOwner && expoSlug
+        ? `https://auth.expo.dev/@${expoOwner}/${expoSlug}`
+        : `https://auth.expo.dev/@wmroger/trashtrack`;
+      const redirectUri = isExpoGo
+        ? proxyBase
+        : (AuthSession.makeRedirectUri as any)({ scheme: 'myapp', path: 'auth/callback' });
+      console.log('Google redirect URI:', redirectUri);
+      console.log('Google clientId:', clientId);
 
-      // Use the implicit flow to obtain an access token (works for quick mobile setup)
+      const nonce = Math.random().toString(36).slice(2);
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-        GOOGLE_CLIENT_ID
-      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
-        'profile email'
-      )}&prompt=select_account`;
+        clientId
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&scope=${encodeURIComponent(
+        'openid email profile'
+      )}&prompt=select_account&nonce=${encodeURIComponent(nonce)}`;
 
-      // Open the auth URL in a browser and wait for redirect
       const wbResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-
       if (wbResult.type === 'success' && wbResult.url) {
-        // access_token will be in the fragment (after '#') for implicit flow
-        const fragment = wbResult.url.split('#')[1] || '';
-        const params = new URLSearchParams(fragment);
-        const accessToken = params.get('access_token');
-
-        if (!accessToken) {
-          throw new Error('No access token returned from Google');
+        console.log('Google auth returned URL:', wbResult.url);
+        const fullUrl = wbResult.url;
+        const fragment = fullUrl.includes('#') ? fullUrl.split('#')[1] : '';
+        const hashParams = new URLSearchParams(fragment);
+        const queryString = fullUrl.split('?')[1]?.split('#')[0] || '';
+        const queryParams = new URLSearchParams(queryString);
+        const idToken = hashParams.get('id_token') || queryParams.get('id_token');
+        if (!idToken) {
+          throw new Error('No id_token returned from Google');
         }
-
-        // Sign in to Firebase using the Google access token (pass as second arg)
-        const credential = GoogleAuthProvider.credential(null, accessToken);
+        const credential = GoogleAuthProvider.credential(idToken);
         await signInWithCredential(auth, credential);
-
         console.log('Google sign-in successful on mobile');
         return { success: true };
-      } else if (wbResult.type === 'cancel' || wbResult.type === 'dismiss') {
-        throw new Error('Google authentication was cancelled');
-      } else {
-        throw new Error('Google authentication failed');
       }
+      if (wbResult.type === 'cancel' || wbResult.type === 'dismiss') {
+        throw new Error('Google authentication was cancelled');
+      }
+      throw new Error('Google authentication failed');
       /*
       if (!GOOGLE_CLIENT_ID) {
         throw new Error('Google Client ID not configured for mobile');
@@ -154,59 +168,40 @@ export const signInWithFacebook = async (): Promise<{ success: boolean; error?: 
       await signInWithPopup(auth, provider);
       return { success: true };
     } else {
-      // Mobile platform - temporarily disabled due to expo-auth-session compatibility issues
-      console.log('Mobile Facebook sign-in temporarily disabled - using web fallback');
-      
-      // For now, redirect to web or show a message
-      return { success: false, error: 'Mobile Facebook sign-in is temporarily unavailable. Please use the web version.' };
-      
-      // TODO: Re-enable when expo-auth-session compatibility is resolved
-      /*
+      // Mobile platform - Use implicit flow for an access token, then sign in with Firebase
       if (!FACEBOOK_APP_ID) {
         throw new Error('Facebook App ID not configured for mobile');
       }
 
-      // Create auth request
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'myapp',
-        path: 'auth/callback'
-      });
+      const redirectUri = (AuthSession.makeRedirectUri as any)({ useProxy: true });
 
-      const request = new AuthSession.AuthRequest({
-        clientId: FACEBOOK_APP_ID,
-        scopes: ['public_profile', 'email'],
-        redirectUri,
-        responseType: AuthSession.ResponseType.Code,
-      });
+      const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${encodeURIComponent(
+        FACEBOOK_APP_ID
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
+        'public_profile,email'
+      )}`;
 
-      // Start auth session
-      const result = await request.promptAsync({
-        authorizationEndpoint: 'https://www.facebook.com/v18.0/dialog/oauth',
-      });
+      const wbResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
 
-      if (result.type === 'success' && result.params.code) {
-        // Exchange code for tokens
-        const tokenResponse = await AuthSession.exchangeCodeAsync(
-          {
-            clientId: FACEBOOK_APP_ID,
-            code: result.params.code,
-            redirectUri,
-          },
-          {
-            tokenEndpoint: 'https://graph.facebook.com/v18.0/oauth/access_token',
-          }
-        );
+      if (wbResult.type === 'success' && wbResult.url) {
+        const fragment = wbResult.url.split('#')[1] || '';
+        const params = new URLSearchParams(fragment);
+        const accessToken = params.get('access_token');
 
-        // Sign in with Firebase using the access token
-        const credential = FacebookAuthProvider.credential(tokenResponse.accessToken);
+        if (!accessToken) {
+          throw new Error('No access token returned from Facebook');
+        }
+
+        const credential = FacebookAuthProvider.credential(accessToken);
         await signInWithCredential(auth, credential);
-        
+
         console.log('Facebook sign-in successful on mobile');
         return { success: true };
-      } else {
-        throw new Error('Facebook authentication was cancelled or failed');
       }
-      */
+      if (wbResult.type === 'cancel' || wbResult.type === 'dismiss') {
+        throw new Error('Facebook authentication was cancelled');
+      }
+      throw new Error('Facebook authentication failed');
     }
   } catch (error: any) {
     console.error('Facebook sign-in error:', error);

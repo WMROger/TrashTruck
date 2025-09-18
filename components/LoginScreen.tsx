@@ -7,15 +7,15 @@ import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'fire
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 export default function LoginScreen() {
@@ -144,12 +144,17 @@ export default function LoginScreen() {
     // Clear previous errors
     setErrors({});
 
-    // Validate email
-    if (!email) {
-      showError('Please enter your email address');
+    // Support username without @ by mapping to driver domain
+    let loginEmail = (email || '').trim();
+    if (loginEmail && !loginEmail.includes('@')) {
+      loginEmail = `${loginEmail}@driver.com`;
+    }
+    // Validate email if it includes '@'
+    if (!loginEmail) {
+      showError('Please enter your email or username');
       return;
     }
-    if (!validateEmail(email)) {
+    if (loginEmail.includes('@') && !validateEmail(loginEmail)) {
       showError('Please enter a valid email address');
       return;
     }
@@ -164,7 +169,7 @@ export default function LoginScreen() {
     try {
       // Use Firebase authentication
       if (auth) {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
         const user = userCredential.user;
         console.log('User logged in successfully:', user.email);
 
@@ -175,17 +180,31 @@ export default function LoginScreen() {
           clearCredentials();
         }
 
-        // If password provider and email not verified, block entry, send/resent verification, and sign out
+        // If password provider and email not verified, allow drivers to bypass
         const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
         if (isPasswordProvider && !user.emailVerified) {
-          try {
-            await sendEmailVerification(user);
-            showError('A verification link has been sent to your email. Please verify before logging in.');
-          } catch (e: any) {
-            showError('Could not send verification email. Please check spam and try again.');
+          let allowBypass = false;
+          if (db) {
+            try {
+              const snap = await getDoc(doc(db, 'users', user.uid));
+              if (snap.exists()) {
+                const data = snap.data();
+                if ((data as any)?.role === 'driver') {
+                  allowBypass = true;
+                }
+              }
+            } catch {}
           }
-          try { await signOut(auth); } catch {}
-          return;
+          if (!allowBypass) {
+            try {
+              await sendEmailVerification(user);
+              showError('A verification link has been sent to your email. Please verify before logging in.');
+            } catch (e: any) {
+              showError('Could not send verification email. Please check spam and try again.');
+            }
+            try { await signOut(auth); } catch {}
+            return;
+          }
         }
 
         await upsertUserProfile(isPasswordProvider ? 'password' : 'oauth');

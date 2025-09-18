@@ -5,18 +5,6 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 
 const db = admin.firestore();
-// bootstrap-admin.js
-const admin = require('firebase-admin');
-
-// Use your service account JSON
-admin.initializeApp({ credential: admin.credential.applicationDefault() });
-
-(async () => {
-  const uid = 'aJr3uV6lnVgotISwvQzPYa5uuOe2';
-  await admin.auth().setCustomUserClaims(uid, { admin: true });
-  console.log('Admin claim set for', uid);
-  process.exit(0);
-})();
 // Callable to set/unset admin role by email (only admins can call)
 exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
   if (!context.auth || !context.auth.token || context.auth.token.admin !== true) {
@@ -30,6 +18,121 @@ exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
   await admin.auth().setCustomUserClaims(user.uid, { admin: !!makeAdmin });
   await db.collection('users').doc(user.uid).set({ tokenVersion: Date.now(), role: makeAdmin ? 'admin' : 'user' }, { merge: true });
   return { uid: user.uid, email: user.email, admin: !!makeAdmin };
+});
+
+// Admin-only callable to set a user's role
+exports.setUserRole = functions.https.onCall(async (data, context) => {
+  if (!context.auth || context.auth.token?.admin !== true) {
+    throw new functions.https.HttpsError('permission-denied', 'Admins only');
+  }
+  const userId = (data?.userId || '').toString();
+  const role = (data?.role || '').toString();
+  if (!userId || !role || !['user', 'driver', 'admin'].includes(role)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Valid userId and role are required');
+  }
+  await db.collection('users').doc(userId).set({ role, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  return { ok: true };
+});
+
+// Admin-only: create driver auth account and set role in Firestore
+exports.createDriverAccount = functions.https.onCall(async (data, context) => {
+  try {
+    if (!context.auth || context.auth.token?.admin !== true) {
+      throw new functions.https.HttpsError('permission-denied', 'Admins only');
+    }
+    const username = (data?.username || '').toString().trim();
+    const password = (data?.password || '').toString();
+    if (!username || !password) {
+      throw new functions.https.HttpsError('invalid-argument', 'username and password are required');
+    }
+    const email = username.includes('@') ? username : `${username}@driver.com`;
+    let userRecord;
+    try {
+      userRecord = await admin.auth().getUserByEmail(email);
+    } catch {
+      userRecord = null;
+    }
+    if (!userRecord) {
+      userRecord = await admin.auth().createUser({ email, password, emailVerified: true, displayName: username });
+    } else {
+      // If user exists, update password
+      await admin.auth().updateUser(userRecord.uid, { password });
+    }
+    await db.collection('users').doc(userRecord.uid).set({
+      uid: userRecord.uid,
+      email,
+      role: 'driver',
+      provider: 'password',
+      verified: true,
+      tokenVersion: Date.now(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { uid: userRecord.uid, email };
+  } catch (err) {
+    console.error('createDriverAccount error', err);
+    if (err instanceof functions.https.HttpsError) throw err;
+    throw new functions.https.HttpsError('internal', 'Failed to create driver');
+  }
+});
+
+// CORS-enabled HTTP fallback for web (admin-only)
+exports.createDriverAccountHttp = functions.https.onRequest(async (req, res) => {
+  // Basic CORS handling (reflect origin)
+  const origin = req.headers.origin || '*';
+  res.set('Access-Control-Allow-Origin', origin);
+  res.set('Vary', 'Origin');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send('');
+  }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+  try {
+    const authHeader = req.headers.authorization || '';
+    const idToken = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (!idToken) {
+      return res.status(401).json({ error: 'Missing bearer token' });
+    }
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    if (!decoded || decoded.admin !== true) {
+      return res.status(403).json({ error: 'Admins only' });
+    }
+    const username = (req.body?.username || '').toString().trim();
+    const password = (req.body?.password || '').toString();
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password are required' });
+    }
+    const email = username.includes('@') ? username : `${username}@driver.com`;
+    let userRecord;
+    try {
+      userRecord = await admin.auth().getUserByEmail(email);
+    } catch {
+      userRecord = null;
+    }
+    if (!userRecord) {
+      userRecord = await admin.auth().createUser({ email, password, emailVerified: true, displayName: username });
+    } else {
+      await admin.auth().updateUser(userRecord.uid, { password });
+    }
+    await db.collection('users').doc(userRecord.uid).set({
+      uid: userRecord.uid,
+      email,
+      role: 'driver',
+      provider: 'password',
+      verified: true,
+      tokenVersion: Date.now(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return res.json({ uid: userRecord.uid, email });
+  } catch (err) {
+    console.error('createDriverAccountHttp error', err);
+    return res.status(500).json({ error: 'Failed to create driver' });
+  }
 });
 
 // Delete users who remain unverified for more than 10 minutes

@@ -1,4 +1,6 @@
+import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { auth, db, storage } from '@/config/firebase';
+import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { addDoc, collection } from 'firebase/firestore';
@@ -78,107 +80,6 @@ export default function ReportScreen() {
     'Barangay Hall', 'Market', 'Church', 'School', 'Park', 'Main Road',
   ], []);
 
-  // Function to upload image to Firebase Storage
-  const uploadImageToStorage = async (uri: string): Promise<string | null> => {
-    if (!storage) {
-      console.error('Firebase Storage not available');
-      throw new Error('Firebase Storage not available');
-    }
-    
-    if (!auth.currentUser) {
-      console.error('User not authenticated');
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      console.log('Uploading image with URI:', uri);
-      
-      // Create a unique filename and honor MIME extension
-      const timestamp = Date.now();
-      const mime = imageMimeType || 'image/jpeg';
-      const extension = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
-      const filename = `reports/${auth.currentUser.uid}/${timestamp}.${extension}`;
-      console.log('Uploading to path:', filename);
-      
-      // Create a reference to the file
-      const imageRef = ref(storage, filename);
-      
-      // Convert URI to blob for upload
-      console.log('Fetching image data...');
-      const response = await fetch(uri);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status}`);
-      }
-      
-      const blob = await response.blob();
-      console.log('Image blob size:', blob.size, 'bytes');
-      
-      // Upload the file with timeout
-      console.log('Uploading to Firebase Storage...');
-      const uploadPromise = uploadBytes(imageRef, blob, { contentType: mime });
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timeout')), 10000)
-      );
-      
-      const uploadTask = await Promise.race([uploadPromise, timeoutPromise]) as any;
-      console.log('Upload completed:', uploadTask.metadata);
-      
-      // Get the download URL
-      console.log('Getting download URL...');
-      const downloadURL = await getDownloadURL(uploadTask.ref);
-      console.log('Download URL obtained:', downloadURL);
-      
-      return downloadURL;
-    } catch (error: any) {
-      try {
-        const payload = error?.serverResponse || error?.customData || error;
-        console.error('Error uploading image:', error?.code || error?.message || error, payload);
-      } catch {}
-      
-      // Check if it's a CORS error or timeout
-      if (error instanceof Error && (
-        error.message.includes('CORS') || 
-        error.message.includes('Access to XMLHttpRequest') ||
-        error.message.includes('preflight request') ||
-        error.message.includes('ERR_FAILED') ||
-        error.message.includes('blocked by CORS policy') ||
-        error.message.includes('Upload timeout')
-      )) {
-        console.warn('CORS or timeout error detected - Firebase Storage blocked in development');
-        throw new Error('CORS_ERROR');
-      }
-      
-      throw error;
-    }
-  };
-
-  // Web-only helper: compress to small thumbnail data URL
-  const createWebThumbnailDataUrl = async (sourceDataUrl: string, maxSize: number, quality: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      try {
-        if (Platform.OS !== 'web') return resolve(sourceDataUrl);
-        const img: any = new (window as any).Image();
-        img.onload = () => {
-          const canvas: any = document.createElement('canvas');
-          const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
-          const width = Math.round(img.width * ratio);
-          const height = Math.round(img.height * ratio);
-          canvas.width = width;
-          canvas.height = height;
-          const ctx: any = canvas.getContext('2d');
-          if (!ctx) return reject(new Error('Canvas context unavailable'));
-          ctx.drawImage(img, 0, 0, width, height);
-          const out: string = canvas.toDataURL('image/jpeg', quality);
-          resolve(out);
-        };
-        img.onerror = (e: any) => reject(e);
-        img.src = sourceDataUrl;
-      } catch (e) {
-        reject(e);
-      }
-    });
-  };
-  
   const handleSendReport = async () => {
     // Debug Firebase configuration
     checkFirebaseConfig();
@@ -197,79 +98,24 @@ export default function ReportScreen() {
 
     try {
       let imageURL = null;
-      
-      // Upload image to Firebase Storage if available
+
+      // Upload image to Cloudinary if available
       if (imageUri) {
         try {
-          console.log('Uploading image to Firebase Storage...');
           setUploadProgress(25);
-          
-          // Check if we're in development mode (web) and skip upload
-          if (Platform.OS === 'web' && window.location.hostname === 'localhost') {
-            console.warn('Skipping image upload in development mode due to CORS restrictions');
-            Alert.alert(
-              'Development Mode', 
-              'Image upload is disabled in development mode due to CORS restrictions. Your report will be submitted without the photo.',
-              [{ text: 'OK' }]
-            );
-            // Use inline base64 data URL if available so admins can still preview; ensure <1MB
-            let inline = imageDataUrl || null;
-            try {
-              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
-                inline = await createWebThumbnailDataUrl(inline, 640, 0.5);
-              }
-              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
-                inline = await createWebThumbnailDataUrl(inline, 320, 0.35);
-              }
-              if (inline && inline.length > MAX_FIRESTORE_FIELD_BYTES) {
-                console.warn('Thumbnail still exceeds Firestore field limit, dropping image');
-                inline = null;
-              }
-            } catch (thumbErr) {
-              console.warn('Failed to generate thumbnail, dropping image:', thumbErr);
-              inline = null;
-            }
-            imageURL = inline;
+          const uploadResult = await cloudinaryService.uploadImage(imageUri, { folder: UPLOAD_FOLDERS.REPORTS, preset: UPLOAD_PRESETS.REPORTS });
+          if (uploadResult.success && uploadResult.url) {
+            imageURL = uploadResult.url;
             setUploadProgress(75);
+            console.log('Image uploaded to Cloudinary:', imageURL);
           } else {
-            imageURL = await uploadImageToStorage(imageUri);
-            setUploadProgress(75);
-            console.log('Image uploaded successfully:', imageURL);
+            console.warn('Image upload failed, proceeding without image:', uploadResult.error);
+            Alert.alert('Upload Issue', 'Image upload failed. Your report will be submitted without the photo.', [{ text: 'OK' }]);
+            imageURL = null;
           }
         } catch (uploadError) {
-          console.warn('Image upload failed, proceeding without image:', uploadError);
-          
-          // Show user-friendly error message for specific cases
-          if (uploadError instanceof Error) {
-            if (uploadError.message.includes('too large')) {
-              Alert.alert(
-                'Image Too Large', 
-                'The selected image is too large. Please choose a smaller image or submit without a photo.',
-                [
-                  { text: 'Submit Without Photo', onPress: () => {} },
-                  { text: 'Choose Different Image', onPress: () => pickImage() }
-                ]
-              );
-            } else if (uploadError.message.includes('CORS_ERROR') || 
-                      uploadError.message.includes('CORS') || 
-                      uploadError.message.includes('ERR_FAILED') ||
-                      uploadError.message.includes('blocked by CORS policy')) {
-              Alert.alert(
-                'Upload Issue', 
-                'Image upload is not available in development mode. Your report will be submitted without the photo.',
-                [{ text: 'OK' }]
-              );
-            } else {
-              // Generic error message for other upload failures
-              Alert.alert(
-                'Upload Issue', 
-                'Image upload failed. Your report will be submitted without the photo.',
-                [{ text: 'OK' }]
-              );
-            }
-          }
-          
-          // If upload fails, proceed without image rather than failing the entire report
+          console.warn('Image upload exception, proceeding without image:', uploadError);
+          Alert.alert('Upload Issue', 'Image upload failed. Your report will be submitted without the photo.', [{ text: 'OK' }]);
           imageURL = null;
         }
       } else {

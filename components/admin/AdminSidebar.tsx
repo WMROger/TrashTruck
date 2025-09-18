@@ -15,6 +15,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
     { id: 'reports', label: 'Reports', icon: 'document-text-outline', activeIcon: 'document-text' },
     { id: 'history', label: 'History', icon: 'time-outline', activeIcon: 'time' },
     { id: 'feedbacks', label: 'Feedbacks', icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses' },
+    { id: 'accounts', label: 'Accounts', icon: 'people-outline', activeIcon: 'people' },
   ];
 
   return (

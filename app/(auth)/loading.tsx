@@ -1,5 +1,7 @@
+import { auth, db } from '@/config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -57,9 +59,31 @@ export default function LoadingPage() {
       }
     }, 50);
 
-    // Navigate to tabs after loading is complete
-    const navigationTimeout = setTimeout(() => {
+    // Decide destination based on role
+    const decideAndNavigate = async () => {
+      try {
+        const currentUser = auth?.currentUser;
+        if (currentUser && db) {
+          const snap = await getDoc(doc(db, 'users', currentUser.uid));
+          const role = snap.exists() ? (snap.data() as any)?.role : undefined;
+          if (role === 'admin') {
+            router.replace('/admin/dashboard' as any);
+            return;
+          }
+          if (role === 'driver') {
+            router.replace('/driver' as any);
+            return;
+          }
+          // Regular user
+          router.replace('/home' as any);
+          return;
+        }
+      } catch {}
       router.replace('/home' as any);
+    };
+
+    const navigationTimeout = setTimeout(() => {
+      decideAndNavigate();
     }, 4000);
 
     return () => {

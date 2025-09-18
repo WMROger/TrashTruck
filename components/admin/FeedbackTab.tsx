@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { collection, doc, getDoc, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db, storage } from '../../config/firebase';
@@ -60,6 +60,8 @@ const FeedbackTab: React.FC = () => {
         // Process feedbacks and fetch user data
         const processFeedbacks = async () => {
           const feedbacksData: Feedback[] = [];
+          const userCacheById = new Map<string, any>();
+          const userCacheByEmail = new Map<string, any>();
           
           for (const docSnapshot of snapshot.docs) {
             const data = docSnapshot.data();
@@ -68,20 +70,52 @@ const FeedbackTab: React.FC = () => {
             let photoURL: string | undefined = undefined;
             
             // Fetch user data from users collection
-            if (data.userId) {
-              try {
-                const userDoc = await getDoc(doc(db, 'users', data.userId));
-                if (userDoc.exists()) {
-                  const userData = userDoc.data();
+            try {
+              // 1) Try by userId
+              if (data.userId) {
+                let userData = userCacheById.get(data.userId);
+                if (!userData) {
+                  const userDoc = await getDoc(doc(db, 'users', data.userId));
+                  if (userDoc.exists()) userData = userDoc.data();
+                  if (userData) userCacheById.set(data.userId, userData);
+                }
+                if (userData) {
                   userName = userData.displayName || userData.email?.split('@')[0] || 'User';
-                  userEmail = userData.email || '';
+                  userEmail = userData.email || data.userEmail || '';
                   photoURL = await resolvePhotoURL(userData.photoURL || userData.avatar || undefined);
                 }
-              } catch (error) {
-                console.error('Error fetching user data:', error);
-                userName = data.userEmail?.split('@')[0] || 'User';
-                userEmail = data.userEmail || '';
               }
+
+              // 2) If still missing, try by email
+              if (!userEmail) {
+                const emailKey = (data.userEmail || '').toLowerCase();
+                if (emailKey) {
+                  let userData = userCacheByEmail.get(emailKey);
+                  if (!userData) {
+                    const usersRef = collection(db, 'users');
+                    const qUsers = query(usersRef, where('email', '==', data.userEmail));
+                    const snapUsers = await getDocs(qUsers);
+                    if (!snapUsers.empty) userData = snapUsers.docs[0].data();
+                    if (userData) userCacheByEmail.set(emailKey, userData);
+                  }
+                  if (userData) {
+                    userName = userData.displayName || userData.email?.split('@')[0] || userName;
+                    userEmail = userData.email || data.userEmail || userEmail;
+                    if (!photoURL) photoURL = await resolvePhotoURL(userData.photoURL || userData.avatar || undefined);
+                  }
+                }
+              }
+
+              // 3) Fallbacks from feedback document itself
+              if (!userEmail) userEmail = data.userEmail || '';
+              if (!userName) userName = userEmail?.split('@')[0] || 'User';
+              if (!photoURL && (data.photoURL || data.avatar)) {
+                photoURL = await resolvePhotoURL(data.photoURL || data.avatar);
+              }
+            } catch (error) {
+              console.error('Error enriching user data:', error);
+              userName = data.userEmail?.split('@')[0] || 'User';
+              userEmail = data.userEmail || '';
             }
             
             feedbacksData.push({

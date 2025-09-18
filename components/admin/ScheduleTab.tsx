@@ -4,7 +4,7 @@ import { Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View }
 // Web-only portal to ensure dropdown overlays escape ScrollView clipping
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - only resolved on web
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { createPortal } from 'react-dom';
 import { auth, db } from '../../config/firebase';
 
@@ -47,6 +47,7 @@ const ScheduleTab: React.FC = () => {
   const [deleteTargetInfo, setDeleteTargetInfo] = useState<{ date: string; time: string; street: string; category: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [busyText, setBusyText] = useState('');
+  const [drivers, setDrivers] = useState<Array<{ id: string; name: string; email: string }>>([]);
 
   const FREQUENCY_OPTIONS = useMemo(() => ['One-time', 'Daily', 'Weekly', 'Monthly' ], []);
   const WASTE_OPTIONS = useMemo(
@@ -61,7 +62,7 @@ const ScheduleTab: React.FC = () => {
     []
   );
   const TRUCK_OPTIONS = useMemo(() => ['Truck #1', 'Truck #2', 'Truck #3'], []);
-  const DRIVER_OPTIONS = useMemo(() => ['Driver 1', 'Driver 2'], []);
+  const DRIVER_OPTIONS = useMemo(() => drivers.map(driver => driver.name), [drivers]);
 
   // Category color mapping for calendar coloring
   const CATEGORY_COLORS: Record<string, string> = useMemo(() => ({
@@ -345,6 +346,30 @@ const ScheduleTab: React.FC = () => {
       });
       setRawSchedules(rows);
     });
+    return () => unsub();
+  }, [db]);
+
+  // Fetch drivers from users collection
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'users'), where('role', '==', 'driver')),
+      (snap) => {
+        const driverList: Array<{ id: string; name: string; email: string }> = [];
+        snap.forEach((doc) => {
+          const data = doc.data();
+          driverList.push({
+            id: doc.id,
+            name: data.displayName || data.email || 'Unknown Driver',
+            email: data.email || ''
+          });
+        });
+        setDrivers(driverList);
+      },
+      (error) => {
+        console.error('Error fetching drivers:', error);
+      }
+    );
     return () => unsub();
   }, [db]);
 
@@ -756,8 +781,9 @@ const ScheduleTab: React.FC = () => {
                   <Text style={styles.fieldLabel}>Choose Driver<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showDriverDropdown ? styles.dropdownContainerOpen : null]} ref={driverAnchorRef}>
                     <TouchableOpacity
-                      style={styles.inputField}
+                      style={[styles.inputField, drivers.length === 0 && styles.disabledField]}
                       onPress={() => {
+                        if (drivers.length === 0) return;
                         const next = !showDriverDropdown;
                         closeAllDropdowns();
                         setShowDriverDropdown(next);
@@ -767,7 +793,7 @@ const ScheduleTab: React.FC = () => {
                         }
                       }}
                     >
-                      <Text style={styles.inputText}>{driver || 'Choose Driver'}</Text>
+                      <Text style={styles.inputText}>{driver || (drivers.length === 0 ? 'Loading drivers...' : 'Choose Driver')}</Text>
                       <Ionicons name={showDriverDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showDriverDropdown && (
@@ -775,9 +801,10 @@ const ScheduleTab: React.FC = () => {
                         ? createPortal(
                             <View style={[styles.suggestionPanelPortal, { top: driverPortalRect.top, left: driverPortalRect.left, width: driverPortalRect.width, pointerEvents: 'auto' }]}>
                               <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
-                                {DRIVER_OPTIONS.map((opt) => (
-                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDriver(opt); setShowDriverDropdown(false); }}>
-                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                {drivers.map((driver) => (
+                                  <TouchableOpacity key={driver.id} style={styles.suggestionItem} onPress={() => { setDriver(driver.name); setShowDriverDropdown(false); }}>
+                                    <Ionicons name="person-outline" size={16} color="#4B5F4F" />
+                                    <Text style={styles.suggestionText}>{driver.name}</Text>
                                   </TouchableOpacity>
                                 ))}
                               </ScrollView>
@@ -787,9 +814,10 @@ const ScheduleTab: React.FC = () => {
                         : (
                             <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
                               <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
-                                {DRIVER_OPTIONS.map((opt) => (
-                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDriver(opt); setShowDriverDropdown(false); }}>
-                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                {drivers.map((driver) => (
+                                  <TouchableOpacity key={driver.id} style={styles.suggestionItem} onPress={() => { setDriver(driver.name); setShowDriverDropdown(false); }}>
+                                    <Ionicons name="person-outline" size={16} color="#4B5F4F" />
+                                    <Text style={styles.suggestionText}>{driver.name}</Text>
                                   </TouchableOpacity>
                                 ))}
                               </ScrollView>
@@ -1196,6 +1224,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#234033',
     marginLeft: 8,
+  },
+  disabledField: {
+    opacity: 0.6,
+    backgroundColor: '#f5f5f5',
   },
   textInputField: {
     flex: 1,

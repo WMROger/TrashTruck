@@ -16,6 +16,7 @@ export default function TabLayout() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
 
   // Check if user has admin role and redirect if necessary
   useEffect(() => {
@@ -37,6 +38,12 @@ export default function TabLayout() {
             router.replace('/admin/dashboard');
             return;
           }
+          if (userData.role === 'driver') {
+            // Switch to the Driver tab inside the (tabs) group to avoid route-not-found warnings
+            router.replace('/(tabs)/driver');
+            return;
+          }
+          setRole(userData.role || null);
         }
         setIsAdmin(false);
       } catch (error) {
@@ -64,6 +71,7 @@ export default function TabLayout() {
     <Tabs
       initialRouteName="home"
       screenOptions={{
+        lazy: true,
         tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: 'rgba(255,255,255,0.8)',
         headerShown: false,
@@ -129,6 +137,16 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* Driver-only tab */}
+      {role === 'driver' ? (
+        <Tabs.Screen
+          name="driver"
+          options={{
+            title: 'Driver',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="steeringwheel" color={color} />,
+          }}
+        />
+      ) : null}
       <Tabs.Screen
         name="profile"
         options={{

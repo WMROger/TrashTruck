@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { collection, doc, getDoc, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
-import { AdminSidebar, AnnouncementsTab, FeedbackTab, ReportsTab, ScheduleTab } from '../../components/admin';
+import { AdminSidebar, AnnouncementsTab, FeedbackTab, HistoryTab, ManageAccountsTab, ReportsTab, ScheduleTab } from '../../components/admin';
 import { auth, db } from '../../config/firebase';
 
 export default function AdminDashboard() {
@@ -21,6 +21,17 @@ export default function AdminDashboard() {
   const [feedbackStats, setFeedbackStats] = useState<{ loved: number; good: number; bad: number; terrible: number }>({ loved: 0, good: 0, bad: 0, terrible: 0 });
   const [historyCounts, setHistoryCounts] = useState<{ pickup: number; reports: number }>({ pickup: 0, reports: 0 });
   const [historyFilter, setHistoryFilter] = useState<'today' | 'week' | 'month'>('today');
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
+  // History view/state
+  const [historyView, setHistoryView] = useState<'pickup' | 'reports'>('reports');
+  const [historyData, setHistoryData] = useState<Report[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyType, setHistoryType] = useState<'pickup' | 'reports'>('reports');
+  const [historyReports, setHistoryReports] = useState<Report[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
   type Report = {
     id: string;
     title: string;
@@ -88,14 +99,14 @@ export default function AdminDashboard() {
 
     // Latest report images (summary thumbnails)
     const reportsRef = collection(db, 'reports');
-    const reportsQuery = query(reportsRef, orderBy('createdAt', 'desc'), limit(3));
+    const reportsQuery = query(reportsRef, orderBy('createdAt', 'desc'), limit(12));
     const unsubReports = onSnapshot(reportsQuery, (snap) => {
       const images: string[] = [];
       snap.forEach((d) => {
         const data: any = d.data();
         if (data?.imageURL) images.push(data.imageURL);
       });
-      setLatestReportImages(images);
+      setLatestReportImages(images.slice(0, 3));
     });
 
     // Feedback summary and latest feedback
@@ -166,6 +177,12 @@ export default function AdminDashboard() {
     return () => { unsubSched(); unsubRep(); };
   }, []);
 
+  // Load inline history on first render
+  useEffect(() => {
+    fetchInlineHistory(historyView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLogout = async () => {
     console.log('Admin logout: Button pressed, showing confirmation modal');
     setShowLogoutModal(true);
@@ -188,6 +205,155 @@ export default function AdminDashboard() {
   const cancelLogout = () => {
     console.log('Admin logout: Cancelled by user');
     setShowLogoutModal(false);
+  };
+
+  // Export functions
+  const exportToCSV = async (reports: Report[]) => {
+    try {
+      const csvHeaders = 'Name,Barangay,Street,Date,Title,Status\n';
+      const csvData = reports.map(report => {
+        const date = report.createdAt?.toDate ? report.createdAt.toDate().toLocaleDateString() : 'N/A';
+        return `"${report.userEmail}","${report.barangay}","${report.street}","${date}","${report.title}","${report.status}"`;
+      }).join('\n');
+      
+      const csvContent = csvHeaders + csvData;
+      
+      await Share.share({
+        message: csvContent,
+        title: 'Trash Reports Export',
+      });
+    } catch (error) {
+      Alert.alert('Export Error', 'Failed to export data');
+    }
+  };
+
+  const exportToExcel = async (reports: Report[]) => {
+    try {
+      // For now, we'll export as CSV since Excel export requires additional libraries
+      // In a real app, you'd use a library like xlsx
+      await exportToCSV(reports);
+    } catch (error) {
+      Alert.alert('Export Error', 'Failed to export data');
+    }
+  };
+
+  // History modal functions
+  const openHistoryModal = (type: 'pickup' | 'reports') => {
+    setHistoryType(type);
+    setShowHistoryModal(true);
+    setHistoryPage(1);
+    fetchHistoryData(type, 1);
+  };
+
+  // Inline history panel fetcher (for switching bottom list without modal)
+  const fetchInlineHistory = async (type: 'pickup' | 'reports') => {
+    if (!db) return;
+    setIsHistoryLoading(true);
+    try {
+      const collectionName = type === 'pickup' ? 'pickupHistory' : 'reports';
+      const collectionRef = collection(db, collectionName);
+
+      const now = new Date();
+      let startDate: Date;
+      switch (historyFilter) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          break;
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        default:
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      }
+
+      const q = query(
+        collectionRef,
+        where('createdAt', '>=', startDate),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any[];
+
+      const mapped: Report[] = data.map((r) => ({
+        id: r.id,
+        title: r.title || 'Untitled',
+        description: r.description || '',
+        barangay: r.barangay || '',
+        street: r.street || '',
+        userEmail: r.userEmail || '',
+        status: r.status || (type === 'pickup' ? 'completed' : 'pending'),
+        createdAt: r.createdAt,
+      }));
+      setHistoryData(mapped);
+    } catch (e) {
+      console.warn('Failed to fetch inline history:', e);
+      setHistoryData([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const fetchHistoryData = async (type: 'pickup' | 'reports', page: number) => {
+    if (!db) return;
+    
+    try {
+      const itemsPerPage = 10;
+      
+      let collectionName = 'reports';
+      if (type === 'pickup') {
+        collectionName = 'pickupHistory';
+      }
+      
+      const collectionRef = collection(db, collectionName);
+      
+      // Apply date filter
+      const now = new Date();
+      let startDate: Date;
+      
+      switch (historyFilter) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          break;
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        default:
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      }
+      
+      const q = query(collectionRef, 
+        where('createdAt', '>=', startDate),
+        orderBy('createdAt', 'desc'), 
+        limit(itemsPerPage)
+      );
+      
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Report[];
+      
+      setHistoryReports(data);
+      
+      // Calculate total pages (simplified - in real app you'd get total count)
+      setHistoryTotalPages(Math.ceil(data.length / itemsPerPage));
+      
+    } catch (error) {
+      console.error('Error fetching history data:', error);
+      Alert.alert('Error', 'Failed to fetch history data');
+    }
+  };
+
+  const handleHistoryPageChange = (newPage: number) => {
+    setHistoryPage(newPage);
+    fetchHistoryData(historyType, newPage);
   };
 
   // Show loading while checking admin access
@@ -215,15 +381,25 @@ export default function AdminDashboard() {
         <Text style={styles.blockTitle}>Trash Reports</Text>
         <View style={styles.reportsRow}>
           {[0,1,2].map((idx) => (
-            <View key={idx} style={styles.reportCard}>
-              {latestReportImages[idx] && (
+            <TouchableOpacity
+              key={idx}
+              style={styles.reportCard}
+              activeOpacity={0.85}
+              onPress={() => {
+                if (latestReportImages[idx]) {
+                  setImagePreviewUrl(latestReportImages[idx]);
+                  setIsImagePreviewVisible(true);
+                }
+              }}
+            >
+              {latestReportImages[idx] ? (
                 <Image
                   source={{ uri: latestReportImages[idx] }}
                   style={styles.reportImage}
                   resizeMode="cover"
                 />
-              )}
-            </View>
+              ) : null}
+            </TouchableOpacity>
           ))}
         </View>
       </View>
@@ -302,82 +478,10 @@ export default function AdminDashboard() {
       .sort((a, b) => (toMs(b.createdAt) - toMs(a.createdAt)));
   };
 
-  const renderHistoryContent = () => (
-    <ScrollView style={styles.content}>
-      <View style={styles.historyContainer}>
-        <View style={styles.historyHeaderRow}>
-          <View>
-            <Text style={styles.historyTitle}>History</Text>
-            <Text style={styles.historySubtitle}>Showing your all histories with a clear view</Text>
-          </View>
-          <TouchableOpacity style={styles.filterButton} activeOpacity={0.8}>
-            <Ionicons name="filter" size={16} color="#234033" />
-            <Text style={styles.filterButtonText}>Filter</Text>
-            <Ionicons name="chevron-down" size={16} color="#234033" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.historyDivider} />
-
-        <View style={styles.historyCardsRow}>
-          <View style={[styles.historyCard, { backgroundColor: '#FFE7B3', borderColor: '#F7D78A' }]}>
-            <Text style={styles.historyCardTitle}>Pickup Completion</Text>
-            <Text style={[styles.historyCardNumber, { color: '#D97706' }]}>{historyCounts.pickup}</Text>
-          </View>
-          <View style={[styles.historyCard, { backgroundColor: '#FFD6D6', borderColor: '#F4B4B4' }]}>
-            <Text style={styles.historyCardTitle}>Trash Reports</Text>
-            <Text style={[styles.historyCardNumber, { color: '#DC2626' }]}>{historyCounts.reports}</Text>
-          </View>
-        </View>
-
-        {/* Resolved Trash Reports List */}
-        <View style={{ marginTop: 24 }}>
-          <Text style={styles.blockTitle}>Trash Reports</Text>
-          {/* Filter tabs */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-            {(['today','week','month'] as const).map((key) => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.historyFilterTab, historyFilter === key && styles.historyFilterTabActive]}
-                onPress={() => setHistoryFilter(key)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.historyFilterTabText, historyFilter === key && styles.historyFilterTabTextActive]}>
-                  {key === 'week' ? 'Weekly' : key === 'month' ? 'Monthly' : 'Today'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Table */}
-          <View style={styles.historyTable}>
-            <View style={[styles.historyTableRow, styles.historyTableHeader]}> 
-              <Text style={[styles.historyTableCell, styles.colName, styles.historyTableHeaderText]}>Name</Text>
-              <Text style={[styles.historyTableCell, styles.colBarangay, styles.historyTableHeaderText]}>Barangay</Text>
-              <Text style={[styles.historyTableCell, styles.colStreet, styles.historyTableHeaderText]}>Street</Text>
-              <Text style={[styles.historyTableCell, styles.colDate, styles.historyTableHeaderText]}>Date</Text>
-              <Text style={[styles.historyTableCell, styles.colTitle, styles.historyTableHeaderText]}>Title</Text>
-            </View>
-            {getFilteredResolvedReports().map((r, idx) => (
-              <View key={r.id} style={[styles.historyTableRow, idx % 2 === 0 ? styles.historyTableRowEven : styles.historyTableRowOdd]}>
-                <Text style={[styles.historyTableCell, styles.colName]} numberOfLines={1}>{(r.userEmail || '').split('@')[0]}</Text>
-                <Text style={[styles.historyTableCell, styles.colBarangay]} numberOfLines={1}>{r.barangay}</Text>
-                <Text style={[styles.historyTableCell, styles.colStreet]} numberOfLines={1}>{r.street}</Text>
-                <Text style={[styles.historyTableCell, styles.colDate]} numberOfLines={1}>{formatSimpleDate(r.createdAt)}</Text>
-                <Text style={[styles.historyTableCell, styles.colTitle]} numberOfLines={1}>{r.title}</Text>
-              </View>
-            ))}
-            {getFilteredResolvedReports().length === 0 && (
-              <View style={{ padding: 16 }}>
-                <Text style={{ color: '#234033' }}>No resolved reports in this period.</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </View>
-    </ScrollView>
-  );
+  const renderHistoryContent = () => <HistoryTab />;
 
   const renderFeedbacksContent = () => <FeedbackTab />;
+  const renderManageAccountsContent = () => <ManageAccountsTab />;
 
   const renderContent = () => {
     switch (activeTab) {
@@ -393,6 +497,8 @@ export default function AdminDashboard() {
         return renderHistoryContent();
       case 'feedbacks':
         return renderFeedbacksContent();
+      case 'accounts':
+        return renderManageAccountsContent();
       default:
         return renderHomeContent();
     }
@@ -446,6 +552,151 @@ export default function AdminDashboard() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalButton} onPress={cancelLogout}>
                 <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Preview Modal */}
+      <Modal
+        visible={isImagePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsImagePreviewVisible(false)}
+      >
+        <View style={styles.imagePreviewOverlay}>
+          <View style={styles.imagePreviewContainer}>
+            <ScrollView
+              contentContainerStyle={styles.imagePreviewScroll}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              centerContent
+            >
+              {imagePreviewUrl ? (
+                <Image
+                  source={{ uri: imagePreviewUrl }}
+                  style={styles.imagePreview}
+                  resizeMode="contain"
+                />
+              ) : null}
+            </ScrollView>
+            <TouchableOpacity style={styles.imagePreviewClose} onPress={() => setIsImagePreviewVisible(false)}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* History Modal */}
+      <Modal
+        visible={showHistoryModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowHistoryModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.historyModalContent}>
+            <View style={styles.historyModalHeader}>
+              <Text style={styles.historyModalTitle}>
+                {historyType === 'pickup' ? 'Pickup Completion History' : 'Trash Reports History'}
+              </Text>
+              <TouchableOpacity 
+                onPress={() => setShowHistoryModal(false)}
+                style={styles.historyModalClose}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Filter buttons */}
+            <View style={styles.historyFilterButtons}>
+              <TouchableOpacity 
+                style={[styles.historyFilterButton, historyFilter === 'today' && styles.historyFilterButtonActive]}
+                onPress={() => {
+                  setHistoryFilter('today');
+                  fetchHistoryData(historyType, 1);
+                }}
+              >
+                <Text style={[styles.historyFilterButtonText, historyFilter === 'today' && styles.historyFilterButtonTextActive]}>Today</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.historyFilterButton, historyFilter === 'week' && styles.historyFilterButtonActive]}
+                onPress={() => {
+                  setHistoryFilter('week');
+                  fetchHistoryData(historyType, 1);
+                }}
+              >
+                <Text style={[styles.historyFilterButtonText, historyFilter === 'week' && styles.historyFilterButtonTextActive]}>Weekly</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.historyFilterButton, historyFilter === 'month' && styles.historyFilterButtonActive]}
+                onPress={() => {
+                  setHistoryFilter('month');
+                  fetchHistoryData(historyType, 1);
+                }}
+              >
+                <Text style={[styles.historyFilterButtonText, historyFilter === 'month' && styles.historyFilterButtonTextActive]}>Monthly</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Export buttons */}
+            <View style={styles.exportButtons}>
+              <TouchableOpacity 
+                style={styles.exportButton}
+                onPress={() => exportToCSV(historyReports)}
+              >
+                <Ionicons name="download" size={16} color="#fff" />
+                <Text style={styles.exportButtonText}>Export CSV</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.exportButton}
+                onPress={() => exportToExcel(historyReports)}
+              >
+                <Ionicons name="document" size={16} color="#fff" />
+                <Text style={styles.exportButtonText}>Export Excel</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* History list */}
+            <ScrollView style={styles.historyList}>
+              {historyReports.map((report, index) => (
+                <View key={report.id || index} style={styles.historyItem}>
+                  <View style={styles.historyItemContent}>
+                    <Text style={styles.historyItemName}>{report.userEmail}</Text>
+                    <Text style={styles.historyItemLocation}>{report.barangay}, {report.street}</Text>
+                    <Text style={styles.historyItemDate}>
+                      {report.createdAt?.toDate ? report.createdAt.toDate().toLocaleDateString() : 'N/A'}
+                    </Text>
+                    <Text style={styles.historyItemTitle}>{report.title}</Text>
+                    <Text style={[styles.historyItemStatus, { color: report.status === 'resolved' ? '#10B981' : '#F59E0B' }]}>
+                      {report.status}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* Pagination */}
+            <View style={styles.historyPagination}>
+              <TouchableOpacity 
+                style={[styles.paginationButton, historyPage === 1 && styles.paginationButtonDisabled]}
+                onPress={() => handleHistoryPageChange(historyPage - 1)}
+                disabled={historyPage === 1}
+              >
+                <Text style={[styles.paginationButtonText, historyPage === 1 && styles.paginationButtonTextDisabled]}>Previous</Text>
+              </TouchableOpacity>
+              
+              <Text style={styles.paginationInfo}>
+                Page {historyPage} of {historyTotalPages}
+              </Text>
+              
+              <TouchableOpacity 
+                style={[styles.paginationButton, historyPage === historyTotalPages && styles.paginationButtonDisabled]}
+                onPress={() => handleHistoryPageChange(historyPage + 1)}
+                disabled={historyPage === historyTotalPages}
+              >
+                <Text style={[styles.paginationButtonText, historyPage === historyTotalPages && styles.paginationButtonTextDisabled]}>Next</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -860,5 +1111,184 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  imagePreviewContainer: {
+    width: '100%',
+    maxWidth: 900,
+    maxHeight: '90%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  imagePreviewScroll: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 300,
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePreviewClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 6,
+  },
+  // History modal styles
+  historyModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    margin: 20,
+    maxHeight: '90%',
+    minHeight: '60%',
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  historyModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  historyModalClose: {
+    padding: 8,
+  },
+  historyFilterButtons: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 10,
+  },
+  historyFilterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  historyFilterButtonActive: {
+    backgroundColor: '#234033',
+    borderColor: '#234033',
+  },
+  historyFilterButtonText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  historyFilterButtonTextActive: {
+    color: 'white',
+  },
+  exportButtons: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 10,
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#234033',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  exportButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  historyList: {
+    flex: 1,
+    marginBottom: 20,
+  },
+  historyItem: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#234033',
+  },
+  historyItemContent: {
+    gap: 4,
+  },
+  historyItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  historyItemLocation: {
+    fontSize: 14,
+    color: '#666',
+  },
+  historyItemDate: {
+    fontSize: 12,
+    color: '#999',
+  },
+  historyItemTitle: {
+    fontSize: 14,
+    color: '#333',
+    marginTop: 4,
+  },
+  historyItemStatus: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  historyPagination: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  paginationButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#234033',
+    borderRadius: 6,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  paginationButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  paginationButtonTextDisabled: {
+    color: '#999',
+  },
+  paginationInfo: {
+    fontSize: 14,
+    color: '#666',
+  },
+  exportSmallButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#234033',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  exportSmallButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

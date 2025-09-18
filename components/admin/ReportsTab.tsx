@@ -34,6 +34,8 @@ const ReportsTab: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [isResolving, setIsResolving] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
 
   // Fetch reports from Firestore
   useEffect(() => {
@@ -525,7 +527,16 @@ const ReportsTab: React.FC = () => {
                   onPress={() => handleViewReport(report)}
                 >
                   <View style={styles.reportCardInner}>
-                    <View style={styles.cardImageWrap}>
+                    <TouchableOpacity
+                      style={styles.cardImageWrap}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        if (report.imageURL) {
+                          setImagePreviewUrl(report.imageURL);
+                          setIsImagePreviewVisible(true);
+                        }
+                      }}
+                    >
                       {report.imageURL ? (
                         <Image source={{ uri: report.imageURL }} style={styles.cardImage} resizeMode="cover" />
                       ) : (
@@ -533,7 +544,7 @@ const ReportsTab: React.FC = () => {
                           <Ionicons name="image" size={32} color="#9CA3AF" />
                         </View>
                       )}
-                    </View>
+                    </TouchableOpacity>
                     <View style={styles.cardDetails}>
                       <Text style={styles.cardTitle} numberOfLines={1}>{report.title}</Text>
                       <Text style={styles.cardSubtitle} numberOfLines={1}>Title: {report.title}</Text>
@@ -588,13 +599,20 @@ const ReportsTab: React.FC = () => {
 
                 {/* Image */}
                 {selectedReport.imageURL && (
-                  <View style={styles.modalImageContainer}>
+                  <TouchableOpacity
+                    style={styles.modalImageContainer}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      setImagePreviewUrl(selectedReport.imageURL!);
+                      setIsImagePreviewVisible(true);
+                    }}
+                  >
                     <Image 
                       source={{ uri: selectedReport.imageURL }} 
                       style={styles.modalImage}
                       resizeMode="cover"
                     />
-                  </View>
+                  </TouchableOpacity>
                 )}
 
                 {/* Location */}
@@ -631,6 +649,32 @@ const ReportsTab: React.FC = () => {
                 </TouchableOpacity>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Preview Modal */}
+      <Modal
+        visible={isImagePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsImagePreviewVisible(false)}
+      >
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewContainer}>
+            <ScrollView
+              contentContainerStyle={styles.previewScroll}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              centerContent
+            >
+              {imagePreviewUrl ? (
+                <Image source={{ uri: imagePreviewUrl }} style={styles.previewImage} resizeMode="contain" />
+              ) : null}
+            </ScrollView>
+            <TouchableOpacity style={styles.previewClose} onPress={() => setIsImagePreviewVisible(false)}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -918,6 +962,38 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Image preview styles
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  previewContainer: {
+    width: '100%',
+    maxWidth: 900,
+    maxHeight: '90%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  previewScroll: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 300,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 6,
   },
   // Search styles
   searchContainer: {

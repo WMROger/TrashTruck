@@ -53,8 +53,8 @@ try {
   db = getFirestore(app);
   console.log('Firebase: Firestore initialized successfully');
 
-  // Initialize Functions
-  functions = getFunctions(app);
+  // Initialize Functions (explicit region to avoid CORS issues)
+  functions = getFunctions(app, 'us-central1');
   console.log('Firebase: Functions initialized successfully');
 
   // Initialize Storage with explicit bucket binding if available

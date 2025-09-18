@@ -1,8 +1,10 @@
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
@@ -95,8 +97,6 @@ export default function ProfilePage() {
 
     fetchUserProfile();
   }, [user]);
-
-  // ...existing code...
 
   const handleLogout = () => {
     setLogoutError(null);
@@ -194,11 +194,25 @@ export default function ProfilePage() {
         );
       }
       
+      let uploadSource = selectedImageUri;
       if (asset.base64) {
         const mime = asset.mimeType || 'image/jpeg';
-        setEditPhotoURL(`data:${mime};base64,${asset.base64}`);
+        const dataUrl = `data:${mime};base64,${asset.base64}`;
+        setEditPhotoURL(dataUrl);
+        uploadSource = dataUrl;
       } else {
         setEditPhotoURL(selectedImageUri);
+      }
+
+      try {
+        const result = await cloudinaryService.uploadImage(uploadSource, { folder: UPLOAD_FOLDERS.PROFILES, preset: UPLOAD_PRESETS.PROFILES });
+        if (result.success && result.url) {
+          setEditPhotoURL(result.url);
+        } else {
+          Alert.alert('Upload Error', result.error || 'Failed to upload profile image.');
+        }
+      } catch (err) {
+        Alert.alert('Upload Error', 'Failed to upload profile image.');
       }
     }
   };
@@ -1105,4 +1119,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 2,
   },
-}); 
+});
+

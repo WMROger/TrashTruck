@@ -12,18 +12,47 @@ service cloud.firestore {
   function isAdmin() {
     return isAuthenticated() && ('admin' in request.auth.token) && request.auth.token.admin == true;
   }
+  // Driver assigned to a schedule
+  function isAssignedDriver() {
+    // Many docs store driver as an email or display name string
+    return isAuthenticated() && (
+      (('email' in request.auth.token) && resource.data.driver == request.auth.token.email) ||
+      (('name' in request.auth.token) && resource.data.driver == request.auth.token.name) ||
+      (('driverUid' in resource.data) && resource.data.driverUid == request.auth.uid)
+    );
+  }
+  // Restrict what drivers can change when completing/flagging a pickup
+  function driverCompletionUpdateOnly() {
+    // Only these fields may change
+    return resource.data.diff(request.resource.data).changedKeys().hasOnly([
+      'status',
+      'completedAt',
+      'completionImage',
+      'completionDescription',
+      'completedBy'
+    ]);
+  }
+  function isValidCompletionStatus() {
+    return request.resource.data.status in ['completed', 'issue'];
+  }
 
   match /databases/{database}/documents {
     // Waste collection schedules
     match /schedules/{scheduleId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
-      allow update, delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated() && (isOwner(request.resource.data.userId) || isAdmin());
+      // Admins and owners have full control; assigned drivers can only mark completion/issue with limited fields
+      allow update: if isAuthenticated() && (
+        isOwner(resource.data.userId) ||
+        isAdmin() ||
+        (isAssignedDriver() && driverCompletionUpdateOnly() && isValidCompletionStatus())
+      );
+      allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
     }
     // User profiles
     match /users/{userId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
     // User settings
