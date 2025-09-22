@@ -309,12 +309,25 @@ export default function ProfilePage() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
-          Profile
-        </Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Modal Header */}
+      <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <TouchableOpacity 
+          style={styles.closeButton}
+          onPress={() => router.back()}
+        >
+          <IconSymbol name="xmark" size={24} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Profile & Settings</Text>
+        <View style={styles.headerSpacer} />
       </View>
+
+      <ScrollView style={styles.scrollContent}>
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>
+            Profile
+          </Text>
+        </View>
 
       <View style={styles.content}>
         <View style={[styles.profileCard, { backgroundColor: colors.surface }]}>
@@ -836,13 +849,36 @@ export default function ProfilePage() {
             </View>
           </View>
         </Modal>
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+  },
+  closeButton: {
+    padding: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  headerSpacer: {
+    width: 40, // Same width as close button to center title
+  },
+  scrollContent: {
     flex: 1,
   },
   header: {

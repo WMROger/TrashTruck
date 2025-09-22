@@ -6,7 +6,7 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, useWindowDimensions } from 'react-native';
+import { Platform, Text, TextInput, useWindowDimensions } from 'react-native';
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
@@ -83,6 +83,36 @@ function RootLayoutNav() {
     }
   }, [isAuthenticated, loading, segments, router, isDesktopWeb, isAdmin]);
 
+  // Route-scoped global font: Poppins on admin, SF Pro stack elsewhere
+  useEffect(() => {
+    const currentSegment = segments[0];
+    const isAdminRoute = currentSegment === 'admin';
+
+    const adminFont = Platform.select({
+      web: 'Poppins, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+      ios: 'Poppins',
+      android: 'Poppins',
+      default: 'System',
+    }) as string;
+
+    const sfProStack = Platform.select({
+      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+      ios: 'System',
+      android: 'Roboto', // Closest system match to SF Pro on Android
+      default: 'System',
+    }) as string;
+
+    const targetFont = isAdminRoute ? adminFont : sfProStack;
+
+    if (!Text.defaultProps) Text.defaultProps = {};
+    if (!Text.defaultProps.style) Text.defaultProps.style = {} as any;
+    (Text.defaultProps.style as any).fontFamily = targetFont;
+
+    if (!TextInput.defaultProps) TextInput.defaultProps = {} as any;
+    if (!TextInput.defaultProps.style) TextInput.defaultProps.style = {} as any;
+    (TextInput.defaultProps.style as any).fontFamily = targetFont;
+  }, [segments]);
+
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
@@ -97,8 +127,10 @@ function RootLayoutNav() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="splash" options={{ headerShown: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="driver" options={{ headerShown: false }} />
+      <Stack.Screen name="(driver)" options={{ headerShown: false }} />
+      <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="test-tabs" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />
@@ -107,6 +139,31 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  // Set global default fonts (SF Pro system on iOS, sans-serif on Android)
+  if (!Text.defaultProps) Text.defaultProps = {};
+  if (!Text.defaultProps.style) Text.defaultProps.style = {} as any;
+  const textStyle = Text.defaultProps.style as any;
+  if (!textStyle.fontFamily) {
+    textStyle.fontFamily = Platform.select({
+      ios: 'System',
+      android: 'Roboto',
+      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+      default: 'System',
+    }) as string;
+  }
+
+  if (!TextInput.defaultProps) TextInput.defaultProps = {} as any;
+  if (!TextInput.defaultProps.style) TextInput.defaultProps.style = {} as any;
+  const inputStyle = TextInput.defaultProps.style as any;
+  if (!inputStyle.fontFamily) {
+    inputStyle.fontFamily = Platform.select({
+      ios: 'System',
+      android: 'Roboto',
+      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+      default: 'System',
+    }) as string;
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>

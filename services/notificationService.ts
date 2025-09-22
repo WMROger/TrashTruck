@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -11,6 +12,12 @@ Notifications.setNotificationHandler({
 
 export class NotificationService {
   static async requestPermissions(): Promise<boolean> {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Notifications not supported on web platform');
+      return false;
+    }
+
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     
@@ -33,6 +40,12 @@ export class NotificationService {
     description: string;
     priority: string;
   }) {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Announcement notification skipped on web platform:', announcement.title);
+      return null;
+    }
+
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) return;
 
@@ -60,6 +73,12 @@ export class NotificationService {
     time: string;
     type: string;
   }) {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Pickup reminder notification skipped on web platform for:', schedule.id);
+      return;
+    }
+
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) return;
 
@@ -113,14 +132,29 @@ export class NotificationService {
   }
 
   static async cancelNotification(notificationId: string) {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Cancel notification skipped on web platform');
+      return;
+    }
     await Notifications.cancelScheduledNotificationAsync(notificationId);
   }
 
   static async cancelAllNotifications() {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Cancel all notifications skipped on web platform');
+      return;
+    }
     await Notifications.cancelAllScheduledNotificationsAsync();
   }
 
   static async getScheduledNotifications() {
+    // Notifications are not supported on web
+    if (Platform.OS === 'web') {
+      console.log('Get scheduled notifications skipped on web platform');
+      return [];
+    }
     return await Notifications.getAllScheduledNotificationsAsync();
   }
 }

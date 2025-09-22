@@ -7,6 +7,7 @@ import { Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View }
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { createPortal } from 'react-dom';
 import { auth, db } from '../../config/firebase';
+import ErrorModal from '../ErrorModal';
 
 const ScheduleTab: React.FC = () => {
   const [scheduleMode, setScheduleMode] = useState<'add' | 'edit'>('add');
@@ -17,6 +18,7 @@ const ScheduleTab: React.FC = () => {
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [selectedStreet, setSelectedStreet] = useState('');
   const [frequency, setFrequency] = useState('');
+  const [duration, setDuration] = useState('');
   const [wasteCategory, setWasteCategory] = useState('');
   const [truck, setTruck] = useState('');
   const [driver, setDriver] = useState('');
@@ -32,12 +34,15 @@ const ScheduleTab: React.FC = () => {
   const wasteAnchorRef = useRef<any>(null);
   const truckAnchorRef = useRef<any>(null);
   const [showFrequencyDropdown, setShowFrequencyDropdown] = useState(false);
+  const [showDurationDropdown, setShowDurationDropdown] = useState(false);
   const [showWasteDropdown, setShowWasteDropdown] = useState(false);
   const [showTruckDropdown, setShowTruckDropdown] = useState(false);
   const [freqPortalRect, setFreqPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [durationPortalRect, setDurationPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const [wastePortalRect, setWastePortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const [truckPortalRect, setTruckPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   const driverAnchorRef = useRef<any>(null);
+  const durationAnchorRef = useRef<any>(null);
   const [showDriverDropdown, setShowDriverDropdown] = useState(false);
   const [driverPortalRect, setDriverPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
   
@@ -48,8 +53,28 @@ const ScheduleTab: React.FC = () => {
   const [isBusy, setIsBusy] = useState(false);
   const [busyText, setBusyText] = useState('');
   const [drivers, setDrivers] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
 
   const FREQUENCY_OPTIONS = useMemo(() => ['One-time', 'Daily', 'Weekly', 'Monthly' ], []);
+  const getDurationOptions = (freq: string) => {
+    const unit = freq.toLowerCase();
+    const options = [];
+    for (let i = 1; i <= 30; i++) {
+      if (unit === 'daily') {
+        options.push(`${i} ${i > 1 ? 'days' : 'day'}`);
+      } else if (unit === 'weekly') {
+        options.push(`${i} ${i > 1 ? 'weeks' : 'week'}`);
+      } else if (unit === 'monthly') {
+        options.push(`${i} ${i > 1 ? 'months' : 'month'}`);
+      }
+    }
+    return options;
+  };
   const WASTE_OPTIONS = useMemo(
     () => [
       { label: 'Biodegradable', color: '#22C55E' },
@@ -74,10 +99,26 @@ const ScheduleTab: React.FC = () => {
     'Special/Bulk': '#A855F7',
   }), []);
 
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
+
   const closeAllDropdowns = () => {
     setShowTimeDropdown(false);
     setShowStreetDropdown(false);
     setShowFrequencyDropdown(false);
+    setShowDurationDropdown(false);
     setShowWasteDropdown(false);
     setShowTruckDropdown(false);
     setShowDriverDropdown(false);
@@ -125,6 +166,7 @@ const ScheduleTab: React.FC = () => {
     setTimeText('');
     setSelectedStreet('');
     setFrequency('');
+    setDuration('');
     setWasteCategory('');
     setTruck('');
     setDriver('');
@@ -137,46 +179,123 @@ const ScheduleTab: React.FC = () => {
   const handleAdd = async () => {
     const currentUser = auth?.currentUser;
     if (!currentUser) {
-      console.warn('You must be logged in to add a schedule');
+      showError('You must be logged in to add a schedule', 'Authentication Required', 'warning');
       return;
     }
-    if (!selectedDate || !timeText) { console.warn('Please select a future date and time'); return; }
-    if (!selectedStreet.trim()) { console.warn('Please choose a street'); return; }
-    if (!frequency) { console.warn('Please select frequency'); return; }
-    if (!wasteCategory) { console.warn('Please choose waste category'); return; }
-    if (!truck) { console.warn('Please select assigned truck'); return; }
-    if (!driver) { console.warn('Please choose driver'); return; }
+    if (!selectedDate || !timeText) { 
+      showError('Please select a future date and time', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!selectedStreet.trim()) { 
+      showError('Please choose a street', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!frequency) { 
+      showError('Please select frequency', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!wasteCategory) { 
+      showError('Please choose waste category', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!truck) { 
+      showError('Please select assigned truck', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!driver) { 
+      showError('Please choose driver', 'Validation Error', 'warning'); 
+      return; 
+    }
+    
+    // Validate duration for recurring schedules
+    if (['Daily', 'Weekly', 'Monthly'].includes(frequency) && !duration) {
+      showError('Please select duration for recurring schedules', 'Validation Error', 'warning');
+      return;
+    }
+    
     const when = combineDateTime(selectedDate, timeText);
     if (!isFutureDateTime(when)) {
-      console.warn('Selected date/time must be in the future');
+      showError('Selected date/time must be in the future', 'Validation Error', 'warning');
       return;
     }
-    const payload = {
-      id: Date.now().toString(),
-      userId: currentUser.uid,
-      dateText: formatDate(selectedDate),
-      timeText,
-      street: selectedStreet,
-      frequency,
-      wasteCategory,
-      truck,
-      driver,
-      note,
-      createdAt: serverTimestamp(),
-    };
+    
     try {
       setBusyText('Saving schedule...');
       setIsBusy(true);
       if (!db) {
-        console.warn('Firestore not initialized; cannot save schedule');
-        console.log('Payload (dry-run):', payload);
-      } else {
-        await addDoc(collection(db, 'schedules'), payload);
-        console.log('Schedule saved to Firestore');
+        showError('Database not available. Cannot save schedule.', 'Database Error', 'error');
+        return;
       }
+      
+      // For recurring schedules, create multiple instances based on duration
+      if (['Daily', 'Weekly', 'Monthly'].includes(frequency) && duration) {
+        const durationCount = parseInt(duration.split(' ')[0]);
+        const schedules = [];
+        
+        for (let i = 0; i < durationCount; i++) {
+          let scheduleDate = new Date(selectedDate);
+          
+          // Calculate the date for this instance based on frequency
+          switch (frequency) {
+            case 'Daily':
+              scheduleDate.setDate(selectedDate.getDate() + i);
+              break;
+            case 'Weekly':
+              scheduleDate.setDate(selectedDate.getDate() + (i * 7));
+              break;
+            case 'Monthly':
+              scheduleDate.setMonth(selectedDate.getMonth() + i);
+              break;
+          }
+          
+          const payload = {
+            id: `${Date.now()}_${i}`,
+            userId: currentUser.uid,
+            dateText: formatDate(scheduleDate),
+            timeText,
+            street: selectedStreet,
+            frequency: 'One-time', // Each instance is a one-time schedule
+            duration: `${durationCount} consecutive ${frequency.toLowerCase()}`, // Store original duration info
+            wasteCategory,
+            truck,
+            driver,
+            note,
+            createdAt: serverTimestamp(),
+          };
+          
+          schedules.push(payload);
+        }
+        
+        // Add all schedules to Firestore
+        for (const schedule of schedules) {
+          await addDoc(collection(db, 'schedules'), schedule);
+        }
+        
+        showError(`Schedule created successfully! ${durationCount} consecutive ${frequency.toLowerCase()} instances added.`, 'Success', 'success');
+      } else {
+        // For one-time schedules, create single instance
+        const payload = {
+          id: Date.now().toString(),
+          userId: currentUser.uid,
+          dateText: formatDate(selectedDate),
+          timeText,
+          street: selectedStreet,
+          frequency,
+          wasteCategory,
+          truck,
+          driver,
+          note,
+          createdAt: serverTimestamp(),
+        };
+        
+        await addDoc(collection(db, 'schedules'), payload);
+        showError('Schedule saved successfully!', 'Success', 'success');
+      }
+      
       resetForm();
     } catch (error) {
       console.error('Failed to add schedule:', error);
+      showError('Failed to save schedule. Please try again.', 'Save Error', 'error');
     } finally {
       setIsBusy(false);
       setBusyText('');
@@ -185,15 +304,40 @@ const ScheduleTab: React.FC = () => {
 
   const handleSaveEdit = () => {
     if (!selectedId) return;
-    if (!selectedDate || !timeText) { console.warn('Please select a future date and time'); return; }
-    if (!selectedStreet.trim()) { console.warn('Please choose a street'); return; }
-    if (!frequency) { console.warn('Please select frequency'); return; }
-    if (!wasteCategory) { console.warn('Please choose waste category'); return; }
-    if (!truck) { console.warn('Please select assigned truck'); return; }
-    if (!driver) { console.warn('Please choose driver'); return; }
+    if (!selectedDate || !timeText) { 
+      showError('Please select a future date and time', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!selectedStreet.trim()) { 
+      showError('Please choose a street', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!frequency) { 
+      showError('Please select frequency', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!wasteCategory) { 
+      showError('Please choose waste category', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!truck) { 
+      showError('Please select assigned truck', 'Validation Error', 'warning'); 
+      return; 
+    }
+    if (!driver) { 
+      showError('Please choose driver', 'Validation Error', 'warning'); 
+      return; 
+    }
+    
+    // Validate duration for recurring schedules
+    if (['Daily', 'Weekly', 'Monthly'].includes(frequency) && !duration) {
+      showError('Please select duration for recurring schedules', 'Validation Error', 'warning');
+      return;
+    }
+    
     const when = combineDateTime(selectedDate, timeText);
     if (!isFutureDateTime(when)) {
-      console.warn('Selected date/time must be in the future');
+      showError('Selected date/time must be in the future', 'Validation Error', 'warning');
       return;
     }
     const payload: any = {
@@ -202,6 +346,7 @@ const ScheduleTab: React.FC = () => {
       timeText,
       street: selectedStreet,
       frequency,
+      duration,
       wasteCategory,
       truck,
       driver,
@@ -213,15 +358,17 @@ const ScheduleTab: React.FC = () => {
         setBusyText('Updating schedule...');
         setIsBusy(true);
         if (!db) {
-          console.warn('Firestore not initialized; cannot update');
+          showError('Database not available. Cannot update schedule.', 'Database Error', 'error');
+          return;
         } else {
           await updateDoc(doc(db, 'schedules', selectedId), payload);
-          console.log('Schedule updated');
+          showError('Schedule updated successfully!', 'Success', 'success');
         }
         resetForm();
         setScheduleMode('add');
       } catch (e) {
         console.error('Update failed', e);
+        showError('Failed to update schedule. Please try again.', 'Update Error', 'error');
       } finally {
         setIsBusy(false);
         setBusyText('');
@@ -236,7 +383,7 @@ const ScheduleTab: React.FC = () => {
       setBusyText('Deleting schedule...');
       setIsBusy(true);
       if (!db) {
-        console.warn('Firestore not initialized');
+        showError('Database not available. Cannot delete schedule.', 'Database Error', 'error');
         return;
       }
       // Debug: log current user UID and schedule userId
@@ -252,12 +399,13 @@ const ScheduleTab: React.FC = () => {
         isAdmin: auth?.currentUser?.admin,
       });
       await deleteDoc(scheduleDocRef);
+      showError('Schedule deleted successfully!', 'Success', 'success');
       resetForm();
       setScheduleMode('add');
       hideDeleteConfirmation();
     } catch (e: any) {
       console.error('Delete failed', e);
-      alert('Delete failed: ' + (e && e.message ? e.message : JSON.stringify(e)));
+      showError('Failed to delete schedule. Please try again.', 'Delete Error', 'error');
     } finally {
       setIsBusy(false);
       setBusyText('');
@@ -325,6 +473,7 @@ const ScheduleTab: React.FC = () => {
     timeText: string;
     street: string;
     frequency: string;
+    duration?: string;
     wasteCategory: string;
     truck: string;
     driver: string;
@@ -368,6 +517,7 @@ const ScheduleTab: React.FC = () => {
       },
       (error) => {
         console.error('Error fetching drivers:', error);
+        showError('Failed to load drivers. Please refresh the page.', 'Loading Error', 'error');
       }
     );
     return () => unsub();
@@ -679,6 +829,56 @@ const ScheduleTab: React.FC = () => {
                   </View>
                 </View>
                 
+                {/* Duration dropdown - only show for recurring schedules */}
+                {['Daily', 'Weekly', 'Monthly'].includes(frequency) && (
+                  <View style={styles.formField}>
+                    <Text style={styles.fieldLabel}>Duration (consecutive {frequency.toLowerCase()})<Text style={{ color: '#EF4444' }}> *</Text></Text>
+                    <View style={[styles.dropdownContainer, showDurationDropdown ? styles.dropdownContainerOpen : null]} ref={durationAnchorRef}>
+                      <TouchableOpacity
+                        style={styles.inputField}
+                        onPress={() => {
+                          const next = !showDurationDropdown;
+                          closeAllDropdowns();
+                          setShowDurationDropdown(next);
+                          if (Platform.OS === 'web' && next && durationAnchorRef.current?.getBoundingClientRect) {
+                            const rect = durationAnchorRef.current.getBoundingClientRect();
+                            setDurationPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                          }
+                        }}
+                      >
+                        <Text style={styles.inputText}>{duration || 'Select duration'}</Text>
+                        <Ionicons name={showDurationDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      </TouchableOpacity>
+                      {showDurationDropdown && (
+                        Platform.OS === 'web'
+                          ? createPortal(
+                              <View style={[styles.suggestionPanelPortal, { top: durationPortalRect.top, left: durationPortalRect.left, width: durationPortalRect.width, pointerEvents: 'auto' }]}>
+                                <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                  {getDurationOptions(frequency).map((opt) => (
+                                    <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDuration(opt); setShowDurationDropdown(false); }}>
+                                      <Text style={styles.suggestionText}>{opt}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </ScrollView>
+                              </View>,
+                              document.body
+                            )
+                          : (
+                              <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                                <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                  {getDurationOptions(frequency).map((opt) => (
+                                    <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setDuration(opt); setShowDurationDropdown(false); }}>
+                                      <Text style={styles.suggestionText}>{opt}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </ScrollView>
+                              </View>
+                            )
+                      )}
+                    </View>
+                  </View>
+                )}
+                
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Waste Category<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <View style={[styles.dropdownContainer, showWasteDropdown ? styles.dropdownContainerOpen : null]} ref={wasteAnchorRef}>
@@ -864,6 +1064,7 @@ const ScheduleTab: React.FC = () => {
                               setTimeText(s.timeText);
                               setSelectedStreet(s.street);
                               setFrequency(s.frequency);
+                              setDuration(s.duration || '');
                               setWasteCategory(s.wasteCategory);
                               setTruck(s.truck);
                               setDriver(s.driver);
@@ -1002,6 +1203,17 @@ const ScheduleTab: React.FC = () => {
           </View>
         </View>
       )}
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </ScrollView>
   );
 };

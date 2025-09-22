@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 
 type Row = {
@@ -30,6 +31,7 @@ type Props = { filter: 'today' | 'week' | 'month' };
 const PickupHistoryTab: React.FC<Props> = ({ filter }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
 
   useEffect(() => {
     if (!db) return;
@@ -38,7 +40,7 @@ const PickupHistoryTab: React.FC<Props> = ({ filter }) => {
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [filter, currentMonth]);
 
   const fetchRows = async () => {
     if (!db) return;
@@ -57,8 +59,9 @@ const PickupHistoryTab: React.FC<Props> = ({ filter }) => {
         start = new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000);
         end = new Date(startOfDay(now).getTime() + 24 * 60 * 60 * 1000);
       } else if (filter === 'month') {
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
-        end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const base = currentMonth;
+        start = new Date(base.getFullYear(), base.getMonth(), 1);
+        end = new Date(base.getFullYear(), base.getMonth() + 1, 1);
       }
 
       const filtered = all.filter((r) => {
@@ -82,8 +85,74 @@ const PickupHistoryTab: React.FC<Props> = ({ filter }) => {
     }
   };
 
+  const monthLabel = useMemo(() => {
+    const base = currentMonth;
+    return base.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }, [currentMonth]);
+
+  const goPrevMonth = () => {
+    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goNextMonth = () => {
+    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const toCsv = (data: Row[]) => {
+    const header = ['Email', 'Barangay', 'Street', 'Date', 'Title'];
+    const rowsCsv = data.map((r) => [
+      (r.userEmail || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      r.barangay.replace(/\n|\r|,/g, ' '),
+      (r.street || '').toString().replace(/\n|\r|,/g, ' '),
+      formatSimpleDate(r.createdAt),
+      r.title.replace(/\n|\r|,/g, ' '),
+    ].join(','));
+    return [header.join(','), ...rowsCsv].join('\n');
+  };
+
+  const exportCsv = () => {
+    if (rows.length === 0) {
+      Alert.alert('Nothing to export', 'No rows in this period.');
+      return;
+    }
+    const base = filter === 'month' ? currentMonth : new Date();
+    const month = base.toLocaleDateString(undefined, { month: 'short' });
+    const year = base.getFullYear();
+    const filename = `pickup_completion_${month}_${year}.csv`;
+    const csv = toCsv(rows);
+    if (Platform.OS === 'web') {
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } else {
+      Alert.alert('Export', 'CSV export is currently available on web.');
+    }
+  };
+
   return (
     <ScrollView style={styles.content}>
+      {filter === 'month' && (
+        <View style={styles.monthBar}>
+          <TouchableOpacity onPress={goPrevMonth} style={styles.monthBtn}>
+            <Text style={styles.monthBtnText}>{'‹'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.monthLabel}>{monthLabel}</Text>
+          <TouchableOpacity onPress={goNextMonth} style={styles.monthBtn}>
+            <Text style={styles.monthBtnText}>{'›'}</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity onPress={exportCsv} style={styles.exportBtn}>
+            <Ionicons name="download" size={14} color="#fff" />
+            <Text style={[styles.exportBtnText, { marginLeft: 6 }]}>Export CSV</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.historyTable}>
         <View style={[styles.historyTableRow, styles.historyTableHeader]}>
           <Text style={[styles.historyTableCell, styles.colName, styles.headerText]}>Email</Text>
@@ -116,6 +185,12 @@ const PickupHistoryTab: React.FC<Props> = ({ filter }) => {
 
 const styles = StyleSheet.create({
   content: { flex: 1 },
+  monthBar: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
+  monthBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#ECF5EE', borderRadius: 6 },
+  monthBtnText: { color: '#234033', fontWeight: 'bold', fontSize: 16 },
+  monthLabel: { color: '#234033', fontWeight: 'bold', fontSize: 16, minWidth: 140, textAlign: 'center' },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#234033', borderRadius: 6 },
+  exportBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   historyTable: { backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#CDE8D2' },
   historyTableRow: { flexDirection: 'row', paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center' },
   historyTableHeader: { backgroundColor: '#ECF5EE' },

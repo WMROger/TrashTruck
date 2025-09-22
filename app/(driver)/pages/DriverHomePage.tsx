@@ -1,8 +1,13 @@
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { auth, db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
+import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
-import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import ErrorModal from '../../../components/ErrorModal';
+import driverImageService from '../../../services/driverImageService';
 
 interface DriverHomePageProps {
   onTabChange?: (tab: string) => void;
@@ -16,12 +21,15 @@ interface PickupData {
   wasteCategory: string;
   status: string;
   note?: string;
+  frequency?: string;
   createdAt: any;
   completedAt?: any;
   completionImage?: string;
 }
 
 export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
+  const { theme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
   const [nextPickup, setNextPickup] = useState<PickupData | null>(null);
   const [recentHistory, setRecentHistory] = useState<PickupData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,8 +37,15 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
   // Complete pickup modal state
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
 
   // Fetch next pickup and recent history
   useEffect(() => {
@@ -91,13 +106,13 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         year: 'numeric' 
       });
       
-      // Filter for pending/undefined status and today's date or later
+      // Filter for pending/undefined status and today's date only (actionable pickups)
       const upcomingPickups = nextPickupData
         .filter(pickup => {
           const isPending = !pickup.status || pickup.status === 'pending' || pickup.status === undefined;
-          const isUpcoming = pickup.dateText >= todayStr;
-          console.log('Pickup filter:', pickup.street, 'Status:', pickup.status, 'IsPending:', isPending, 'IsUpcoming:', isUpcoming);
-          return isPending && isUpcoming;
+          const isToday = pickup.dateText === todayStr; // Only today's pickups are actionable
+          console.log('Pickup filter:', pickup.street, 'Status:', pickup.status, 'IsPending:', isPending, 'IsToday:', isToday);
+          return isPending && isToday;
         })
         .sort((a, b) => {
           if (a.dateText === b.dateText) {
@@ -150,6 +165,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
           wasteCategory: data.wasteCategory,
           status: data.status || 'pending', // Default to pending if undefined
           note: data.note,
+          frequency: data.frequency,
           createdAt: data.createdAt,
           completedAt: data.completedAt,
           completionImage: data.completionImage,
@@ -202,6 +218,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
           wasteCategory: data.wasteCategory,
           status: data.status || 'pending', // Default to pending if undefined
           note: data.note,
+          frequency: data.frequency,
           createdAt: data.createdAt,
           completedAt: data.completedAt,
           completionImage: data.completionImage,
@@ -253,6 +270,21 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
     setShowCompleteModal(true);
   };
 
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
+
   const handleImagePicker = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -260,14 +292,29 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
+        base64: true, // Enable base64 for web compatibility
       });
 
-      if (!result.canceled) {
-        setSelectedImage(result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
+        const base64 = asset.base64;
+        
+        console.log('Image picker result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        
+        // Use base64 data URI for web compatibility
+        if (base64) {
+          const dataUri = `data:image/jpeg;base64,${base64}`;
+          setSelectedImage(dataUri);
+          setSelectedImageUri(dataUri); // Use data URI for upload too
+        } else {
+          setSelectedImage(imageUri);
+          setSelectedImageUri(imageUri);
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image');
+      showError('Failed to pick image from gallery', 'Image Selection Error', 'error');
     }
   };
 
@@ -277,14 +324,29 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
+        base64: true, // Enable base64 for web compatibility
       });
 
-      if (!result.canceled) {
-        setSelectedImage(result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
+        const base64 = asset.base64;
+        
+        console.log('Camera capture result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        
+        // Use base64 data URI for web compatibility
+        if (base64) {
+          const dataUri = `data:image/jpeg;base64,${base64}`;
+          setSelectedImage(dataUri);
+          setSelectedImageUri(dataUri); // Use data URI for upload too
+        } else {
+          setSelectedImage(imageUri);
+          setSelectedImageUri(imageUri);
+        }
       }
     } catch (error) {
       console.error('Error capturing image:', error);
-      Alert.alert('Error', 'Failed to capture image');
+      showError('Failed to capture image from camera', 'Camera Error', 'error');
     }
   };
 
@@ -294,38 +356,115 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
     setSubmitting(true);
     
     try {
-      await updateDoc(doc(db, 'schedules', nextPickup.id), {
-        status: 'completed',
-        completedAt: serverTimestamp(),
-        completionImage: selectedImage,
-        completionDescription: description,
-        completedBy: auth.currentUser?.email || 'Unknown Driver',
-        completedByEmail: auth.currentUser?.email || undefined,
-        completedByUid: auth.currentUser?.uid || undefined,
-        completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
-      });
+      let cloudinaryImageUrl = null;
+      
+      // Upload image to Cloudinary if one was selected
+      if (selectedImageUri) {
+        // Ensure we have a string URI
+        const imageUriString = typeof selectedImageUri === 'string' ? selectedImageUri : String(selectedImageUri);
+        
+        console.log('Uploading image to Cloudinary...', {
+          uri: imageUriString.substring(0, 50) + '...',
+          type: typeof imageUriString,
+          isDataUri: imageUriString.startsWith('data:'),
+          isFileUri: imageUriString.startsWith('file:')
+        });
+        
+        const uploadResult = await driverImageService.uploadCompletionImage(imageUriString);
+        
+        if (uploadResult.success && uploadResult.url) {
+          cloudinaryImageUrl = uploadResult.url;
+          console.log('Image uploaded successfully:', cloudinaryImageUrl);
+        } else {
+          console.error('Image upload failed:', uploadResult.error);
+          showError(
+            uploadResult.error || 'Failed to upload image. Please try again.',
+            'Upload Error',
+            'error'
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Check if this is a recurring schedule
+      const isRecurring = nextPickup.frequency && 
+        ['daily', 'weekly', 'monthly'].includes(nextPickup.frequency.toLowerCase());
+      
+      if (isRecurring) {
+        // For recurring schedules, create a completion instance instead of updating the original
+        const completionData = {
+          // Copy original schedule data
+          dateText: nextPickup.dateText,
+          timeText: nextPickup.timeText,
+          street: nextPickup.street,
+          wasteCategory: nextPickup.wasteCategory,
+          driver: nextPickup.driver,
+          note: nextPickup.note,
+          frequency: nextPickup.frequency,
+          originalScheduleId: nextPickup.id, // Reference to original recurring schedule
+          
+          // Add completion data
+          status: 'completed',
+          completedAt: serverTimestamp(),
+          completionImage: cloudinaryImageUrl,
+          completionImagePublicId: cloudinaryImageUrl ? driverImageService.extractPublicId(cloudinaryImageUrl) : null,
+          completionDescription: description,
+          completedBy: auth.currentUser?.email || 'Unknown Driver',
+          completedByEmail: auth.currentUser?.email || undefined,
+          completedByUid: auth.currentUser?.uid || undefined,
+          completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+          
+          // Mark as completion instance
+          isCompletionInstance: true,
+          completionDate: new Date().toISOString(),
+        };
+        
+        // Add completion instance to a separate collection
+        await addDoc(collection(db, 'pickupCompletions'), completionData);
+        
+        console.log('Created completion instance for recurring schedule:', nextPickup.id);
+      } else {
+        // For one-time schedules, update the original record
+        await updateDoc(doc(db, 'schedules', nextPickup.id), {
+          status: 'completed',
+          completedAt: serverTimestamp(),
+          completionImage: cloudinaryImageUrl,
+          completionImagePublicId: cloudinaryImageUrl ? driverImageService.extractPublicId(cloudinaryImageUrl) : null,
+          completionDescription: description,
+          completedBy: auth.currentUser?.email || 'Unknown Driver',
+          completedByEmail: auth.currentUser?.email || undefined,
+          completedByUid: auth.currentUser?.uid || undefined,
+          completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+        });
+        
+        console.log('Updated one-time schedule as completed:', nextPickup.id);
+      }
       
       console.log('Pickup marked as completed with report');
       
       // Show success notification
-      Alert.alert(
-        'Success!', 
-        'Pickup completed successfully. Report has been submitted.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setShowCompleteModal(false);
-              setSelectedImage(null);
-              setDescription('');
-            }
-          }
-        ]
+      showError(
+        'Pickup completed successfully! Report has been submitted.',
+        'Success!',
+        'success'
       );
+      
+      // Reset form after a short delay
+      setTimeout(() => {
+        setShowCompleteModal(false);
+        setSelectedImage(null);
+        setSelectedImageUri(null);
+        setDescription('');
+      }, 2000);
       
     } catch (error) {
       console.error('Error completing pickup:', error);
-      Alert.alert('Error', 'Failed to complete pickup. Please try again.');
+      showError(
+        'Failed to complete pickup. Please try again.',
+        'Submission Error',
+        'error'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -334,6 +473,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
   const handleCancelReport = () => {
     setShowCompleteModal(false);
     setSelectedImage(null);
+    setSelectedImageUri(null);
     setDescription('');
   };
 
@@ -362,57 +502,58 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
   }
 
   return (
-    <View style={styles.container}>
-      
-      <View style={styles.card}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Next Pickup</Text>
+          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Next Pickup</Text>
           <TouchableOpacity 
             style={styles.seeAllBtn}
             onPress={() => onTabChange?.('schedule')}
           >
-            <Text style={styles.seeAllText}>See all</Text>
+            <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
           </TouchableOpacity>
         </View>
         {nextPickup ? (
           <View style={styles.nextPickup}>
-            <Text style={styles.label}>{nextPickup.street}</Text>
-            <Text style={styles.line}>• Street: {nextPickup.street}</Text>
-            <Text style={styles.line}>• Time: {nextPickup.timeText}</Text>
-            <Text style={styles.line}>• Type: {nextPickup.wasteCategory}</Text>
+            <Text style={[styles.label, { color: colors.textPrimary }]}>{nextPickup.street}</Text>
+            <Text style={[styles.line, { color: colors.textSecondary }]}>• Street: {nextPickup.street}</Text>
+            <Text style={[styles.line, { color: colors.textSecondary }]}>• Time: {nextPickup.timeText}</Text>
+            <Text style={[styles.line, { color: colors.textSecondary }]}>• Type: {nextPickup.wasteCategory}</Text>
             {nextPickup.note && (
-              <Text style={styles.line}>• Note: {nextPickup.note}</Text>
+              <Text style={[styles.line, { color: colors.textSecondary }]}>• Note: {nextPickup.note}</Text>
             )}
             <View style={styles.actionsRow}>
               <TouchableOpacity 
                 style={[styles.btn, styles.btnSuccess]}
                 onPress={handleCompletePickup}
               >
+                <IconSymbol name="checkmark.circle.fill" size={16} color="#FFFFFF" />
                 <Text style={styles.btnText}>Complete</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.btn, styles.btnWarn]}
                 onPress={handleReportIssue}
               >
+                <IconSymbol name="exclamationmark.triangle.fill" size={16} color="#FFFFFF" />
                 <Text style={styles.btnText}>Issue</Text>
               </TouchableOpacity>
             </View>
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No upcoming pickups scheduled</Text>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No upcoming pickups scheduled</Text>
           </View>
         )}
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Your History</Text>
+          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Your History</Text>
           <TouchableOpacity 
             style={styles.seeAllBtn}
             onPress={() => onTabChange?.('history')}
           >
-            <Text style={styles.seeAllText}>See all</Text>
+            <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
           </TouchableOpacity>
         </View>
         {recentHistory.length > 0 ? (
@@ -420,21 +561,29 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
             {recentHistory.map((item) => (
               <View key={item.id} style={styles.historyItem}>
                 <Image 
-                  source={item.completionImage ? { uri: item.completionImage } : require('../../../assets/images/icon.png')} 
-                  style={styles.historyImage} 
+                  source={
+                    item.completionImage 
+                      ? { uri: item.completionImage } 
+                      : require('../../../assets/images/icon.png')
+                  } 
+                  style={styles.historyImage}
+                  onError={() => {
+                    console.log('Image failed to load:', item.completionImage);
+                  }}
+                  defaultSource={require('../../../assets/images/icon.png')}
                 />
                 <View style={styles.historyMeta}>
-                  <Text style={styles.historyText}>Street: "{item.street}"</Text>
-                  <Text style={styles.historyText}>Type: {item.wasteCategory}</Text>
-                  <Text style={styles.historyText}>Date: {item.dateText}</Text>
-                  <Text style={styles.historyStatus}>{item.status}</Text>
+                  <Text style={[styles.historyText, { color: colors.textSecondary }]}>Street: "{item.street}"</Text>
+                  <Text style={[styles.historyText, { color: colors.textSecondary }]}>Type: {item.wasteCategory}</Text>
+                  <Text style={[styles.historyText, { color: colors.textSecondary }]}>Date: {item.dateText}</Text>
+                  <Text style={[styles.historyStatus, { color: colors.success }]}>{item.status}</Text>
                 </View>
               </View>
             ))}
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No completed pickups yet</Text>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No completed pickups yet</Text>
           </View>
         )}
       </View>
@@ -447,8 +596,8 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         onRequestClose={handleCancelReport}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Complete Pickup Report</Text>
+          <View style={[styles.modalContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Complete Pickup Report</Text>
             
             {/* Pickup Details */}
             <View style={styles.pickupDetails}>
@@ -478,17 +627,18 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
                   style={styles.photoButton}
                   onPress={handleImagePicker}
                 >
+                  <IconSymbol name="photo.fill" size={16} color="#FFFFFF" />
                   <Text style={styles.photoButtonText}>Gallery</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.photoButton}
                   onPress={handleCameraCapture}
                 >
+                  <IconSymbol name="camera.fill" size={16} color="#FFFFFF" />
                   <Text style={styles.photoButtonText}>Camera</Text>
                 </TouchableOpacity>
               </View>
             </View>
-
             {/* Add Description Section */}
             <View style={styles.descriptionSection}>
               <Text style={styles.sectionLabel}>Add Description:</Text>
@@ -510,6 +660,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
                 onPress={handleCancelReport}
                 disabled={submitting}
               >
+                <IconSymbol name="xmark.circle.fill" size={16} color="#FFFFFF" />
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               
@@ -518,6 +669,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
                 onPress={handleSubmitReport}
                 disabled={submitting}
               >
+                <IconSymbol name="checkmark.circle.fill" size={16} color="#FFFFFF" />
                 <Text style={styles.submitButtonText}>
                   {submitting ? 'Submitting...' : 'Submit Report'}
                 </Text>
@@ -526,6 +678,17 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
           </View>
         </View>
       </Modal>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </View>
   );
 }
@@ -587,6 +750,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   btnText: {
     color: '#fff',
@@ -727,6 +894,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   photoButtonText: {
     color: 'white',
@@ -757,6 +928,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
   },
   cancelButtonText: {
     color: 'white',
@@ -769,6 +943,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
   },
   submitButtonDisabled: {
     backgroundColor: '#6c757d',

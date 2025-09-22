@@ -23,26 +23,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Validate photo URL length (Firebase Auth has a limit)
-      let validPhotoURL = profileData.photoURL;
-      if (validPhotoURL && validPhotoURL.length > 2000) {
-        console.warn('Photo URL too long for Firebase Auth, storing only in Firestore');
-        validPhotoURL = null; // Don't update Firebase Auth with long URLs
-      }
+      // Check if photoURL is a Cloudinary URL (long URLs)
+      const isCloudinaryURL = profileData.photoURL && (
+        profileData.photoURL.includes('cloudinary.com') || 
+        profileData.photoURL.length > 2000
+      );
 
-      // Update Firebase Auth profile (only if photo URL is valid)
+      // Update Firebase Auth profile (only displayName, skip photoURL for Cloudinary URLs)
       const authUpdateData: { displayName?: string; photoURL?: string | null } = {
         displayName: profileData.displayName,
       };
       
-      if (validPhotoURL !== undefined) {
-        authUpdateData.photoURL = validPhotoURL;
+      // Only update Firebase Auth photoURL if it's not a Cloudinary URL
+      if (profileData.photoURL && !isCloudinaryURL) {
+        authUpdateData.photoURL = profileData.photoURL;
       }
 
       await updateFirebaseProfile(auth.user, authUpdateData);
 
-      // Update Firestore user document (same as signup screen)
-      // Store the original photoURL in Firestore even if it's long
+      // Update Firestore user document with the full photoURL (including Cloudinary URLs)
       const userRef = doc(db, 'users', auth.user.uid);
       await setDoc(
         userRef,
@@ -54,7 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { merge: true }
       );
 
-      console.log('Profile updated successfully in both Auth and Firestore');
+      if (isCloudinaryURL) {
+        console.log('Profile updated: Cloudinary photo URL stored in Firestore only');
+      } else {
+        console.log('Profile updated successfully in both Auth and Firestore');
+      }
     } catch (error) {
       console.error('Failed to update profile:', error);
       throw error;

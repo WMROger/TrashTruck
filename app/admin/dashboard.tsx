@@ -443,12 +443,38 @@ export default function AdminDashboard() {
 
   const formatSimpleDate = (value: any) => {
     try {
-      const d = value?.toDate ? value.toDate() : new Date(value);
+      if (!value) return '';
+      
+      let d: Date;
+      if (value?.toDate) {
+        d = value.toDate();
+      } else if (typeof value === 'string') {
+        // Handle different string formats
+        if (value.match(/^[A-Za-z]+\s+\d{1,2},\s*\d{4}$/)) {
+          // Handle "September 20, 2025" format
+          d = new Date(value);
+          if (isNaN(d.getTime())) {
+            console.error('Invalid date format:', value);
+            return '';
+          }
+        } else {
+          d = new Date(value);
+        }
+      } else {
+        d = new Date(value);
+      }
+      
+      if (isNaN(d.getTime())) {
+        console.error('Invalid date:', value);
+        return '';
+      }
+      
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
-    } catch {
+    } catch (error) {
+      console.error('Error formatting date:', value, error);
       return '';
     }
   };

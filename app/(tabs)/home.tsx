@@ -184,15 +184,15 @@ export default function HomePage() {
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
       case 'Urgent':
-        return 'alert-circle';
+        return 'exclamationmark.triangle.fill';
       case 'High':
-        return 'warning';
+        return 'exclamationmark.circle.fill';
       case 'Medium':
-        return 'information-circle';
+        return 'info.circle.fill';
       case 'Low':
-        return 'checkmark-circle';
+        return 'checkmark.circle.fill';
       default:
-        return 'ellipse';
+        return 'circle.fill';
     }
   };
 
@@ -225,16 +225,15 @@ export default function HomePage() {
         
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.notificationButton}>
-            <Image 
-              source={require('../../assets/images/NotificationIcon.png')}
-              style={{ width: 24, height: 24, tintColor: colors.textSecondary }}
-              resizeMode="contain"
-            />
+            <IconSymbol name="bell.badge.fill" size={24} color={colors.textSecondary} />
             <View style={[styles.notificationBadge, { backgroundColor: colors.error }]}>
               <Text style={[styles.notificationText, { color: colors.surface }]}>1</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsButton}>
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={() => router.push('/profile')}
+          >
             <IconSymbol name="gear" size={24} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -329,6 +328,7 @@ export default function HomePage() {
             style={styles.viewMoreButton}
             onPress={() => router.push('/(tabs)/announcements')}
           >
+            <IconSymbol name="chevron.right" size={16} color={colors.primary} />
             <Text style={[styles.viewMoreText, { color: colors.primary }]}>
               View all announcements
             </Text>
@@ -533,8 +533,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   viewMoreButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 8,
+    gap: 6,
   },
   viewMoreText: {
     fontSize: 14,

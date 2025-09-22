@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -213,32 +212,7 @@ const HistoryTab: React.FC = () => {
 
   useEffect(() => { setCurrentPage(1); fetchItems(historyView); }, [historyView, historyFilter, selectedMonth, selectedYear]);
 
-  const exportCSV = () => {
-    try {
-      const headers = 'Name,Barangay,Street,Date,Title,Status\n';
-      const rows = items.map((r) => {
-        const name = historyView === 'pickup'
-          ? (r.userEmail || 'N/A')
-          : (r.name || (r.userEmail || '').split('@')[0]);
-        return `"${name}","${r.barangay}","${r.street}","${formatSimpleDate(r.createdAt)}","${r.title}","${r.status}"`;
-      }).join('\n');
-      const content = headers + rows;
-      if (typeof window !== 'undefined' && window.URL && window.Blob) {
-        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'trash_history.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        console.log(content);
-      }
-    } catch (e) {
-      console.warn('Export failed', e);
-    }
-  };
-
+ 
   const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
   const paginatedItems = items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -290,23 +264,9 @@ const HistoryTab: React.FC = () => {
                 </TouchableOpacity>
               ))}
 
-              {/* When Monthly is selected, show month navigator */}
-              {historyFilter === 'month' && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 8 }}>
-                  <TouchableOpacity style={styles.monthNavButton} onPress={() => shiftMonth(-1)}>
-                    <Text style={styles.monthNavText}>{'<'}</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.monthLabel}>{formatMonthYear(selectedYear, selectedMonth)}</Text>
-                  <TouchableOpacity style={styles.monthNavButton} onPress={() => shiftMonth(1)}>
-                    <Text style={styles.monthNavText}>{'>'}</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              
             </View>
-            <TouchableOpacity style={styles.exportSmallButton} onPress={exportCSV} activeOpacity={0.8}>
-              <Ionicons name="download" size={16} color="#fff" />
-              <Text style={styles.exportSmallButtonText}>Export</Text>
-            </TouchableOpacity>
+           
           </View>
 
           {historyView === 'pickup' ? (

@@ -1,21 +1,23 @@
 import { auth, db } from '@/config/firebase';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import ErrorModal from './ErrorModal';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -27,7 +29,12 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
 
   // Email validation
   const validateEmail = (email: string) => {
@@ -44,11 +51,19 @@ export default function SignupScreen() {
     });
   };
 
-  // Show error popup
-  const showError = (message: string) => {
-    setErrors({ general: message });
-    setShowErrorPopup(true);
-    setTimeout(() => setShowErrorPopup(false), 4000);
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
   // Password strength validation
@@ -283,11 +298,15 @@ export default function SignupScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
+    <LinearGradient
+      colors={['#B0D7A7', '#FFFFFF']}
+      style={styles.container}
+    >
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -297,11 +316,13 @@ export default function SignupScreen() {
 
         {/* Content */}
         <View style={styles.content}>
-          <Text style={styles.title}>SignUp to TrashTrack</Text>
-          <Text style={styles.subtitle}>Enter your email and password to sign up</Text>
+          {/* Top Section - Title and Inputs */}
+          <View style={styles.topSection}>
+            <Text style={styles.title}>SignUp to TrashTrack</Text>
+            <Text style={styles.subtitle}>Enter your email and password to sign up</Text>
 
-          {/* Input Fields */}
-          <View style={styles.inputContainer}>
+            {/* Input Fields */}
+            <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Email</Text>
             <TextInput
               style={[
@@ -443,7 +464,10 @@ export default function SignupScreen() {
               </View>
             )}
           </View>
+          </View>
         
+          {/* Bottom Section - Buttons */}
+          <View style={styles.bottomSection}>
           {/* Sign Up Button */}
           <TouchableOpacity 
             style={[styles.primaryButton, isLoading && styles.disabledButton]}
@@ -463,18 +487,27 @@ export default function SignupScreen() {
           </View>
 
           {/* Social Sign Up Buttons */}
-          <View style={styles.socialButtonsContainer}>
-            <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignUp}>
-              <View style={styles.socialButtonContent}>
-                <Text style={styles.socialIcon}>G</Text>
-                <Text style={styles.socialButtonText}>Google</Text>
-              </View>
+          <View style={styles.socialButtons}>
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton]}
+              onPress={handleGoogleSignUp}
+              disabled={isLoading}
+            >
+              <Ionicons name="logo-google" size={20} color="#fff" />
+              <Text style={styles.socialButtonText}>
+                {isLoading ? 'Signing up...' : 'Continue with Google'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton} onPress={handleFacebookSignUp}>
-              <View style={styles.socialButtonContent}>
-                <Text style={styles.socialIcon}>f</Text>
-                <Text style={styles.socialButtonText}>Facebook</Text>
-              </View>
+
+            <TouchableOpacity
+              style={[styles.socialButton, styles.facebookButton]}
+              onPress={handleFacebookSignUp}
+              disabled={isLoading}
+            >
+              <Ionicons name="logo-facebook" size={20} color="#fff" />
+              <Text style={styles.socialButtonText}>
+                {isLoading ? 'Signing up...' : 'Continue with Facebook'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -485,92 +518,112 @@ export default function SignupScreen() {
               <Text style={styles.loginLink}>Login</Text>
             </TouchableOpacity>
           </View>
+          </View>
         </View>
 
-        {/* Error Popup */}
-        {showErrorPopup && errors.general && (
-          <View style={styles.errorPopup}>
-            <View style={styles.errorPopupContent}>
-              <Ionicons name="alert-circle" size={24} color="#EF4444" />
-              <Text style={styles.errorPopupText}>{errors.general}</Text>
-              <TouchableOpacity
-                style={styles.errorPopupClose}
-                onPress={() => setShowErrorPopup(false)}
-              >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        {/* Error Modal */}
+        <ErrorModal
+          visible={errorModal.visible}
+          title={errorModal.title}
+          message={errorModal.message}
+          type={errorModal.type}
+          onClose={closeErrorModal}
+          autoClose={true}
+          autoCloseDelay={4000}
+        />
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
+  },
+  safeArea: {
+    flex: 1,
+    justifyContent: 'center',
   },
   keyboardView: {
     flex: 1,
+    justifyContent: 'center',
+    paddingTop: 60, // Account for the absolute header
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   backButton: {
     padding: 8,
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 32,
-    paddingTop: 20,
+    marginHorizontal: 20,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  topSection: {
+    // Contains title, subtitle, inputs
+  },
+  bottomSection: {
+    // Contains signup button, separator, social buttons, login link
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#5B7C67',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#2f3a31',
+    marginBottom: 6,
+    textAlign: 'left',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  inputContainer: {
+    fontSize: 14,
+    color: '#6b6b6b',
+    textAlign: 'left',
     marginBottom: 20,
   },
+  inputContainer: {
+    marginBottom: 14,
+  },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderColor: '#dfe9df',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 16,
     color: '#333',
   },
   passwordInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderColor: '#dfe9df',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   passwordInput: {
     flex: 1,
@@ -657,16 +710,16 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   primaryButton: {
-    backgroundColor: '#5B7C67',
-    borderRadius: 8,
-    paddingVertical: 16,
+    backgroundColor: '#4f6b4f',
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
   },
   primaryButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   disabledButton: {
     opacity: 0.6,
@@ -674,46 +727,44 @@ const styles = StyleSheet.create({
   separatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 18,
   },
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#E6E6E6',
   },
   separatorText: {
-    marginHorizontal: 16,
-    fontSize: 14,
-    color: '#666',
+    marginHorizontal: 12,
+    fontSize: 13,
+    color: '#888',
   },
-  socialButtonsContainer: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 40,
+  socialButtons: {
+    flexDirection: 'column',
+    gap: 12,
+    marginBottom: 20,
   },
   socialButton: {
-    flex: 1,
+    width: '100%',
     backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  socialButtonContent: {
+    borderWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    gap: 12,
   },
-  socialIcon: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  googleButton: {
+    backgroundColor: '#DB4437',
+  },
+  facebookButton: {
+    backgroundColor: '#1877F2',
   },
   socialButtonText: {
     fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+    color: 'white',
+    fontWeight: '600',
   },
   loginContainer: {
     flexDirection: 'row',
@@ -744,44 +795,5 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginLeft: 6,
     fontWeight: '500',
-  },
-  errorPopup: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  errorPopupContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-    maxWidth: '90%',
-  },
-  errorPopupText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1F2937',
-    marginLeft: 12,
-    marginRight: 12,
-    lineHeight: 22,
-  },
-  errorPopupClose: {
-    padding: 4,
   },
 });

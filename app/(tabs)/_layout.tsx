@@ -1,10 +1,10 @@
 import { Tabs, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Image, Platform } from 'react-native';
+import { Platform } from 'react-native';
 
 import { useAuthContext } from '@/components/AuthContext';
-import { HapticTab } from '@/components/HapticTab';
+import { CustomTabBar } from '@/components/CustomTabBar';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { db } from '@/config/firebase';
@@ -39,8 +39,8 @@ export default function TabLayout() {
             return;
           }
           if (userData.role === 'driver') {
-            // Switch to the Driver tab inside the (tabs) group to avoid route-not-found warnings
-            router.replace('/(tabs)/driver');
+            // Redirect driver users to the dedicated driver section
+            router.replace('/(driver)');
             return;
           }
           setRole(userData.role || null);
@@ -70,12 +70,15 @@ export default function TabLayout() {
   return (
     <Tabs
       initialRouteName="home"
-      screenOptions={{
+      screenOptions={({ route, navigation }) => ({
         lazy: true,
         tabBarActiveTintColor: '#FFFFFF',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.8)',
+        tabBarInactiveTintColor: 'rgba(255,255,255,0.6)',
         headerShown: false,
-        tabBarButton: HapticTab,
+        tabBarButton: (props) => {
+          const isFocused = navigation.getState().routes[navigation.getState().index].name === route.name;
+          return <CustomTabBar {...props} isFocused={isFocused} />;
+        },
         tabBarBackground: TabBarBackground,
         tabBarStyle: Platform.select({
           ios: {
@@ -83,43 +86,67 @@ export default function TabLayout() {
             position: 'absolute',
             backgroundColor: 'transparent',
             borderTopWidth: 0,
+            height: 75,
+            paddingTop: 5,
+            paddingBottom: 5,
           },
           default: {
             backgroundColor: 'transparent',
             borderTopWidth: 0,
+            height: 75,
+            paddingTop: 5,
+            paddingBottom: 5,
           },
         }),
-      }}>
+      })}>
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: () => (
+            <IconSymbol 
+              size={28} 
+              name="house.fill" 
+              color="#FFFFFF"
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: 'Schedule',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
+          tabBarIcon: () => (
+            <IconSymbol 
+              size={28} 
+              name="calendar" 
+              color="#FFFFFF"
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="feedback"
         options={{
           title: 'Feedback',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="hand.thumbsup" color={color} />,
+          tabBarIcon: () => (
+            <IconSymbol 
+              size={28} 
+              name="hand.thumbsup" 
+              color="#FFFFFF"
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="announcements"
         options={{
           title: 'Announcements',
-          tabBarIcon: ({ color }) => (
-            <Image
-              source={require('../../assets/images/AnnouncementIcon.png')}
-              style={{ width: 24, height: 24, tintColor: color }}
-              resizeMode="contain"
+          tabBarIcon: () => (
+            <IconSymbol 
+              size={28} 
+              name="bell.badge.fill" 
+              color="#FFFFFF"
             />
           ),
         }}
@@ -128,30 +155,13 @@ export default function TabLayout() {
         name="report"
         options={{
           title: 'Report',
-          tabBarIcon: ({ color }) => (
-            <Image
-              source={require('../../assets/images/ReportIcon.png')}
-              style={{ width: 24, height: 24, tintColor: color }}
-              resizeMode="contain"
+          tabBarIcon: () => (
+            <IconSymbol 
+              size={28} 
+              name="doc.text.fill" 
+              color="#FFFFFF"
             />
           ),
-        }}
-      />
-      {/* Driver-only tab */}
-      {role === 'driver' ? (
-        <Tabs.Screen
-          name="driver"
-          options={{
-            title: 'Driver',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="steeringwheel" color={color} />,
-          }}
-        />
-      ) : null}
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.circle.fill" color={color} />,
         }}
       />
     </Tabs>

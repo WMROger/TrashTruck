@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuthContext } from '../AuthContext';
+import ErrorModal from '../ErrorModal';
 
 interface Announcement {
   id: string;
@@ -41,12 +42,41 @@ const AnnouncementsTab: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
   
   // Refs for time picker scroll views
   const hourScrollRef = useRef<ScrollView>(null);
   const minuteScrollRef = useRef<ScrollView>(null);
+  const hourIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minuteIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hourHoldIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const minuteHoldIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hourHoldStartRef = useRef<number | null>(null);
+  const minuteHoldStartRef = useRef<number | null>(null);
   // Time wheel constants for looping behavior
   const ITEM_HEIGHT = 40;
+  const WHEEL_HEIGHT = ITEM_HEIGHT *4; // show exactly 3 rows
+  const CENTER_SPACER = (WHEEL_HEIGHT - ITEM_HEIGHT) / 3.5;
   const HOUR_COUNT = 24;
   const MIN_COUNT = 60;
   const HOUR_MULTIPLIER = 5; // number of loops rendered
@@ -56,13 +86,34 @@ const AnnouncementsTab: React.FC = () => {
   const middleHourBase = Math.floor(HOUR_MULTIPLIER / 2) * HOUR_COUNT;
   const middleMinBase = Math.floor(MIN_MULTIPLIER / 2) * MIN_COUNT;
 
-  // Set future time when time picker opens
+  // Ensure wheels reflect current selected time when opened
   useEffect(() => {
     if (showTimePicker) {
-      const now = new Date();
-      const futureTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
-      setSelectedTime(futureTime);
+      const h = selectedTime.getHours();
+      const m = selectedTime.getMinutes();
+      const hourY = (middleHourBase + h) * ITEM_HEIGHT;
+      const minY = (middleMinBase + m) * ITEM_HEIGHT;
+      requestAnimationFrame(() => {
+        hourScrollRef.current?.scrollTo({ y: hourY, animated: false });
+        minuteScrollRef.current?.scrollTo({ y: minY, animated: false });
+      });
     }
+  }, [showTimePicker]);
+
+  // Cleanup idle timers when unmounting or closing picker
+  useEffect(() => {
+    if (!showTimePicker) {
+      if (hourIdleTimerRef.current) clearTimeout(hourIdleTimerRef.current);
+      if (minuteIdleTimerRef.current) clearTimeout(minuteIdleTimerRef.current);
+      if (hourHoldIntervalRef.current) clearInterval(hourHoldIntervalRef.current);
+      if (minuteHoldIntervalRef.current) clearInterval(minuteHoldIntervalRef.current);
+    }
+    return () => {
+      if (hourIdleTimerRef.current) clearTimeout(hourIdleTimerRef.current);
+      if (minuteIdleTimerRef.current) clearTimeout(minuteIdleTimerRef.current);
+      if (hourHoldIntervalRef.current) clearInterval(hourHoldIntervalRef.current);
+      if (minuteHoldIntervalRef.current) clearInterval(minuteHoldIntervalRef.current);
+    };
   }, [showTimePicker]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -142,17 +193,17 @@ const AnnouncementsTab: React.FC = () => {
 
   const handlePublish = async () => {
     if (!title.trim() || !description.trim()) {
-      Alert.alert('Validation Error', 'Please fill in both title and description');
+      showError('Please fill in both title and description', 'Validation Error', 'warning');
       return;
     }
 
     if (!user) {
-      Alert.alert('Error', 'You must be logged in to create announcements');
+      showError('You must be logged in to create announcements', 'Authentication Required', 'error');
       return;
     }
 
     if (!db) {
-      Alert.alert('Error', 'Database not available');
+      showError('Database not available', 'Database Error', 'error');
       return;
     }
 
@@ -184,9 +235,9 @@ const AnnouncementsTab: React.FC = () => {
       console.log('Announcement created successfully');
       
       if (now >= scheduledDateTime) {
-        Alert.alert('Success', 'Announcement published immediately!');
+        showError('Announcement published immediately!', 'Success', 'success');
       } else {
-        Alert.alert('Success', 'Announcement scheduled successfully!');
+        showError('Announcement scheduled successfully!', 'Success', 'success');
       }
       
       // Reset form
@@ -198,7 +249,7 @@ const AnnouncementsTab: React.FC = () => {
       setSelectedCategory('General');
     } catch (error) {
       console.error('Error creating announcement:', error);
-      Alert.alert('Error', 'Failed to publish announcement. Please try again.');
+      showError('Failed to publish announcement. Please try again.', 'Publish Error', 'error');
     } finally {
       setIsPublishing(false);
     }
@@ -206,35 +257,24 @@ const AnnouncementsTab: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!db) {
-      Alert.alert('Error', 'Database not available');
+      showError('Database not available', 'Database Error', 'error');
       return;
     }
 
-    Alert.alert(
-      'Delete Announcement',
-      'Are you sure you want to delete this announcement?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsDeletingId(id);
-              console.log('Deleting announcement:', id);
-              await deleteDoc(doc(db, 'announcements', id));
-              console.log('Announcement deleted successfully');
-              Alert.alert('Success', 'Announcement deleted successfully!');
-            } catch (error) {
-              console.error('Error deleting announcement:', error);
-              Alert.alert('Error', 'Failed to delete announcement. Please try again.');
-            } finally {
-              setIsDeletingId(null);
-            }
-          }
-        }
-      ]
-    );
+    // For now, directly delete without confirmation
+    // In a production app, you might want to add a confirmation modal
+    try {
+      setIsDeletingId(id);
+      console.log('Deleting announcement:', id);
+      await deleteDoc(doc(db, 'announcements', id));
+      console.log('Announcement deleted successfully');
+      showError('Announcement deleted successfully!', 'Success', 'success');
+    } catch (error) {
+      console.error('Error deleting announcement:', error);
+      showError('Failed to delete announcement. Please try again.', 'Delete Error', 'error');
+    } finally {
+      setIsDeletingId(null);
+    }
   };
 
   const formatDate = (timestamp: any) => {
@@ -267,7 +307,7 @@ const AnnouncementsTab: React.FC = () => {
     
     // Check if selected date is in the future
     if (newDate < now) {
-      Alert.alert('Invalid Date', 'Please select a future date for the announcement.');
+      showError('Please select a future date for the announcement.', 'Invalid Date', 'warning');
       return;
     }
     
@@ -281,10 +321,67 @@ const AnnouncementsTab: React.FC = () => {
     setSelectedTime(newTime);
   };
 
-  const setFutureTime = () => {
-    const now = new Date();
-    const futureTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
-    setSelectedTime(futureTime);
+  const scrollHourBy = (delta: number) => {
+    const currentHour = selectedTime.getHours();
+    const hour = (currentHour + delta + HOUR_COUNT) % HOUR_COUNT;
+    handleTimeChange(hour, selectedTime.getMinutes());
+    const targetY = (middleHourBase + hour) * ITEM_HEIGHT;
+    hourScrollRef.current?.scrollTo({ y: targetY, animated: true });
+  };
+
+  const scrollMinuteBy = (delta: number) => {
+    const currentMinute = selectedTime.getMinutes();
+    const minute = (currentMinute + delta + MIN_COUNT) % MIN_COUNT;
+    handleTimeChange(selectedTime.getHours(), minute);
+    const targetY = (middleMinBase + minute) * ITEM_HEIGHT;
+    minuteScrollRef.current?.scrollTo({ y: targetY, animated: true });
+  };
+
+  const startHourAutoScroll = (direction: 1 | -1) => {
+    if (hourHoldIntervalRef.current) clearInterval(hourHoldIntervalRef.current);
+    hourHoldStartRef.current = Date.now();
+    const tick = () => {
+      const nowTs = Date.now();
+      const elapsed = hourHoldStartRef.current ? nowTs - hourHoldStartRef.current : 0;
+      const step = elapsed > 2000 ? 10 : elapsed > 1200 ? 5 : elapsed > 600 ? 2 : 1;
+      scrollHourBy(direction * step);
+    };
+    tick();
+    hourHoldIntervalRef.current = setInterval(tick, 140);
+  };
+
+  const stopHourAutoScroll = () => {
+    if (hourHoldIntervalRef.current) clearInterval(hourHoldIntervalRef.current);
+    hourHoldIntervalRef.current = null;
+    hourHoldStartRef.current = null;
+  };
+
+  const startMinuteAutoScroll = (direction: 1 | -1) => {
+    if (minuteHoldIntervalRef.current) clearInterval(minuteHoldIntervalRef.current);
+    minuteHoldStartRef.current = Date.now();
+    const tick = () => {
+      const nowTs = Date.now();
+      const elapsed = minuteHoldStartRef.current ? nowTs - minuteHoldStartRef.current : 0;
+      const step = elapsed > 2000 ? 10 : elapsed > 1200 ? 5 : elapsed > 600 ? 2 : 1;
+      scrollMinuteBy(direction * step);
+    };
+    tick();
+    minuteHoldIntervalRef.current = setInterval(tick, 110);
+  };
+
+  const stopMinuteAutoScroll = () => {
+    if (minuteHoldIntervalRef.current) clearInterval(minuteHoldIntervalRef.current);
+    minuteHoldIntervalRef.current = null;
+    minuteHoldStartRef.current = null;
+  };
+
+  // Smooth infinite loop: keep offset within middle cycles without visual jump
+  const getRebasedOffset = (y: number, count: number, middleBase: number) => {
+    const cycleHeight = count * ITEM_HEIGHT;
+    const yNoPad = y - CENTER_SPACER;
+    const remainder = ((yNoPad % cycleHeight) + cycleHeight) % cycleHeight;
+    const target = middleBase * ITEM_HEIGHT + remainder + CENTER_SPACER;
+    return target;
   };
 
   const formatDateTime = (date: Date, time: Date) => {
@@ -524,17 +621,17 @@ const AnnouncementsTab: React.FC = () => {
     if (!editingAnnouncement) return;
 
     if (!title.trim() || !description.trim()) {
-      Alert.alert('Validation Error', 'Please fill in both title and description');
+      showError('Please fill in both title and description', 'Validation Error', 'warning');
       return;
     }
 
     if (!user) {
-      Alert.alert('Error', 'You must be logged in to update announcements');
+      showError('You must be logged in to update announcements', 'Authentication Required', 'error');
       return;
     }
 
     if (!db) {
-      Alert.alert('Error', 'Database not available');
+      showError('Database not available', 'Database Error', 'error');
       return;
     }
 
@@ -563,7 +660,7 @@ const AnnouncementsTab: React.FC = () => {
       await updateDoc(doc(db, 'announcements', editingAnnouncement.id), announcementData);
       
       console.log('Announcement updated successfully');
-      Alert.alert('Success', 'Announcement updated successfully!');
+      showError('Announcement updated successfully!', 'Success', 'success');
       
       // Reset form and close modal
       setTitle('');
@@ -576,7 +673,7 @@ const AnnouncementsTab: React.FC = () => {
       setShowEditModal(false);
     } catch (error) {
       console.error('Error updating announcement:', error);
-      Alert.alert('Error', 'Failed to update announcement. Please try again.');
+      showError('Failed to update announcement. Please try again.', 'Update Error', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -1092,20 +1189,14 @@ const AnnouncementsTab: React.FC = () => {
             <Text style={styles.pickerTitle}>Select Time</Text>
             <Text style={styles.pickerSubtitle}>Choose a time for your announcement</Text>
             
-            <TouchableOpacity 
-              style={styles.futureTimeButton}
-              onPress={setFutureTime}
-            >
-              <Text style={styles.futureTimeButtonText}>Set to 1 hour from now</Text>
-            </TouchableOpacity>
-            
             <View style={styles.timePickerContainer}>
               <View style={styles.timeWheelContainer}>
-                <View style={styles.timeWheel}>
+                <View style={[styles.timeWheel, { height: WHEEL_HEIGHT }]}>
                   <Text style={styles.timeWheelLabel}>Hour</Text>
                   <ScrollView
                     ref={hourScrollRef}
                     style={styles.timeScrollView}
+                    contentContainerStyle={{ paddingVertical: CENTER_SPACER }}
                     showsVerticalScrollIndicator={false}
                     snapToInterval={ITEM_HEIGHT}
                     decelerationRate="fast"
@@ -1113,18 +1204,32 @@ const AnnouncementsTab: React.FC = () => {
                     scrollEventThrottle={16}
                     onScroll={(event) => {
                       const y = event.nativeEvent.contentOffset.y;
-                      const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
-                      const hour = (index + HOUR_COUNT) % HOUR_COUNT;
-                      handleTimeChange(hour, selectedTime.getMinutes());
+                      // Debounce: if the user stops moving, snap and select center
+                      if (hourIdleTimerRef.current) clearTimeout(hourIdleTimerRef.current);
+                      hourIdleTimerRef.current = setTimeout(() => {
+                        const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
+                        const hour = (index + HOUR_COUNT) % HOUR_COUNT;
+                        handleTimeChange(hour, selectedTime.getMinutes());
+                        const targetY = (middleHourBase + hour) * ITEM_HEIGHT;
+                        hourScrollRef.current?.scrollTo({ y: targetY, animated: true });
+                      }, 120);
                     }}
                     onMomentumScrollEnd={(event) => {
                       const y = event.nativeEvent.contentOffset.y;
                       const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
                       const hour = (index + HOUR_COUNT) % HOUR_COUNT;
                       handleTimeChange(hour, selectedTime.getMinutes());
-                      // recenter near middle to preserve infinite feel
-                      const targetY = (middleHourBase + hour) * ITEM_HEIGHT;
+                      // smoothly rebase into middle cycles
+                      const targetY = getRebasedOffset(y, HOUR_COUNT, middleHourBase);
                       hourScrollRef.current?.scrollTo({ y: targetY, animated: false });
+                    }}
+                    onScrollEndDrag={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % HOUR_COUNT;
+                      const hour = (index + HOUR_COUNT) % HOUR_COUNT;
+                      handleTimeChange(hour, selectedTime.getMinutes());
+                      const targetY = getRebasedOffset(y, HOUR_COUNT, middleHourBase);
+                      hourScrollRef.current?.scrollTo({ y: getRebasedOffset(targetY, HOUR_COUNT, middleHourBase), animated: true });
                     }}
                     onLayout={() => {
                       // Scroll to current hour when modal opens
@@ -1137,21 +1242,45 @@ const AnnouncementsTab: React.FC = () => {
                       const val = i % HOUR_COUNT;
                       const selected = selectedTime.getHours() === val;
                       return (
-                        <View key={i} style={styles.timeOption}>
+                        <TouchableOpacity
+                          key={i}
+                          style={styles.timeOption}
+                          onPress={() => {
+                            const hour = val;
+                            handleTimeChange(hour, selectedTime.getMinutes());
+                            const targetY = (middleHourBase + hour) * ITEM_HEIGHT;
+                            hourScrollRef.current?.scrollTo({ y: targetY, animated: true });
+                          }}
+                          activeOpacity={0.6}
+                        >
                           <Text style={[styles.timeOptionText, selected && styles.timeOptionSelected]}>
                             {val.toString().padStart(2, '0')}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </ScrollView>
+                  {/* Hold-to-scroll zones */}
+                  <View pointerEvents="box-none" style={styles.holdZonesContainer}>
+                    <Pressable
+                      onPressIn={() => startHourAutoScroll(-1)}
+                      onPressOut={stopHourAutoScroll}
+                      style={styles.holdZoneTop}
+                    />
+                    <Pressable
+                      onPressIn={() => startHourAutoScroll(1)}
+                      onPressOut={stopHourAutoScroll}
+                      style={styles.holdZoneBottom}
+                    />
+                  </View>
                 </View>
                 
-                <View style={styles.timeWheel}>
+                <View style={[styles.timeWheel, { height: WHEEL_HEIGHT }]}>
                   <Text style={styles.timeWheelLabel}>Minute</Text>
                   <ScrollView
                     ref={minuteScrollRef}
                     style={styles.timeScrollView}
+                    contentContainerStyle={{ paddingVertical: CENTER_SPACER }}
                     showsVerticalScrollIndicator={false}
                     snapToInterval={ITEM_HEIGHT}
                     decelerationRate="fast"
@@ -1159,17 +1288,30 @@ const AnnouncementsTab: React.FC = () => {
                     scrollEventThrottle={16}
                     onScroll={(event) => {
                       const y = event.nativeEvent.contentOffset.y;
-                      const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
-                      const minute = (index + MIN_COUNT) % MIN_COUNT;
-                      handleTimeChange(selectedTime.getHours(), minute);
+                      if (minuteIdleTimerRef.current) clearTimeout(minuteIdleTimerRef.current);
+                      minuteIdleTimerRef.current = setTimeout(() => {
+                        const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
+                        const minute = (index + MIN_COUNT) % MIN_COUNT;
+                        handleTimeChange(selectedTime.getHours(), minute);
+                        const targetY = (middleMinBase + minute) * ITEM_HEIGHT;
+                        minuteScrollRef.current?.scrollTo({ y: targetY, animated: true });
+                      }, 120);
                     }}
                     onMomentumScrollEnd={(event) => {
                       const y = event.nativeEvent.contentOffset.y;
                       const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
                       const minute = (index + MIN_COUNT) % MIN_COUNT;
                       handleTimeChange(selectedTime.getHours(), minute);
-                      const targetY = (middleMinBase + minute) * ITEM_HEIGHT;
+                      const targetY = getRebasedOffset(y, MIN_COUNT, middleMinBase);
                       minuteScrollRef.current?.scrollTo({ y: targetY, animated: false });
+                    }}
+                    onScrollEndDrag={(event) => {
+                      const y = event.nativeEvent.contentOffset.y;
+                      const index = Math.round(y / ITEM_HEIGHT) % MIN_COUNT;
+                      const minute = (index + MIN_COUNT) % MIN_COUNT;
+                      handleTimeChange(selectedTime.getHours(), minute);
+                      const targetY = getRebasedOffset(y, MIN_COUNT, middleMinBase);
+                      minuteScrollRef.current?.scrollTo({ y: getRebasedOffset(targetY, MIN_COUNT, middleMinBase), animated: true });
                     }}
                     onLayout={() => {
                       const m = selectedTime.getMinutes();
@@ -1181,14 +1323,37 @@ const AnnouncementsTab: React.FC = () => {
                       const val = i % MIN_COUNT;
                       const selected = selectedTime.getMinutes() === val;
                       return (
-                        <View key={i} style={styles.timeOption}>
+                        <TouchableOpacity
+                          key={i}
+                          style={styles.timeOption}
+                          onPress={() => {
+                            const minute = val;
+                            handleTimeChange(selectedTime.getHours(), minute);
+                            const targetY = (middleMinBase + minute) * ITEM_HEIGHT;
+                            minuteScrollRef.current?.scrollTo({ y: targetY, animated: true });
+                          }}
+                          activeOpacity={0.6}
+                        >
                           <Text style={[styles.timeOptionText, selected && styles.timeOptionSelected]}>
                             {val.toString().padStart(2, '0')}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </ScrollView>
+                  {/* Hold-to-scroll zones */}
+                  <View pointerEvents="box-none" style={styles.holdZonesContainer}>
+                    <Pressable
+                      onPressIn={() => startMinuteAutoScroll(-1)}
+                      onPressOut={stopMinuteAutoScroll}
+                      style={styles.holdZoneTop}
+                    />
+                    <Pressable
+                      onPressIn={() => startMinuteAutoScroll(1)}
+                      onPressOut={stopMinuteAutoScroll}
+                      style={styles.holdZoneBottom}
+                    />
+                  </View>
                 </View>
               </View>
               
@@ -1209,6 +1374,17 @@ const AnnouncementsTab: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </ScrollView>
   );
 };
@@ -1608,6 +1784,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
+  },
+  holdZonesContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    justifyContent: 'space-between',
+  },
+  holdZoneTop: {
+    height: '35%',
+  },
+  holdZoneBottom: {
+    height: '35%',
   },
   timeWheelLabel: {
     fontSize: 14,

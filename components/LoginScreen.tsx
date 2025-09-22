@@ -2,21 +2,24 @@ import { auth, db } from '@/config/firebase';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 // Note: Using basic state management for remember me functionality
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import ErrorModal from './ErrorModal';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -26,7 +29,12 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
 
   // Email validation
   const validateEmail = (email: string) => {
@@ -43,30 +51,56 @@ export default function LoginScreen() {
     });
   };
 
-  // Show error popup
-  const showError = (message: string) => {
-    setErrors({ general: message });
-    setShowErrorPopup(true);
-    setTimeout(() => setShowErrorPopup(false), 4000);
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
   };
 
-  // Remember me functionality (basic implementation)
-  const saveCredentials = (email: string, password: string) => {
-    // For now, just log that remember me is enabled
-    // In a production app, you would use secure storage
-    console.log('Remember me enabled for:', email);
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
-  const loadCredentials = () => {
-    // For now, just log that we're checking for saved credentials
-    // In a production app, you would load from secure storage
-    console.log('Checking for saved credentials...');
+  // Remember me functionality with secure storage
+  const CREDENTIALS_KEY = 'loginCredentials';
+
+  const saveCredentials = async (email: string, password: string) => {
+    try {
+      const credentials = JSON.stringify({ email, password });
+      await SecureStore.setItemAsync(CREDENTIALS_KEY, credentials);
+      console.log('Credentials saved securely for:', email);
+    } catch (error) {
+      console.error('Failed to save credentials:', error);
+    }
   };
 
-  const clearCredentials = () => {
-    // For now, just log that credentials are cleared
-    // In a production app, you would clear from secure storage
-    console.log('Credentials cleared');
+  const loadCredentials = async () => {
+    try {
+      const credentials = await SecureStore.getItemAsync(CREDENTIALS_KEY);
+      if (credentials) {
+        const { email: savedEmail, password: savedPassword } = JSON.parse(credentials);
+        setEmail(savedEmail);
+        setPassword(savedPassword);
+        setRememberMe(true);
+        console.log('Credentials loaded for:', savedEmail);
+      }
+    } catch (error) {
+      console.error('Failed to load credentials:', error);
+    }
+  };
+
+  const clearCredentials = async () => {
+    try {
+      await SecureStore.deleteItemAsync(CREDENTIALS_KEY);
+      console.log('Credentials cleared from secure storage');
+    } catch (error) {
+      console.error('Failed to clear credentials:', error);
+    }
   };
 
   const upsertUserProfile = async (provider: string) => {
@@ -173,11 +207,34 @@ export default function LoginScreen() {
         const user = userCredential.user;
         console.log('User logged in successfully:', user.email);
 
+        // Check user role and prevent admin login on user/driver UI
+        if (db) {
+          try {
+            const snap = await getDoc(doc(db, 'users', user.uid));
+            if (snap.exists()) {
+              const data = snap.data();
+              const userRole = (data as any)?.role;
+              
+              // If user is admin, show error and redirect to admin login
+              if (userRole === 'admin') {
+                try { 
+                  await signOut(auth);
+                  await clearCredentials(); // Clear saved credentials for admin accounts
+                } catch {}
+                showError('Admin accounts must use the admin login portal. Please go to the admin login page.', 'Wrong Login Portal', 'warning');
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('Error checking user role:', error);
+          }
+        }
+
         // Handle remember me functionality
         if (rememberMe) {
-          saveCredentials(email, password);
+          await saveCredentials(email, password);
         } else {
-          clearCredentials();
+          await clearCredentials();
         }
 
         // If password provider and email not verified, allow drivers to bypass
@@ -202,7 +259,10 @@ export default function LoginScreen() {
             } catch (e: any) {
               showError('Could not send verification email. Please check spam and try again.');
             }
-            try { await signOut(auth); } catch {}
+            try { 
+              await signOut(auth);
+              await clearCredentials(); // Clear saved credentials for unverified accounts
+            } catch {}
             return;
           }
         }
@@ -297,12 +357,26 @@ export default function LoginScreen() {
     router.back();
   };
 
+  const handleRememberMeToggle = async () => {
+    const newRememberMe = !rememberMe;
+    setRememberMe(newRememberMe);
+    
+    // If unchecking remember me, clear saved credentials
+    if (!newRememberMe) {
+      await clearCredentials();
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
+    <LinearGradient
+      colors={['#B0D7A7', '#FFFFFF']}
+      style={styles.container}
+    >
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -312,166 +386,177 @@ export default function LoginScreen() {
 
         {/* Content */}
         <View style={styles.content}>
-          <Text style={styles.title}>Login to TrashTrack</Text>
-          <Text style={styles.subtitle}>Enter your email and password to login</Text>
+          {/* Top Section - Title and Inputs */}
+          <View style={styles.topSection}>
+            <Text style={styles.title}>Login to TrashTrack</Text>
+            <Text style={styles.subtitle}>Enter your email and password to login</Text>
 
-          {/* Input Fields */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={[
-                styles.input,
-                email.length > 0 && !validateEmail(email) && styles.inputError
-              ]}
-              placeholder="Enter your email"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={(text) => {
-                setEmail(text);
-                if (text.length > 0 && !validateEmail(text)) {
-                  setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
-                } else {
-                  clearError('email');
-                }
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {errors.email && (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={16} color="#EF4444" />
-                <Text style={styles.errorText}>{errors.email}</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordInputContainer}>
+            {/* Input Fields */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email</Text>
               <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter your password"
+                style={[
+                  styles.input,
+                  email.length > 0 && !validateEmail(email) && styles.inputError
+                ]}
+                placeholder="Enter your email"
                 placeholderTextColor="#999"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  if (text.length > 0 && !validateEmail(text)) {
+                    setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
+                  } else {
+                    clearError('email');
+                  }
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off" : "eye"}
-                  size={20}
-                  color="#666"
+              {errors.email && (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                  <Text style={styles.errorText}>{errors.email}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.passwordInputContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
                 />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off" : "eye"}
+                    size={20}
+                    color="#666"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Remember Me and Forgot Password */}
+            <View style={styles.rememberForgotContainer}>
+            <TouchableOpacity 
+              style={styles.rememberMeContainer}
+              onPress={handleRememberMeToggle}
+            >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={16} color="white" />}
+                </View>
+                <Text style={styles.rememberMeText}>Remember me</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleForgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Remember Me and Forgot Password */}
-          <View style={styles.rememberForgotContainer}>
+          {/* Bottom Section - Buttons */}
+          <View style={styles.bottomSection}>
+            {/* Login Button */}
             <TouchableOpacity 
-              style={styles.rememberMeContainer}
-              onPress={() => setRememberMe(!rememberMe)}
-            >
-              <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                {rememberMe && <Ionicons name="checkmark" size={16} color="white" />}
-              </View>
-              <Text style={styles.rememberMeText}>Remember me</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleForgotPassword}>
-              <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Login Button */}
-          <TouchableOpacity 
-            style={[styles.primaryButton, isLoading && styles.disabledButton]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isLoading ? 'Logging in...' : 'Login'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Separator */}
-          <View style={styles.separatorContainer}>
-            <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>or sign in with</Text>
-            <View style={styles.separatorLine} />
-          </View>
-
-          {/* Social Login Buttons */}
-          <View style={styles.socialButtons}>
-            <TouchableOpacity
-              style={[styles.socialButton, styles.googleButton]}
-              onPress={handleGoogleLogin}
+              style={[styles.primaryButton, isLoading && styles.disabledButton]}
+              onPress={handleLogin}
               disabled={isLoading}
             >
-              <Ionicons name="logo-google" size={20} color="#fff" />
-              <Text style={styles.socialButtonText}>
-                {isLoading ? 'Signing in...' : 'Continue with Google'}
+              <Text style={styles.primaryButtonText}>
+                {isLoading ? 'Logging in...' : 'Login'}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.socialButton, styles.facebookButton]}
-              onPress={handleFacebookLogin}
-              disabled={isLoading}
-            >
-              <Ionicons name="logo-facebook" size={20} color="#fff" />
-              <Text style={styles.socialButtonText}>
-                {isLoading ? 'Signing in...' : 'Continue with Facebook'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+            {/* Separator */}
+            <View style={styles.separatorContainer}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>or sign in with</Text>
+              <View style={styles.separatorLine} />
+            </View>
 
-          {/* Sign Up Link */}
-          <View style={styles.signUpContainer}>
-            <Text style={styles.signUpText}>Don&apos;t have an account? </Text>
-            <TouchableOpacity onPress={handleSignUp}>
-              <Text style={styles.signUpLink}>Signup</Text>
-            </TouchableOpacity>
+            {/* Social Login Buttons */}
+            <View style={styles.socialButtons}>
+              <TouchableOpacity
+                style={[styles.socialButton, styles.googleButton]}
+                onPress={handleGoogleLogin}
+                disabled={isLoading}
+              >
+                <Ionicons name="logo-google" size={20} color="#fff" />
+                <Text style={styles.socialButtonText}>
+                  {isLoading ? 'Signing in...' : 'Continue with Google'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.socialButton, styles.facebookButton]}
+                onPress={handleFacebookLogin}
+                disabled={isLoading}
+              >
+                <Ionicons name="logo-facebook" size={20} color="#fff" />
+                <Text style={styles.socialButtonText}>
+                  {isLoading ? 'Signing in...' : 'Continue with Facebook'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Sign Up Link */}
+            <View style={styles.signUpContainer}>
+              <Text style={styles.signUpText}>Don&apos;t have an account? </Text>
+              <TouchableOpacity onPress={handleSignUp}>
+                <Text style={styles.signUpLink}>Signup</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {/* Error Popup */}
-        {showErrorPopup && errors.general && (
-          <View style={styles.errorPopup}>
-            <View style={styles.errorPopupContent}>
-              <Ionicons name="alert-circle" size={24} color="#EF4444" />
-              <Text style={styles.errorPopupText}>{errors.general}</Text>
-              <TouchableOpacity
-                style={styles.errorPopupClose}
-                onPress={() => setShowErrorPopup(false)}
-              >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        {/* Error Modal */}
+        <ErrorModal
+          visible={errorModal.visible}
+          title={errorModal.title}
+          message={errorModal.message}
+          type={errorModal.type}
+          onClose={closeErrorModal}
+          autoClose={true}
+          autoCloseDelay={4000}
+        />
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
+  },
+  safeArea: {
+    flex: 1,
     justifyContent: 'center',
   },
   keyboardView: {
     flex: 1,
+    justifyContent: 'center',
+    paddingTop: 60, // Account for the absolute header
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 20,
     paddingBottom: 10,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   backButton: {
     padding: 8,
@@ -480,13 +565,19 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     backgroundColor: 'rgba(255,255,255,0.85)',
     borderRadius: 20,
-    paddingVertical: 28,
+    paddingVertical: 32,
     paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 3,
+  },
+  topSection: {
+    // Contains title, subtitle, inputs, remember me
+  },
+  bottomSection: {
+    // Contains login button, separator, social buttons, signup link
   },
   title: {
     fontSize: 26,
@@ -657,44 +748,5 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginLeft: 6,
     fontWeight: '500',
-  },
-  errorPopup: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  errorPopupContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-    maxWidth: '90%',
-  },
-  errorPopupText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1F2937',
-    marginLeft: 12,
-    marginRight: 12,
-    lineHeight: 22,
-  },
-  errorPopupClose: {
-    padding: 4,
   },
 });

@@ -3,10 +3,11 @@ import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
+import ErrorModal from '../../components/ErrorModal';
 import { auth, db } from '../../config/firebase';
 import { adminStyles } from '../../styles/admin';
 
@@ -15,11 +16,32 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
   const router = useRouter();
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both username and password');
+      showError('Please enter both username and password', 'Validation Error', 'warning');
       return;
     }
 
@@ -44,18 +66,30 @@ export default function AdminLogin() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          if (userData.role === 'admin') {
+          const userRole = userData.role;
+          
+          if (userRole === 'admin') {
             console.log('Admin role confirmed, redirecting to dashboard');
             router.replace('/admin/dashboard');
             return;
+          } else if (userRole === 'driver') {
+            console.log('Driver trying to login on admin portal');
+            try { await signOut(auth); } catch {}
+            showError('Driver accounts must use the driver login portal. Please go to the main login page.', 'Wrong Login Portal', 'warning');
+            return;
+          } else if (userRole === 'user') {
+            console.log('Regular user trying to login on admin portal');
+            try { await signOut(auth); } catch {}
+            showError('Regular user accounts must use the main login portal. Please go to the main login page.', 'Wrong Login Portal', 'warning');
+            return;
           } else {
             console.log('User does not have admin role');
-            Alert.alert('Access Denied', 'You do not have admin privileges.');
+            showError('You do not have admin privileges.', 'Access Denied', 'error');
             return;
           }
         } else {
           console.log('User document not found in Firestore');
-          Alert.alert('Access Denied', 'User profile not found.');
+          showError('User profile not found.', 'Access Denied', 'error');
           return;
         }
       } else {
@@ -78,7 +112,7 @@ export default function AdminLogin() {
         errorMessage = 'Too many failed attempts. Please try again later.';
       }
       
-      Alert.alert('Login Failed', errorMessage);
+      showError(errorMessage, 'Login Failed', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -215,6 +249,17 @@ export default function AdminLogin() {
           </View>
         </View>
       </View>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </SafeAreaView>
   );
 }

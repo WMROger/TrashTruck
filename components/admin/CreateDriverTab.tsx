@@ -2,23 +2,45 @@ import { getAuth } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db, functions } from '../../config/firebase';
+import ErrorModal from '../ErrorModal';
 
 const CreateDriverTab: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
 
   const handleCreate = async () => {
     const trimmedUsername = (username || '').trim();
     const trimmedPassword = (password || '').trim();
     if (!trimmedUsername || !trimmedPassword) {
-      Alert.alert('Missing fields', 'Please provide both username and password.');
+      showError('Please provide both username and password.', 'Missing Fields', 'warning');
       return;
     }
     if (!functions) {
-      Alert.alert('Unavailable', 'Cloud Functions are not available in this environment.');
+      showError('Cloud Functions are not available in this environment.', 'Service Unavailable', 'error');
       return;
     }
     try {
@@ -65,12 +87,12 @@ const CreateDriverTab: React.FC = () => {
           }, { merge: true });
         } catch {}
       }
-      Alert.alert('Success', `Driver account created: ${email || trimmedUsername}`);
+      showError(`Driver account created: ${email || trimmedUsername}`, 'Success', 'success');
       setUsername('');
       setPassword('');
     } catch (e: any) {
       const message = e?.message || 'Failed to create driver account';
-      Alert.alert('Error', message);
+      showError(message, 'Creation Error', 'error');
     } finally {
       setIsBusy(false);
     }
@@ -108,6 +130,17 @@ const CreateDriverTab: React.FC = () => {
         <Text style={styles.buttonText}>{isBusy ? 'Creating...' : 'Create Driver'}</Text>
       </TouchableOpacity>
       <Text style={styles.hint}>The account will be created with role "driver". Login with the same username at the normal login screen.</Text>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </View>
   );
 };

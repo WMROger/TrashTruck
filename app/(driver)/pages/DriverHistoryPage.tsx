@@ -1,8 +1,12 @@
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { auth, db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
+import { useTheme } from '@/hooks/useTheme';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import ErrorModal from '../../../components/ErrorModal';
+import driverImageService from '../../../services/driverImageService';
 
 interface DriverHistoryPageProps {
   // Add any props you might need
@@ -20,10 +24,18 @@ interface HistoryData {
 }
 
 export default function DriverHistoryPage({}: DriverHistoryPageProps) {
+  const { theme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
   const [showSortModal, setShowSortModal] = useState(false);
   const [selectedSort, setSelectedSort] = useState('Date (Newest First)');
   const [historyData, setHistoryData] = useState<HistoryData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
 
   // Fetch completed history data
   useEffect(() => {
@@ -50,6 +62,21 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
       snapshot.forEach((doc) => {
         const data = doc.data();
         console.log('History item data:', data);
+        // Handle image source - prioritize Cloudinary URLs
+        let imageSource;
+        if (data.completionImage) {
+          if (driverImageService.isCloudinaryUrl(data.completionImage)) {
+            // It's a Cloudinary URL, use it directly
+            imageSource = { uri: data.completionImage };
+          } else {
+            // It might be a local URI, try to use it but it might fail
+            imageSource = { uri: data.completionImage };
+          }
+        } else {
+          // No image, use fallback
+          imageSource = require('../../../assets/images/icon.png');
+        }
+
         historyList.push({
           id: doc.id,
           street: data.street,
@@ -57,7 +84,7 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
           status: 'Completed',
           date: data.dateText,
           time: data.timeText,
-          image: data.completionImage ? { uri: data.completionImage } : require('../../../assets/images/icon.png'),
+          image: imageSource,
           completedAt: data.completedAt,
         });
       });
@@ -81,51 +108,101 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
     return () => unsubscribe();
   }, []);
 
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
+
   const sortOptions = [
     'Date (Newest First)',
     'Date (Oldest First)',
     'Status'
   ];
 
-  const HistoryCard = ({ item }: { item: any }) => (
-    <View style={styles.historyCard}>
-      <Image source={item.image} style={styles.cardImage} />
-      <View style={styles.cardContent}>
-        <Text style={styles.streetText}>Street Name: "{item.street}"</Text>
-        <Text style={styles.typeText}>Type: {item.type}</Text>
-        <Text style={styles.dateText}>Date & Time: {item.date} - {item.time}</Text>
-        <Text style={styles.statusText}>{item.status}</Text>
+  const HistoryCard = ({ item }: { item: any }) => {
+    // Determine image source - use Cloudinary URL if available, otherwise fallback
+    const getImageSource = () => {
+      if (item.image && typeof item.image === 'object' && item.image.uri) {
+        // If it's already a Cloudinary URL or valid URI, use it
+        return item.image;
+      } else if (item.image && typeof item.image === 'string') {
+        // If it's a string URL (Cloudinary or local), use it
+        return { uri: item.image };
+      } else {
+        // Fallback to default icon
+        return require('../../../assets/images/icon.png');
+      }
+    };
+
+    return (
+      <View style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Image 
+          source={getImageSource()} 
+          style={styles.cardImage}
+          onError={(error) => {
+            console.log('Image failed to load:', item.image);
+            // You could set a fallback image here if needed
+          }}
+        />
+        <View style={styles.cardContent}>
+          <View style={styles.infoRow}>
+            <IconSymbol name="mappin.and.ellipse" size={12} color={colors.textTertiary} />
+            <Text style={[styles.streetText, { color: colors.textPrimary }]}>Street Name: "{item.street}"</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <IconSymbol name="trash.fill" size={12} color={colors.textTertiary} />
+            <Text style={[styles.typeText, { color: colors.textSecondary }]}>Type: {item.type}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <IconSymbol name="clock.fill" size={12} color={colors.textTertiary} />
+            <Text style={[styles.dateText, { color: colors.textSecondary }]}>Date & Time: {item.date} - {item.time}</Text>
+          </View>
+          <View style={styles.statusRow}>
+            <IconSymbol name="checkmark.circle.fill" size={12} color={colors.success} />
+            <Text style={[styles.statusText, { color: colors.success }]}>{item.status}</Text>
+          </View>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>History</Text>
-          <Text style={styles.subtitle}>Loading your history...</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>History</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Loading your history...</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading history...</Text>
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading history...</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>History</Text>
-        <Text style={styles.subtitle}>Track your past garbage collection records.</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>History</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Track your past garbage collection records.</Text>
         
         <TouchableOpacity 
-          style={styles.sortButton}
+          style={[styles.sortButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={() => setShowSortModal(true)}
         >
-          <IconSymbol name="line.3.horizontal.decrease" size={16} color="#666" />
-          <Text style={styles.sortText}>Sort by</Text>
-          <IconSymbol name="chevron.down" size={14} color="#666" />
+          <IconSymbol name="slider.horizontal.3" size={16} color={colors.textTertiary} />
+          <Text style={[styles.sortText, { color: colors.textPrimary }]}>Sort by</Text>
+          <IconSymbol name="chevron.down" size={14} color={colors.textTertiary} />
         </TouchableOpacity>
       </View>
 
@@ -137,7 +214,7 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
             ))
           ) : (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No completed pickups found</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No completed pickups found</Text>
             </View>
           )}
         </View>
@@ -179,6 +256,17 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </View>
   );
 }
@@ -251,6 +339,19 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     padding: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 6,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    gap: 6,
   },
   streetText: {
     fontSize: 12,

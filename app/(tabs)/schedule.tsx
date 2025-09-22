@@ -62,14 +62,35 @@ export default function ScheduleScreen() {
 
   const parseUSLongDate = (text: string): Date | null => {
     if (!text || typeof text !== 'string') return null;
-    const match = text.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
-    if (!match) return null;
-    const monthName = match[1];
-    const day = parseInt(match[2], 10);
-    const year = parseInt(match[3], 10);
-    const month = MONTH_INDEX[monthName];
-    if (month === undefined || Number.isNaN(day) || Number.isNaN(year)) return null;
-    return new Date(year, month, day);
+    
+    // Try to handle different date formats
+    try {
+      // First try the US long format (e.g., "September 20, 2025")
+      const match = text.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+      if (match) {
+        const monthName = match[1];
+        const day = parseInt(match[2], 10);
+        const year = parseInt(match[3], 10);
+        const month = MONTH_INDEX[monthName];
+        if (month === undefined || Number.isNaN(day) || Number.isNaN(year)) {
+          console.error('Invalid date format:', text);
+          return null;
+        }
+        return new Date(year, month, day);
+      }
+      
+      // Fallback to standard Date constructor
+      const fallback = new Date(text);
+      if (!isNaN(fallback.getTime())) {
+        return fallback;
+      }
+      
+      console.error('Invalid date format:', text);
+      return null;
+    } catch (error) {
+      console.error('Error parsing date:', text, error);
+      return null;
+    }
   };
 
   // Subscribe to schedules from backend (Firestore)

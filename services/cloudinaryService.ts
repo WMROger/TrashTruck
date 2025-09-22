@@ -18,10 +18,7 @@ export interface UploadOptions {
 
 class CloudinaryService {
   private getCloudName(): string {
-    const cloudName = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    if (!cloudName) {
-      throw new Error('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME is not set in environment variables');
-    }
+    const cloudName = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dosewf6kp';
     return cloudName;
   }
 
@@ -33,29 +30,74 @@ class CloudinaryService {
    * Upload image to Cloudinary using unsigned upload
    */
   async uploadImage(
-    imageUri: string,
+    imageUri: string | any,
     options: UploadOptions = {}
   ): Promise<UploadResult> {
     try {
-      // Validate image URI
+      // Validate image URI and ensure it's a string
       if (!imageUri) {
         return { success: false, error: 'No image URI provided' };
       }
 
+      // Convert to string if it's an object
+      let uriString: string;
+      try {
+        uriString = typeof imageUri === 'string' ? imageUri : String(imageUri);
+        if (!uriString || uriString === 'undefined' || uriString === 'null') {
+          return { success: false, error: 'Invalid image URI: could not convert to string' };
+        }
+      } catch (error) {
+        return { success: false, error: 'Invalid image URI: conversion failed' };
+      }
+      
+      console.log('Uploading image with URI:', uriString.substring(0, 100) + '...');
+
       // Prepare form data
       const formData = new FormData();
       
-      // Add the image file
-      formData.append('file', {
-        uri: imageUri,
-        type: 'image/jpeg', // You might want to detect the actual MIME type
-        name: `image_${Date.now()}.jpg`,
-      } as any);
+      // Handle different image URI types
+      if (uriString.startsWith('data:')) {
+        // Base64 data URI - convert to blob for web
+        try {
+          const response = await fetch(uriString);
+          const blob = await response.blob();
+          formData.append('file', blob, `image_${Date.now()}.jpg`);
+        } catch (error) {
+          console.error('Error converting data URI to blob:', error);
+          return { success: false, error: 'Failed to process image data' };
+        }
+      } else if (uriString.startsWith('blob:')) {
+        // Blob URL - fetch and convert to blob
+        try {
+          const response = await fetch(uriString);
+          const blob = await response.blob();
+          formData.append('file', blob, `image_${Date.now()}.jpg`);
+        } catch (error) {
+          console.error('Error converting blob URL to blob:', error);
+          return { success: false, error: 'Failed to process image blob' };
+        }
+      } else {
+        // Regular file URI (for native platforms)
+        formData.append('file', {
+          uri: uriString,
+          type: 'image/jpeg',
+          name: `image_${Date.now()}.jpg`,
+        } as any);
+      }
 
       // Add upload preset (use specific preset or default)
       const preset = options.preset ? 
         (typeof options.preset === 'string' ? options.preset : UPLOAD_PRESETS[options.preset]) : 
         UPLOAD_PRESET;
+      
+      // Validate that we have a preset
+      if (!preset) {
+        return {
+          success: false,
+          error: 'Upload preset not configured. Please set EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET environment variable.',
+        };
+      }
+      
       formData.append('upload_preset', preset);
 
       // Add optional parameters
@@ -71,19 +113,19 @@ class CloudinaryService {
       formData.append('timestamp', Math.floor(Date.now() / 1000).toString());
 
       // Make the upload request
+      console.log('Uploading to Cloudinary with preset:', preset);
       const response = await fetch(`${this.baseUrl}/image/upload`, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        // Don't set Content-Type header - let the browser set it with boundary
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Cloudinary upload error details:', errorData);
         return {
           success: false,
-          error: errorData.error?.message || 'Upload failed',
+          error: errorData.error?.message || `Upload failed with status ${response.status}`,
         };
       }
 

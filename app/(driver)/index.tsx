@@ -1,5 +1,7 @@
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { auth, db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
+import { useTheme } from '@/hooks/useTheme';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,10 +9,13 @@ import React, { useEffect, useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import DriverHistoryPage from './pages/DriverHistoryPage';
 import DriverHomePage from './pages/DriverHomePage';
+import DriverProfilePage from './pages/DriverProfilePage';
 import DriverSchedulePage from './pages/DriverSchedulePage';
 
 export default function DriverHome() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const colors = Colors[theme ?? 'light'];
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
 
@@ -39,31 +44,33 @@ export default function DriverHome() {
         return <DriverSchedulePage />;
       case 'history':
         return <DriverHistoryPage />;
+      case 'profile':
+        return <DriverProfilePage />;
       default:
         return <DriverHomePage onTabChange={setActiveTab} />;
     }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <View style={styles.logoCircle}>
+            <View style={[styles.logoCircle, { backgroundColor: colors.secondary }]}>
               <Image 
                 source={require('../../assets/images/trashtrack_logo_driver.png')} 
                 style={styles.logoImage}
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.greeting}>Ready to Work!</Text>
+            <Text style={[styles.greeting, { color: colors.textPrimary }]}>Ready to Work!</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettings(true)}>
-              <IconSymbol name="gear" size={20} color="#2f3a31" />
+            <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]} onPress={() => setShowSettings(true)}>
+              <IconSymbol name="gear" size={20} color={colors.primary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn}>
-              <IconSymbol name="bell" size={20} color="#2f3a31" />
+            <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]}>
+              <IconSymbol name="bell" size={20} color={colors.primary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -73,29 +80,37 @@ export default function DriverHome() {
       </ScrollView>
 
       {/* Tab Bar */}
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity 
-          style={[styles.tabItem, activeTab === 'home' && styles.activeTab]} 
+          style={[styles.tabItem, activeTab === 'home' && { backgroundColor: colors.secondary }]} 
           onPress={() => setActiveTab('home')}
         >
-          <IconSymbol name="house.fill" size={20} color={activeTab === 'home' ? '#2E8B57' : '#6b8b6b'} />
-          <Text style={[styles.tabText, activeTab === 'home' && styles.activeTabText]}>Home</Text>
+          <IconSymbol name="house.fill" size={20} color={activeTab === 'home' ? colors.primary : colors.textTertiary} />
+          <Text style={[styles.tabText, { color: activeTab === 'home' ? colors.primary : colors.textTertiary }]}>Home</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={[styles.tabItem, activeTab === 'schedule' && styles.activeTab]} 
+          style={[styles.tabItem, activeTab === 'schedule' && { backgroundColor: colors.secondary }]} 
           onPress={() => setActiveTab('schedule')}
         >
-          <IconSymbol name="calendar" size={20} color={activeTab === 'schedule' ? '#2E8B57' : '#6b8b6b'} />
-          <Text style={[styles.tabText, activeTab === 'schedule' && styles.activeTabText]}>Schedule</Text>
+          <IconSymbol name="calendar" size={20} color={activeTab === 'schedule' ? colors.primary : colors.textTertiary} />
+          <Text style={[styles.tabText, { color: activeTab === 'schedule' ? colors.primary : colors.textTertiary }]}>Schedule</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={[styles.tabItem, activeTab === 'history' && styles.activeTab]} 
+          style={[styles.tabItem, activeTab === 'history' && { backgroundColor: colors.secondary }]} 
           onPress={() => setActiveTab('history')}
         >
-          <IconSymbol name="clock.fill" size={20} color={activeTab === 'history' ? '#2E8B57' : '#6b8b6b'} />
-          <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>History</Text>
+          <IconSymbol name="clock.fill" size={20} color={activeTab === 'history' ? colors.primary : colors.textTertiary} />
+          <Text style={[styles.tabText, { color: activeTab === 'history' ? colors.primary : colors.textTertiary }]}>History</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.tabItem, activeTab === 'profile' && { backgroundColor: colors.secondary }]} 
+          onPress={() => setActiveTab('profile')}
+        >
+          <IconSymbol name="person.fill" size={20} color={activeTab === 'profile' ? colors.primary : colors.textTertiary} />
+          <Text style={[styles.tabText, { color: activeTab === 'profile' ? colors.primary : colors.textTertiary }]}>Profile</Text>
         </TouchableOpacity>
       </View>
 
@@ -107,8 +122,8 @@ export default function DriverHome() {
         onRequestClose={() => setShowSettings(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Settings</Text>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Settings</Text>
             <TouchableOpacity
               style={[styles.btn, styles.btnWarn, { alignSelf: 'stretch', marginTop: 8 }]}
               onPress={async () => {
@@ -123,7 +138,7 @@ export default function DriverHome() {
               <Text style={styles.btnText}>Logout</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: '#6b8b6b', alignSelf: 'stretch', marginTop: 8 }]}
+              style={[styles.btn, { backgroundColor: colors.textTertiary, alignSelf: 'stretch', marginTop: 8 }]}
               onPress={() => setShowSettings(false)}
               activeOpacity={0.85}
             >
@@ -139,7 +154,6 @@ export default function DriverHome() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
   },
   scrollView: {
     flex: 1,
@@ -161,7 +175,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#D5EED5',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -172,7 +185,6 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#2f3a31',
   },
   headerActions: {
     flexDirection: 'row',
@@ -182,7 +194,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#D5EED5',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -194,10 +205,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalCard: {
-    backgroundColor: '#F5FFF5',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#CBE5CB',
     padding: 16,
     width: '90%',
     maxWidth: 420,
@@ -205,16 +214,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#2f3a31',
     marginBottom: 8,
     textAlign: 'center',
   },
   // Tab Bar Styles
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#F5FFF5',
     borderTopWidth: 1,
-    borderTopColor: '#CBE5CB',
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -224,17 +230,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-  activeTab: {
-    backgroundColor: '#E7F6E7',
-  },
   tabText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6b8b6b',
     marginTop: 4,
-  },
-  activeTabText: {
-    color: '#2E8B57',
   },
 });
 

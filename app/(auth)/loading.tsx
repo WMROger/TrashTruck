@@ -12,6 +12,7 @@ import {
     Text,
     View,
 } from 'react-native';
+import ErrorModal from '../../components/ErrorModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,6 +22,27 @@ export default function LoadingPage() {
   const [scaleAnim] = useState(new Animated.Value(0.8));
   const [loadingText, setLoadingText] = useState('Initializing...');
   const [progress, setProgress] = useState(0);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
 
   useEffect(() => {
     // Start animations
@@ -59,6 +81,7 @@ export default function LoadingPage() {
       }
     }, 50);
 
+
     // Decide destination based on role
     const decideAndNavigate = async () => {
       try {
@@ -66,19 +89,46 @@ export default function LoadingPage() {
         if (currentUser && db) {
           const snap = await getDoc(doc(db, 'users', currentUser.uid));
           const role = snap.exists() ? (snap.data() as any)?.role : undefined;
+          
+          // Additional role validation - this should not happen if login validation works correctly
+          // but serves as a safety net
           if (role === 'admin') {
+            console.log('Admin user detected, redirecting to admin dashboard');
             router.replace('/admin/dashboard' as any);
             return;
           }
           if (role === 'driver') {
-            router.replace('/driver' as any);
+            console.log('Driver user detected, redirecting to driver interface');
+            router.replace('/(driver)' as any);
             return;
           }
-          // Regular user
-          router.replace('/home' as any);
+          if (role === 'user') {
+            console.log('Regular user detected, redirecting to home');
+            router.replace('/home' as any);
+            return;
+          }
+          
+          // If role is undefined or unknown, show error
+          console.log('Unknown or undefined user role:', role);
+          showError('User role could not be determined. Please contact support.', 'Authentication Error', 'error');
+          // Redirect to login after showing error
+          setTimeout(() => {
+            router.replace('/(auth)/login' as any);
+          }, 3000);
           return;
         }
-      } catch {}
+      } catch (error: any) {
+        console.error('Error during navigation decision:', error);
+        showError('Failed to load user profile. Please try logging in again.', 'Authentication Error', 'error');
+        // Redirect to login after showing error
+        setTimeout(() => {
+          router.replace('/(auth)/login' as any);
+        }, 3000);
+        return;
+      }
+      
+      // Fallback for when no user or no database
+      console.log('No user or database available, redirecting to home');
       router.replace('/home' as any);
     };
 
@@ -135,6 +185,24 @@ export default function LoadingPage() {
           <Animated.View style={[styles.dot, styles.dot3]} />
         </View>
       </Animated.View>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={5000}
+        actionButton={{
+          text: 'Go to Login',
+          onPress: () => {
+            closeErrorModal();
+            router.replace('/(auth)/login' as any);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

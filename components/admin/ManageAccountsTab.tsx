@@ -1,8 +1,9 @@
 import { collection, doc, endAt, getDocs, limit, orderBy, query, startAt, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db, functions } from '../../config/firebase';
+import ErrorModal from '../ErrorModal';
 
 type UserRow = {
   id: string;
@@ -17,6 +18,27 @@ const ManageAccountsTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [busyMap, setBusyMap] = useState<Record<string, boolean>>({});
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
 
   const normalizedQuery = useMemo(() => (search || '').trim().toLowerCase(), [search]);
 
@@ -47,7 +69,7 @@ const ManageAccountsTab: React.FC = () => {
       }).filter((u) => (u.role || '').toLowerCase() !== 'admin');
       setUsers(rows);
     } catch (e) {
-      Alert.alert('Error', 'Failed to load users');
+      showError('Failed to load users', 'Loading Error', 'error');
       setUsers([]);
     } finally {
       setLoading(false);
@@ -67,15 +89,15 @@ const ManageAccountsTab: React.FC = () => {
       await callable({ userId, role: nextRole });
       // Optimistic update
       setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
-      Alert.alert('Success', `Role updated to ${nextRole}`);
+      showError(`Role updated to ${nextRole}`, 'Success', 'success');
     } catch (err) {
       // Fallback to direct write for admins if rules allow
       try {
         await updateDoc(doc(db, 'users', userId), { role: nextRole });
         setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
-        Alert.alert('Success', `Role updated to ${nextRole}`);
+        showError(`Role updated to ${nextRole}`, 'Success', 'success');
       } catch (e) {
-        Alert.alert('Error', 'Failed to update role');
+        showError('Failed to update role', 'Update Error', 'error');
       }
     } finally {
       setBusyMap((m) => ({ ...m, [userId]: false }));
@@ -129,6 +151,17 @@ const ManageAccountsTab: React.FC = () => {
         renderItem={renderItem}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         contentContainerStyle={{ paddingVertical: 8 }}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
       />
     </View>
   );

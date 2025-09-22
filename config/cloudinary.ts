@@ -1,6 +1,6 @@
 // Cloudinary configuration for React Native
 export const getCloudinaryConfig = () => ({
-  cloud_name: process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME,
+  cloud_name: process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dosewf6kp',
   api_key: process.env.EXPO_PUBLIC_CLOUDINARY_API_KEY,
   api_secret: process.env.EXPO_PUBLIC_CLOUDINARY_API_SECRET,
   secure: true,
@@ -12,10 +12,11 @@ export const UPLOAD_PRESETS = {
   PROFILES: 'trashtrack_profile',
   ANNOUNCEMENTS: 'trashtrack_reports', // Can reuse reports preset
   FEEDBACK: 'trashtrack_reports', // Can reuse reports preset
+  DRIVER_PHOTOS: 'trashtrack_reports', // Use existing preset for now
 } as const;
 
-// Default upload preset
-export const UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || UPLOAD_PRESETS.REPORTS;
+// Default upload preset - use a fallback if environment variable is not set
+export const UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'trashtrack_reports';
 
 // Folder structure for organizing uploads (these will be set in your upload presets)
 export const UPLOAD_FOLDERS = {
@@ -23,6 +24,10 @@ export const UPLOAD_FOLDERS = {
   PROFILES: 'trashtruck/profiles',
   ANNOUNCEMENTS: 'trashtruck/announcements',
   FEEDBACK: 'trashtruck/feedback',
+  DRIVER_PHOTOS: 'trashtruck/driver-photos',
+  COMPLETION_IMAGES: 'trashtruck/completion-images',
+  DRIVER_PROFILES: 'trashtruck/driver-profiles',
+  ISSUE_REPORTS: 'trashtruck/issue-reports',
 } as const;
 
 // Image transformation presets
@@ -52,3 +57,4 @@ export const extractPublicId = (cloudinaryUrl: string): string => {
 
 // Export helper functions for React Native compatibility
 export { getCloudinaryConfig as default };
+

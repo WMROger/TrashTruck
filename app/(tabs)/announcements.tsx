@@ -3,29 +3,29 @@ import { db } from "@/config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
+    addDoc,
+    collection,
+    onSnapshot,
+    orderBy,
+    query,
+    serverTimestamp,
+    where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -462,17 +462,7 @@ export default function AnnouncementsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
       >
-        <ScrollView
-          style={styles.content}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={["#22C55E"]}
-              tintColor="#22C55E"
-            />
-          }
-        >
+        <View style={styles.content}>
           {/* Filter Dropdowns */}
           <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
             <DropDownPicker
@@ -534,6 +524,14 @@ export default function AnnouncementsScreen() {
                 <FlatList
                   data={paged}
                   keyExtractor={(item) => item.id}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={onRefresh}
+                      colors={["#22C55E"]}
+                      tintColor="#22C55E"
+                    />
+                  }
                   renderItem={({ item }) => {
                     const announcementComments = getCommentsForAnnouncement(item.id);
 
@@ -627,7 +625,7 @@ export default function AnnouncementsScreen() {
               );
             })()
           )}
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
 
       {/* Comment Modal */}

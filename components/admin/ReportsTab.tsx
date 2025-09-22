@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuthContext } from '../AuthContext';
+import ErrorModal from '../ErrorModal';
 
 interface Report {
   id: string;
@@ -36,6 +37,27 @@ const ReportsTab: React.FC = () => {
   const [isResolving, setIsResolving] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: 'Error',
+    message: '',
+    type: 'error' as 'error' | 'warning' | 'info' | 'success',
+  });
+
+  // Show error modal
+  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  };
+
+  // Close error modal
+  const closeErrorModal = () => {
+    setErrorModal(prev => ({ ...prev, visible: false }));
+  };
 
   // Fetch reports from Firestore
   useEffect(() => {
@@ -95,7 +117,7 @@ const ReportsTab: React.FC = () => {
 
   const handleStatusChange = async (reportId: string, newStatus: Report['status']) => {
     if (!db) {
-      Alert.alert('Error', 'Database not available');
+      showError('Database not available', 'Database Error', 'error');
       return;
     }
 
@@ -111,7 +133,7 @@ const ReportsTab: React.FC = () => {
       console.log('Report status updated successfully');
     } catch (error) {
       console.error('Error updating report status:', error);
-      Alert.alert('Error', 'Failed to update report status');
+      showError('Failed to update report status', 'Update Error', 'error');
     }
   };
 
@@ -180,7 +202,7 @@ const ReportsTab: React.FC = () => {
         setIsResolving(true);
         if (!db) {
           console.error('[Resolve] db is not initialized');
-          Alert.alert('Error', 'Database not available');
+          showError('Database not available', 'Database Error', 'error');
           setIsResolving(false);
           return;
         }
@@ -190,7 +212,7 @@ const ReportsTab: React.FC = () => {
           console.log('[Resolve] Status updated');
         } catch (e) {
           console.error('[Resolve] Failed to update status:', e);
-          Alert.alert('Error', 'Failed to update status to resolved.');
+          showError('Failed to update status to resolved.', 'Update Error', 'error');
           setIsResolving(false);
           return;
         }
@@ -220,11 +242,11 @@ const ReportsTab: React.FC = () => {
 
         console.log('[Resolve] Keeping resolved item in reports collection');
         handleCloseModal();
-        Alert.alert('Success', 'Report marked as resolved');
+        showError('Report marked as resolved', 'Success', 'success');
         setIsResolving(false);
       } catch (e) {
         console.error('[Resolve] Flow failed:', e);
-        Alert.alert('Error', 'Failed to move report to history. Please try again.');
+        showError('Failed to move report to history. Please try again.', 'Resolve Error', 'error');
         setIsResolving(false);
       }
     };
@@ -236,18 +258,9 @@ const ReportsTab: React.FC = () => {
       return;
     }
 
-    try {
-      Alert.alert(
-        'Mark as resolved',
-        'Are you sure you want to mark this report as resolved?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Yes, resolve', style: 'default', onPress: performResolve },
-        ]
-      );
-    } catch (error) {
-      await performResolve();
-    }
+    // For now, directly resolve without confirmation
+    // In a production app, you might want to add a confirmation modal
+    await performResolve();
   };
 
   const handleSort = (column: string) => {
@@ -678,6 +691,17 @@ const ReportsTab: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={closeErrorModal}
+        autoClose={true}
+        autoCloseDelay={4000}
+      />
     </ScrollView>
   );
 };

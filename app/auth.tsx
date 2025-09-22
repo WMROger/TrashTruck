@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+const { width, height } = Dimensions.get('window');
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -15,33 +17,48 @@ export default function AuthScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Welcome to TrashTrack</Text>
-        <Text style={styles.subtitle}>Choose how you'd like to get started</Text>
+      <StatusBar barStyle="light-content" backgroundColor="#ECFEE5" />
+      
+      {/* Full screen image */}
+      <View style={styles.imageContainer}>
+        <Image
+          source={require('@/assets/images/Auth-Header2.png')}
+          style={styles.heroImage}
+          resizeMode="cover"
+        />
         
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity 
-            style={styles.primaryButton}
-            onPress={handleLogin}
-          >
-            <Text style={styles.primaryButtonText}>Login</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.secondaryButton}
-            onPress={handleSignUp}
-          >
-            <Text style={styles.secondaryButtonText}>Create an account</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => router.replace('/splash')}
-          >
-            <Text style={styles.backButtonText}>Back to Splash</Text>
-          </TouchableOpacity>
+        {/* Text overlay */}
+        <View style={styles.textOverlay}>
+          <Text style={styles.headline}>Know the Waste,{"\n"}Clean with{"\n"}Haste.</Text>
         </View>
       </View>
+
+      {/* Button section */}
+      <View style={styles.buttonSection}>
+        <TouchableOpacity 
+          style={styles.primaryButton}
+          onPress={handleLogin}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.primaryButtonText}>Login</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.secondaryButton}
+          onPress={handleSignUp}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.secondaryButtonText}>Create an Account</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={styles.devBack}
+        onPress={() => router.replace('/splash')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.devBackText}>Back to Splash (dev)</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -49,71 +66,86 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#ECFEE5', // Green background
   },
-  content: {
+  imageContainer: {
     flex: 1,
+    position: 'relative',
+  },
+  heroImage: {
     width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
+    height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#5B7C67',
-    textAlign: 'center',
-    marginBottom: 16,
+  textOverlay: {
+    position: 'absolute',
+    top: 80,
+    left: 24,
+    right: 24,
+    zIndex: 1,
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 48,
+  headline: {
+    fontSize: 28,
+    lineHeight: 36,
+    color: '#2D5A3D', // Dark green text
+    fontWeight: '600',
+    textAlign: 'left',
+    textShadowColor: 'rgba(255, 255, 255, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
-  buttonGroup: {
-    width: '100%',
-    alignItems: 'center',
+  buttonSection: {
+    position: 'absolute',
+    bottom: 140,
+    left: 24,
+    right: 24,
     gap: 16,
   },
   primaryButton: {
-    backgroundColor: '#5B7C67',
-    borderRadius: 8,
+    backgroundColor: '#4E6C50', // Green button
+    borderRadius: 25,
     paddingVertical: 16,
-    paddingHorizontal: 32,
-    width: '100%',
     alignItems: 'center',
+    width: '100%',
+    // Shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   primaryButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    fontWeight: '600',
     fontSize: 16,
   },
   secondaryButton: {
-    borderColor: '#5B7C67',
+    borderColor: '#4E6C50',
     borderWidth: 2,
-    borderRadius: 8,
+    borderRadius: 25,
     paddingVertical: 16,
-    paddingHorizontal: 32,
-    width: '100%',
     alignItems: 'center',
     backgroundColor: 'transparent',
+    width: '100%',
   },
   secondaryButtonText: {
-    color: '#5B7C67',
-    fontWeight: 'bold',
+    color: '#4E6C50',
+    fontWeight: '600',
     fontSize: 16,
   },
-  backButton: {
-    marginTop: 32,
+  devBack: {
+    alignSelf: 'center',
+    position: 'absolute',
+    bottom: 100,
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
-  backButtonText: {
-    color: '#666',
-    fontSize: 14,
+  devBackText: {
+    color: '#6b7280',
     textDecorationLine: 'underline',
+    fontSize: 12,
   },
 }); 
