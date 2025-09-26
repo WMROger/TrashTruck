@@ -3,9 +3,9 @@ import { auth, db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
 import driverImageService from '../../../services/driverImageService';
 
@@ -49,23 +49,61 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
   // Fetch schedules for the current driver
   useEffect(() => {
     if (!db || !auth?.currentUser) {
+      console.log('No db or user available for schedule fetch');
       setLoading(false);
       return;
     }
 
     const currentUser = auth.currentUser;
-    
-    // Query schedules where driver matches current user's display name or email
     const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
-    const q = query(
-      collection(db, 'schedules'),
-      where('driver', '==', driverName)
-    );
+    console.log('Fetching schedules for driver:', driverName);
+    console.log('User displayName:', currentUser.displayName);
+    console.log('User email:', currentUser.email);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // Get all schedules first, then filter manually to handle multiple driver field possibilities
+    const allSchedulesQuery = query(collection(db, 'schedules'));
+    
+    const unsubscribe = onSnapshot(allSchedulesQuery, (snapshot) => {
+      console.log('All schedules in database:', snapshot.docs.length);
+      
       const scheduleData: Schedule[] = [];
+      let matchingDriverCount = 0;
+      
       snapshot.forEach((doc) => {
         const data = doc.data();
+        console.log('Checking schedule:', {
+          id: doc.id,
+          driver: data.driver,
+          assignedDriverName: data.assignedDriverName,
+          assignedDriverId: data.assignedDriverId,
+          driverName: data.driverName,
+          status: data.status,
+          street: data.street
+        });
+        
+        // Check multiple driver field possibilities including email matching
+        const isDriverMatch = 
+          data.driver === driverName ||
+          data.driver === currentUser.email ||
+          data.assignedDriverName === driverName ||
+          data.assignedDriverName === currentUser.email ||
+          data.assignedDriverId === currentUser.uid ||
+          data.driverName === driverName ||
+          data.driverName === currentUser.email;
+          
+        if (!isDriverMatch) {
+          console.log('Skipping - driver mismatch. Expected:', driverName, 'Found driver fields:', {
+            driver: data.driver,
+            assignedDriverName: data.assignedDriverName,
+            assignedDriverId: data.assignedDriverId,
+            driverName: data.driverName
+          });
+          return;
+        }
+        
+        matchingDriverCount++;
+        console.log('Found matching driver schedule:', data);
+        
         scheduleData.push({
           id: doc.id,
           dateText: data.dateText,
@@ -80,11 +118,17 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         });
       });
       
+      console.log('Total matching schedules found:', matchingDriverCount);
+      
       // Exclude completed or issue statuses from the active schedule list
       const active = scheduleData.filter((s) => {
         const st = (s.status || 'pending').toLowerCase();
-        return st !== 'completed' && st !== 'issue' && st !== 'resolved' && st !== 'done';
+        const isPending = st !== 'completed' && st !== 'issue' && st !== 'resolved' && st !== 'done';
+        console.log('Schedule filter:', s.street, 'Status:', st, 'IsPending:', isPending);
+        return isPending;
       });
+
+      console.log('Active schedules after filtering:', active.length);
 
       // Sort by date and time
       active.sort((a, b) => {
@@ -139,12 +183,32 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
 
   const handleImagePicker = async () => {
     try {
+      // Check if permission is already granted
+      const { status: existingStatus } = await ImagePicker.getMediaLibraryPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      // If not granted, request permission
+      if (existingStatus !== 'granted') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        showError(
+          'Permission to access gallery is required to select photos. Please enable it in your device settings.',
+          'Permission Required',
+          'warning'
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.9, // Increased quality to ensure we have good data
         base64: true, // Enable base64 for web compatibility
+        exif: false, // Reduce size
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -152,31 +216,58 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
         const base64 = asset.base64;
         
-        console.log('Image picker result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        console.log('Image picker result:', { 
+          imageUri: imageUri.substring(0, 50) + '...',
+          base64: base64 ? 'present' : 'missing',
+          base64Length: base64 ? base64.length : 0,
+          platform: Platform.OS
+        });
         
-        // Use base64 data URI for web compatibility
-        if (base64) {
+        // Prefer file URI for React Native, base64 for web
+        if (Platform.OS === 'web' && base64 && base64.length > 0) {
           const dataUri = `data:image/jpeg;base64,${base64}`;
+          console.log('Using base64 data URI for web upload, length:', dataUri.length);
           setSelectedImage(dataUri);
-          setSelectedImageUri(dataUri); // Use data URI for upload too
+          setSelectedImageUri(dataUri);
         } else {
+          console.log('Using file URI for native upload:', imageUri);
           setSelectedImage(imageUri);
-          setSelectedImageUri(imageUri);
+          setSelectedImageUri(imageUri); // Prefer file URI for React Native
         }
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      showError('Failed to pick image from gallery', 'Image Selection Error', 'error');
+      showError('Failed to pick image from gallery. Please try again.', 'Image Selection Error', 'error');
     }
   };
 
   const handleCameraCapture = async () => {
     try {
+      // Check if permission is already granted
+      const { status: existingStatus } = await ImagePicker.getCameraPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      // If not granted, request permission
+      if (existingStatus !== 'granted') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        showError(
+          'Permission to access camera is required to take photos. Please enable it in your device settings.',
+          'Permission Required',
+          'warning'
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.9, // Increased quality to ensure we have good data
         base64: true, // Enable base64 for web compatibility
+        exif: false, // Reduce size
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -184,21 +275,28 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
         const base64 = asset.base64;
         
-        console.log('Camera capture result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        console.log('Camera capture result:', { 
+          imageUri: imageUri.substring(0, 50) + '...',
+          base64: base64 ? 'present' : 'missing',
+          base64Length: base64 ? base64.length : 0,
+          platform: Platform.OS
+        });
         
-        // Use base64 data URI for web compatibility
-        if (base64) {
+        // Prefer file URI for React Native, base64 for web
+        if (Platform.OS === 'web' && base64 && base64.length > 0) {
           const dataUri = `data:image/jpeg;base64,${base64}`;
+          console.log('Using base64 data URI for web upload, length:', dataUri.length);
           setSelectedImage(dataUri);
-          setSelectedImageUri(dataUri); // Use data URI for upload too
+          setSelectedImageUri(dataUri);
         } else {
+          console.log('Using file URI for native upload:', imageUri);
           setSelectedImage(imageUri);
-          setSelectedImageUri(imageUri);
+          setSelectedImageUri(imageUri); // Prefer file URI for React Native
         }
       }
     } catch (error) {
       console.error('Error capturing image:', error);
-      showError('Failed to capture image from camera', 'Camera Error', 'error');
+      showError('Failed to capture image from camera. Please try again.', 'Camera Error', 'error');
     }
   };
 
@@ -217,10 +315,24 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         
         console.log('Uploading image to Cloudinary...', {
           uri: imageUriString.substring(0, 50) + '...',
+          uriLength: imageUriString.length,
           type: typeof imageUriString,
           isDataUri: imageUriString.startsWith('data:'),
-          isFileUri: imageUriString.startsWith('file:')
+          isFileUri: imageUriString.startsWith('file:'),
+          hasBase64: imageUriString.includes('base64,')
         });
+        
+        // Validate the image URI before uploading
+        if (!imageUriString || imageUriString.length < 50) {
+          console.error('Invalid image URI - too short:', imageUriString.length);
+          showError(
+            'Selected image data is invalid. Please try taking/selecting another image.',
+            'Invalid Image',
+            'error'
+          );
+          setSubmitting(false);
+          return;
+        }
         
         const uploadResult = await driverImageService.uploadCompletionImage(imageUriString);
         
@@ -230,7 +342,7 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         } else {
           console.error('Image upload failed:', uploadResult.error);
           showError(
-            uploadResult.error || 'Failed to upload image. Please try again.',
+            uploadResult.error || 'Failed to upload image. Please try taking/selecting another image.',
             'Upload Error',
             'error'
           );
@@ -348,8 +460,33 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
     return schedules.filter(schedule => schedule.dateText === tomorrowStr);
   };
 
+  const getUpcomingSchedules = () => {
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const todayStr = today.toLocaleDateString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    
+    const tomorrowStr = tomorrow.toLocaleDateString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    
+    return schedules.filter(schedule => 
+      schedule.dateText !== todayStr && 
+      schedule.dateText !== tomorrowStr &&
+      new Date(schedule.dateText) > today
+    );
+  };
+
   const todaySchedule = getTodaySchedules();
   const tomorrowSchedule = getTomorrowSchedules();
+  const upcomingSchedule = getUpcomingSchedules();
 
   // Check if pickup is for today (actionable)
   const isTodayPickup = (item: Schedule) => {
@@ -447,6 +584,9 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         ) : (
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No pickups scheduled for today</Text>
+            <Text style={[styles.debugText, { color: colors.textTertiary }]}>
+              Total schedules loaded: {schedules.length}
+            </Text>
           </View>
         )}
       </View>
@@ -460,9 +600,29 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         ) : (
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No pickups scheduled for tomorrow</Text>
+            <Text style={[styles.debugText, { color: colors.textTertiary }]}>
+              Total schedules loaded: {schedules.length}
+            </Text>
           </View>
         )}
       </View>
+
+      {upcomingSchedule.length > 0 && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Upcoming Schedules</Text>
+          {upcomingSchedule.map((item) => (
+            <View key={item.id} style={styles.upcomingCard}>
+              <Text style={[styles.upcomingDate, { color: colors.primary }]}>{item.dateText}</Text>
+              <Text style={[styles.upcomingTime, { color: colors.textPrimary }]}>{item.timeText}</Text>
+              <Text style={[styles.upcomingStreet, { color: colors.textSecondary }]}>{item.street}</Text>
+              <Text style={[styles.upcomingCategory, { color: colors.textSecondary }]}>{item.wasteCategory}</Text>
+              {item.note && (
+                <Text style={[styles.upcomingNote, { color: colors.textTertiary }]}>Note: {item.note}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Complete Pickup Modal */}
       <Modal
@@ -678,6 +838,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e9ecef',
   },
+  debugText: {
+    fontSize: 12,
+    marginTop: 8,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
   emptyText: {
     fontSize: 14,
     color: '#6c757d',
@@ -840,4 +1006,44 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     fontStyle: 'italic',
   },
+  upcomingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2E8B57',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  upcomingDate: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  upcomingTime: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  upcomingStreet: {
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  upcomingCategory: {
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  upcomingNote: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
 });
+

@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
@@ -123,70 +123,11 @@ export default function AdminLogin() {
       <View style={adminStyles.mainCard}>
         {/* Left Panel - Illustration */}
         <View style={adminStyles.leftPanel}>
-          <View style={adminStyles.illustration}>
-            {/* Sky */}
-            <View style={adminStyles.sky} />
-            
-            {/* Hills */}
-            <View style={adminStyles.hills}>
-              <View style={adminStyles.hill1} />
-              <View style={adminStyles.hill2} />
-            </View>
-            
-            {/* Trees */}
-            <View style={adminStyles.trees}>
-              <View style={adminStyles.tree1} />
-              <View style={adminStyles.tree2} />
-              <View style={adminStyles.tree3} />
-            </View>
-            
-            {/* City Buildings */}
-            <View style={adminStyles.cityBuildings}>
-              <View style={adminStyles.building1} />
-              <View style={adminStyles.building2} />
-              <View style={adminStyles.building3} />
-            </View>
-            
-            {/* Characters */}
-            <View style={adminStyles.characters}>
-              {/* Person 1 - Sweeping */}
-              <View style={adminStyles.person1}>
-                <View style={adminStyles.head1} />
-                <View style={adminStyles.body1} />
-                <View style={adminStyles.arm1} />
-                <View style={adminStyles.broom} />
-              </View>
-              
-              {/* Person 2 - Holding bag */}
-              <View style={adminStyles.person2}>
-                <View style={adminStyles.head2} />
-                <View style={adminStyles.body2} />
-                <View style={adminStyles.arm2} />
-                <View style={adminStyles.bag} />
-              </View>
-              
-              {/* Person 3 - Holding bottle */}
-              <View style={adminStyles.person3}>
-                <View style={adminStyles.head3} />
-                <View style={adminStyles.body3} />
-                <View style={adminStyles.arm3} />
-                <View style={adminStyles.bottle} />
-              </View>
-            </View>
-            
-            {/* Trash Items */}
-            <View style={adminStyles.trashItems}>
-              <View style={adminStyles.bottle1} />
-              <View style={adminStyles.paper1} />
-              <View style={adminStyles.bottle2} />
-            </View>
-            
-            {/* Trash Can */}
-            <View style={adminStyles.trashCan}>
-              <View style={adminStyles.canBody} />
-              <View style={adminStyles.biohazardSymbol} />
-            </View>
-          </View>
+          <Image
+            source={require('@/assets/images/admin_login_bg.png')}
+            style={adminStyles.backgroundImage}
+            resizeMode="cover"
+          />
         </View>
 
         {/* Right Panel - Login Form */}
@@ -194,11 +135,11 @@ export default function AdminLogin() {
           {/* Back Button */}
           <TouchableOpacity 
             style={adminStyles.backButton} 
-            onPress={() => router.back()}
+            onPress={() => router.replace('/admin/splash')}
             disabled={isLoading}
           >
             <Ionicons name="arrow-back" size={20} color="#666" />
-            <Text style={adminStyles.backButtonText}>Back to App</Text>
+            <Text style={adminStyles.backButtonText}>Back to Admin Portal</Text>
           </TouchableOpacity>
 
           <Text style={adminStyles.welcomeText}>Welcome back, Admin</Text>

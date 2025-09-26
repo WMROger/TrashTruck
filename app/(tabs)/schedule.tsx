@@ -63,29 +63,68 @@ export default function ScheduleScreen() {
   const parseUSLongDate = (text: string): Date | null => {
     if (!text || typeof text !== 'string') return null;
     
+    // Clean up the input text
+    const cleanText = text.trim();
+    if (!cleanText) return null;
+    
     // Try to handle different date formats
     try {
       // First try the US long format (e.g., "September 20, 2025")
-      const match = text.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+      const match = cleanText.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
       if (match) {
         const monthName = match[1];
         const day = parseInt(match[2], 10);
         const year = parseInt(match[3], 10);
-        const month = MONTH_INDEX[monthName];
-        if (month === undefined || Number.isNaN(day) || Number.isNaN(year)) {
-          console.error('Invalid date format:', text);
+        
+        // Case-insensitive month lookup
+        const monthKey = Object.keys(MONTH_INDEX).find(key => 
+          key.toLowerCase() === monthName.toLowerCase()
+        );
+        const month = monthKey ? MONTH_INDEX[monthKey] : undefined;
+        
+        // Validate parsed values
+        if (month === undefined) {
+          console.warn('Unknown month name:', monthName, 'in date:', text);
+          // Try fallback parsing
+          const fallback = new Date(cleanText);
+          if (!isNaN(fallback.getTime())) {
+            console.log('Fallback parsing succeeded for:', text);
+            return fallback;
+          }
           return null;
         }
-        return new Date(year, month, day);
+        if (Number.isNaN(day) || day < 1 || day > 31) {
+          console.warn('Invalid day:', day, 'in date:', text);
+          return null;
+        }
+        if (Number.isNaN(year) || year < 1900 || year > 2100) {
+          console.warn('Invalid year:', year, 'in date:', text);
+          return null;
+        }
+        
+        // Create date and validate it
+        const date = new Date(year, month, day);
+        if (isNaN(date.getTime())) {
+          console.warn('Created invalid date object for:', text);
+          return null;
+        }
+        
+        // Double-check the date components match (e.g., February 30 would become March 2)
+        if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
+          console.warn('Date overflow detected for:', text, 'resulted in:', date.toDateString());
+          return null;
+        }
+        
+        return date;
       }
       
-      // Fallback to standard Date constructor
-      const fallback = new Date(text);
-      if (!isNaN(fallback.getTime())) {
+      // Fallback to standard Date constructor with better validation
+      const fallback = new Date(cleanText);
+      if (!isNaN(fallback.getTime()) && fallback.getFullYear() > 1900 && fallback.getFullYear() < 2100) {
         return fallback;
       }
       
-      console.error('Invalid date format:', text);
+      console.warn('Could not parse date:', text);
       return null;
     } catch (error) {
       console.error('Error parsing date:', text, error);
@@ -280,7 +319,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingBottom: 24,
+    paddingBottom: 120,
   },
   header: {
     height: 90,

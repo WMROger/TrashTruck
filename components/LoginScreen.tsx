@@ -1,23 +1,21 @@
 import { auth, db } from '@/config/firebase';
-import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 // Note: Using basic state management for remember me functionality
+import { storage } from '@/utils/storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
-import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import ErrorModal from './ErrorModal';
 
@@ -72,7 +70,7 @@ export default function LoginScreen() {
   const saveCredentials = async (email: string, password: string) => {
     try {
       const credentials = JSON.stringify({ email, password });
-      await SecureStore.setItemAsync(CREDENTIALS_KEY, credentials);
+      await storage.setItem(CREDENTIALS_KEY, credentials);
       console.log('Credentials saved securely for:', email);
     } catch (error) {
       console.error('Failed to save credentials:', error);
@@ -81,7 +79,7 @@ export default function LoginScreen() {
 
   const loadCredentials = async () => {
     try {
-      const credentials = await SecureStore.getItemAsync(CREDENTIALS_KEY);
+      const credentials = await storage.getItem(CREDENTIALS_KEY);
       if (credentials) {
         const { email: savedEmail, password: savedPassword } = JSON.parse(credentials);
         setEmail(savedEmail);
@@ -96,7 +94,7 @@ export default function LoginScreen() {
 
   const clearCredentials = async () => {
     try {
-      await SecureStore.deleteItemAsync(CREDENTIALS_KEY);
+      await storage.deleteItem(CREDENTIALS_KEY);
       console.log('Credentials cleared from secure storage');
     } catch (error) {
       console.error('Failed to clear credentials:', error);
@@ -199,150 +197,50 @@ export default function LoginScreen() {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      // Use Firebase authentication
-      if (auth) {
-        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
-        const user = userCredential.user;
-        console.log('User logged in successfully:', user.email);
-
-        // Check user role and prevent admin login on user/driver UI
-        if (db) {
-          try {
-            const snap = await getDoc(doc(db, 'users', user.uid));
-            if (snap.exists()) {
-              const data = snap.data();
-              const userRole = (data as any)?.role;
-              
-              // If user is admin, show error and redirect to admin login
-              if (userRole === 'admin') {
-                try { 
-                  await signOut(auth);
-                  await clearCredentials(); // Clear saved credentials for admin accounts
-                } catch {}
-                showError('Admin accounts must use the admin login portal. Please go to the admin login page.', 'Wrong Login Portal', 'warning');
-                return;
-              }
-            }
-          } catch (error) {
-            console.error('Error checking user role:', error);
-          }
-        }
-
-        // Handle remember me functionality
-        if (rememberMe) {
-          await saveCredentials(email, password);
-        } else {
-          await clearCredentials();
-        }
-
-        // If password provider and email not verified, allow drivers to bypass
-        const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
-        if (isPasswordProvider && !user.emailVerified) {
-          let allowBypass = false;
-          if (db) {
-            try {
-              const snap = await getDoc(doc(db, 'users', user.uid));
-              if (snap.exists()) {
-                const data = snap.data();
-                if ((data as any)?.role === 'driver') {
-                  allowBypass = true;
-                }
-              }
-            } catch {}
-          }
-          if (!allowBypass) {
-            try {
-              await sendEmailVerification(user);
-              showError('A verification link has been sent to your email. Please verify before logging in.');
-            } catch (e: any) {
-              showError('Could not send verification email. Please check spam and try again.');
-            }
-            try { 
-              await signOut(auth);
-              await clearCredentials(); // Clear saved credentials for unverified accounts
-            } catch {}
-            return;
-          }
-        }
-
-        await upsertUserProfile(isPasswordProvider ? 'password' : 'oauth');
-        router.replace('/(auth)/loading' as any);
-      } else {
-        // Fallback to mock login if Firebase is not available
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('Mock login - Firebase not available');
-        router.replace('/(auth)/loading' as any);
-      }
-    } catch (error: any) {
-      console.error('Login error:', error);
-      let errorMessage = 'Login failed. Please try again.';
-      
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email address.';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password. Please try again.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many failed attempts. Please try again later.';
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = 'This account has been disabled.';
-      }
-      
-      showError(errorMessage);
-    } finally {
-      setIsLoading(false);
+    // Store credentials for remember me and immediately redirect to loading
+    if (rememberMe) {
+      await saveCredentials(email, password);
+    } else {
+      await clearCredentials();
     }
+
+    // Store login credentials in temp storage for loading page to process
+    try {
+      await storage.setItem('temp_login_credentials', JSON.stringify({
+        email: loginEmail,
+        password: password,
+        rememberMe: rememberMe
+      }));
+    } catch (error) {
+      console.error('Failed to store temp credentials:', error);
+    }
+
+    // Immediately redirect to loading page
+    router.replace('/(auth)/loading' as any);
   };
 
   const handleGoogleLogin = async () => {
+    // Store auth type for loading page
     try {
-      setIsLoading(true);
-      console.log('Starting Google login...');
-      
-      const result = await signInWithGoogle();
-      
-      if (result.success) {
-        await upsertUserProfile('google');
-        console.log('Google login successful');
-        router.replace('/(auth)/loading' as any);
-      } else {
-        console.error('Google login failed:', result.error);
-        Alert.alert('Google Sign-In Error', result.error || 'Google sign-in failed');
-      }
-    } catch (error: any) {
-      console.error('Google login error:', error);
-      Alert.alert('Google Sign-In Error', error.message || 'Google sign-in failed');
-    } finally {
-      setIsLoading(false);
+      await storage.setItem('temp_auth_type', 'google');
+    } catch (error) {
+      console.error('Failed to store auth type:', error);
     }
+    
+    // Immediately redirect to loading page
+    router.replace('/(auth)/loading' as any);
   };
 
   const handleFacebookLogin = async () => {
+    // Store auth type for loading page
     try {
-      setIsLoading(true);
-      console.log('Starting Facebook login...');
-      
-      const result = await signInWithFacebook();
-      
-      if (result.success) {
-        await upsertUserProfile('facebook');
-        console.log('Facebook login successful');
-        router.replace('/(auth)/loading' as any);
-      } else {
-        console.error('Facebook login failed:', result.error);
-        Alert.alert('Facebook Sign-In Error', result.error || 'Facebook sign-in failed');
-      }
-    } catch (error: any) {
-      console.error('Facebook login error:', error);
-      Alert.alert('Facebook Sign-In Error', error.message || 'Facebook sign-in failed');
-    } finally {
-      setIsLoading(false);
+      await storage.setItem('temp_auth_type', 'facebook');
+    } catch (error) {
+      console.error('Failed to store auth type:', error);
     }
+    
+    // Immediately redirect to loading page
+    router.replace('/(auth)/loading' as any);
   };
 
   const handleForgotPassword = () => {

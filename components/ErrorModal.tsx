@@ -4,6 +4,7 @@ import {
     Animated,
     Dimensions,
     Modal,
+    Platform,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -83,6 +84,24 @@ export default function ErrorModal({
       ]).start();
     }
   }, [visible, autoClose, autoCloseDelay]);
+
+  // Add escape key handling for web
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (event: any) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [visible]);
 
   const handleClose = () => {
     Animated.parallel([

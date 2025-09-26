@@ -44,15 +44,41 @@ export class ScheduleNotificationService {
 
   static parseScheduleDate(dateText: string): Date | null {
     try {
-      // Parse dateText like "August 17, 2025"
-      const date = new Date(dateText);
+      if (!dateText || typeof dateText !== 'string') {
+        console.warn('Invalid dateText provided:', dateText);
+        return null;
+      }
+
+      // Clean up the input
+      const cleanText = dateText.trim();
+      
+      // Parse dateText like "August 17, 2025" or "September 22, 2025"
+      const date = new Date(cleanText);
       if (isNaN(date.getTime())) {
+        console.warn('Could not parse date with standard constructor:', dateText);
+        
+        // Try manual parsing for US long format
+        const match = cleanText.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+        if (match) {
+          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+          const monthIndex = monthNames.findIndex(m => m.toLowerCase() === match[1].toLowerCase());
+          
+          if (monthIndex !== -1) {
+            const manualDate = new Date(parseInt(match[3]), monthIndex, parseInt(match[2]));
+            if (!isNaN(manualDate.getTime())) {
+              console.log('Manual parsing succeeded for:', dateText);
+              return manualDate;
+            }
+          }
+        }
+        
         console.error('Invalid date format:', dateText);
         return null;
       }
       return date;
     } catch (error) {
-      console.error('Error parsing schedule date:', error);
+      console.error('Error parsing schedule date:', dateText, error);
       return null;
     }
   }

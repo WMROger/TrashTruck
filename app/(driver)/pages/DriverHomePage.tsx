@@ -5,7 +5,7 @@ import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
 import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
 import driverImageService from '../../../services/driverImageService';
 
@@ -287,12 +287,32 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
 
   const handleImagePicker = async () => {
     try {
+      // Check if permission is already granted
+      const { status: existingStatus } = await ImagePicker.getMediaLibraryPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      // If not granted, request permission
+      if (existingStatus !== 'granted') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        showError(
+          'Permission to access gallery is required to select photos. Please enable it in your device settings.',
+          'Permission Required',
+          'warning'
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.9, // Increased quality to ensure we have good data
         base64: true, // Enable base64 for web compatibility
+        exif: false, // Reduce size
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -300,16 +320,23 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
         const base64 = asset.base64;
         
-        console.log('Image picker result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        console.log('Image picker result:', { 
+          imageUri: imageUri.substring(0, 50) + '...',
+          base64: base64 ? 'present' : 'missing',
+          base64Length: base64 ? base64.length : 0,
+          platform: Platform.OS
+        });
         
-        // Use base64 data URI for web compatibility
-        if (base64) {
+        // Prefer file URI for React Native, base64 for web
+        if (Platform.OS === 'web' && base64 && base64.length > 0) {
           const dataUri = `data:image/jpeg;base64,${base64}`;
+          console.log('Using base64 data URI for web upload, length:', dataUri.length);
           setSelectedImage(dataUri);
-          setSelectedImageUri(dataUri); // Use data URI for upload too
+          setSelectedImageUri(dataUri);
         } else {
+          console.log('Using file URI for native upload:', imageUri);
           setSelectedImage(imageUri);
-          setSelectedImageUri(imageUri);
+          setSelectedImageUri(imageUri); // Prefer file URI for React Native
         }
       }
     } catch (error) {
@@ -320,11 +347,31 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
 
   const handleCameraCapture = async () => {
     try {
+      // Check if permission is already granted
+      const { status: existingStatus } = await ImagePicker.getCameraPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      // If not granted, request permission
+      if (existingStatus !== 'granted') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        showError(
+          'Permission to access camera is required to take photos. Please enable it in your device settings.',
+          'Permission Required',
+          'warning'
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.9, // Increased quality to ensure we have good data
         base64: true, // Enable base64 for web compatibility
+        exif: false, // Reduce size
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -332,16 +379,23 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         const imageUri = typeof asset.uri === 'string' ? asset.uri : String(asset.uri);
         const base64 = asset.base64;
         
-        console.log('Camera capture result:', { imageUri, base64: base64 ? 'present' : 'missing' });
+        console.log('Camera capture result:', { 
+          imageUri: imageUri.substring(0, 50) + '...',
+          base64: base64 ? 'present' : 'missing',
+          base64Length: base64 ? base64.length : 0,
+          platform: Platform.OS
+        });
         
-        // Use base64 data URI for web compatibility
-        if (base64) {
+        // Prefer file URI for React Native, base64 for web
+        if (Platform.OS === 'web' && base64 && base64.length > 0) {
           const dataUri = `data:image/jpeg;base64,${base64}`;
+          console.log('Using base64 data URI for web upload, length:', dataUri.length);
           setSelectedImage(dataUri);
-          setSelectedImageUri(dataUri); // Use data URI for upload too
+          setSelectedImageUri(dataUri);
         } else {
+          console.log('Using file URI for native upload:', imageUri);
           setSelectedImage(imageUri);
-          setSelectedImageUri(imageUri);
+          setSelectedImageUri(imageUri); // Prefer file URI for React Native
         }
       }
     } catch (error) {
@@ -365,10 +419,24 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         
         console.log('Uploading image to Cloudinary...', {
           uri: imageUriString.substring(0, 50) + '...',
+          uriLength: imageUriString.length,
           type: typeof imageUriString,
           isDataUri: imageUriString.startsWith('data:'),
-          isFileUri: imageUriString.startsWith('file:')
+          isFileUri: imageUriString.startsWith('file:'),
+          hasBase64: imageUriString.includes('base64,')
         });
+        
+        // Validate the image URI before uploading
+        if (!imageUriString || imageUriString.length < 50) {
+          console.error('Invalid image URI - too short:', imageUriString.length);
+          showError(
+            'Selected image data is invalid. Please try taking/selecting another image.',
+            'Invalid Image',
+            'error'
+          );
+          setSubmitting(false);
+          return;
+        }
         
         const uploadResult = await driverImageService.uploadCompletionImage(imageUriString);
         
@@ -378,7 +446,7 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         } else {
           console.error('Image upload failed:', uploadResult.error);
           showError(
-            uploadResult.error || 'Failed to upload image. Please try again.',
+            uploadResult.error || 'Failed to upload image. Please try taking/selecting another image.',
             'Upload Error',
             'error'
           );

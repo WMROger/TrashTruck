@@ -1,7 +1,7 @@
 import { db } from '@/config/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { updateProfile as updateFirebaseProfile, User } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { createContext, ReactNode, useContext } from 'react';
 
 interface AuthContextType {
@@ -23,40 +23,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Check if photoURL is a Cloudinary URL (long URLs)
-      const isCloudinaryURL = profileData.photoURL && (
+      // Check if photoURL is a valid Cloudinary/HTTP URL (never allow local file paths)
+      const isValidCloudinaryURL = profileData.photoURL && (
         profileData.photoURL.includes('cloudinary.com') || 
+        profileData.photoURL.startsWith('https://') || 
+        profileData.photoURL.startsWith('http://') ||
         profileData.photoURL.length > 2000
       );
+
+      // Never allow local file paths to be saved
+      const isLocalFilePath = profileData.photoURL && (
+        profileData.photoURL.startsWith('file://') ||
+        profileData.photoURL.startsWith('content://') ||
+        profileData.photoURL.startsWith('asset://') ||
+        profileData.photoURL.startsWith('blob:')
+      );
+
+      if (isLocalFilePath) {
+        throw new Error('Cannot save local file path as profile URL. Please upload to Cloudinary first.');
+      }
 
       // Update Firebase Auth profile (only displayName, skip photoURL for Cloudinary URLs)
       const authUpdateData: { displayName?: string; photoURL?: string | null } = {
         displayName: profileData.displayName,
       };
       
-      // Only update Firebase Auth photoURL if it's not a Cloudinary URL
-      if (profileData.photoURL && !isCloudinaryURL) {
+      // Only update Firebase Auth photoURL if it's a valid HTTP URL but not Cloudinary
+      if (profileData.photoURL && !isValidCloudinaryURL && !isLocalFilePath) {
         authUpdateData.photoURL = profileData.photoURL;
       }
 
       await updateFirebaseProfile(auth.user, authUpdateData);
 
-      // Update Firestore user document with the full photoURL (including Cloudinary URLs)
+      // Get existing Firestore data to preserve Cloudinary URLs
       const userRef = doc(db, 'users', auth.user.uid);
+      const existingDoc = await getDoc(userRef);
+      const existingData = existingDoc.exists() ? existingDoc.data() : {};
+
+      // Only update photoURL in Firestore if we have a valid Cloudinary URL
+      // Otherwise, preserve existing Cloudinary URL
+      let photoURLToSave = existingData.photoURL || '';
+      
+      if (isValidCloudinaryURL) {
+        photoURLToSave = profileData.photoURL;
+      } else if (!existingData.photoURL && profileData.photoURL && !isLocalFilePath) {
+        // Only set non-Cloudinary URL if there's no existing URL
+        photoURLToSave = profileData.photoURL;
+      }
+
       await setDoc(
         userRef,
         {
           displayName: profileData.displayName || auth.user.displayName || '',
-          photoURL: profileData.photoURL || auth.user.photoURL || '',
+          photoURL: photoURLToSave,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
-      if (isCloudinaryURL) {
-        console.log('Profile updated: Cloudinary photo URL stored in Firestore only');
+      if (isValidCloudinaryURL) {
+        console.log('Profile updated: Cloudinary photo URL stored in Firestore');
       } else {
-        console.log('Profile updated successfully in both Auth and Firestore');
+        console.log('Profile updated: Preserved existing Cloudinary URL in Firestore');
       }
     } catch (error) {
       console.error('Failed to update profile:', error);

@@ -1,13 +1,13 @@
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { UPLOAD_PRESETS } from '@/config/cloudinary';
-import { db, storage } from '@/config/firebase';
+import { auth, db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -38,6 +38,9 @@ export default function ProfilePage() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
+  const [feedbackText, setFeedbackText] = useState('');
   const [enableAnnouncementNotifs, setEnableAnnouncementNotifs] = useState(true);
   const [enableScheduleNotifs, setEnableScheduleNotifs] = useState(true);
   const router = useRouter();
@@ -45,17 +48,40 @@ export default function ProfilePage() {
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
     try {
-      if (!maybePath) return undefined;
+      console.log('🖼️ Resolving photo URL for:', maybePath);
+      if (!maybePath) {
+        console.log('❌ No photo path provided');
+        return undefined;
+      }
+      
+      // Check for local file paths (these won't work for display)
+      const isLocalFile = /^file:\/\//.test(maybePath);
+      if (isLocalFile) {
+        console.warn('⚠️ Local file path detected, cannot display:', maybePath);
+        return undefined; // Don't try to display local file paths
+      }
+      
       const isHttp = /^https?:\/\//i.test(maybePath);
-      const isDataOrLocal = /^(data:|file:|content:|asset(s)?:\/\/|blob:|expo-file:)/i.test(maybePath);
-      if (isHttp || isDataOrLocal) return maybePath;
-      if (!storage) return undefined;
+      const isDataOrLocal = /^(data:|content:|asset(s)?:\/\/|blob:|expo-file:)/i.test(maybePath);
+      
+      if (isHttp || isDataOrLocal) {
+        console.log('✅ Direct URL found:', maybePath);
+        return maybePath;
+      }
+      
+      if (!storage) {
+        console.log('❌ Firebase storage not available');
+        return undefined;
+      }
+      
+      console.log('🔄 Fetching download URL from Firebase Storage...');
       const { getDownloadURL, ref } = await import('firebase/storage');
-      // Treat non-URL strings as storage paths or gs:// URLs
       const r = ref(storage, maybePath);
-      return await getDownloadURL(r);
+      const downloadURL = await getDownloadURL(r);
+      console.log('✅ Download URL obtained:', downloadURL);
+      return downloadURL;
     } catch (e) {
-      console.warn('Failed to resolve photo URL:', e);
+      console.warn('❌ Failed to resolve photo URL:', e);
       return undefined;
     }
   };
@@ -63,31 +89,90 @@ export default function ProfilePage() {
   // Fetch user profile data from Firestore
   useEffect(() => {
     const fetchUserProfile = async () => {
-      if (!user || !db) return;
+      if (!user || !db) {
+        console.log('❌ User or DB not available:', { user: !!user, db: !!db });
+        return;
+      }
 
       try {
+        console.log('👤 Fetching user profile for:', user.uid);
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          const resolved = await resolvePhotoURL(userData.photoURL || user.photoURL);
+          console.log('📄 Firestore user data:', userData);
+          console.log('🖼️ PhotoURL from Firestore:', userData.photoURL);
+          console.log('🖼️ PhotoURL from Auth:', user.photoURL);
+          
+          // Prioritize Cloudinary URLs from Firestore, never fall back to local paths
+          let photoURLToUse = userData.photoURL;
+          
+          // Check if the Firestore photoURL is a valid Cloudinary/HTTP URL
+          const isValidCloudinaryURL = photoURLToUse && (
+            photoURLToUse.includes('cloudinary.com') || 
+            photoURLToUse.startsWith('https://') || 
+            photoURLToUse.startsWith('http://')
+          );
+          
+          // Only use Firestore photoURL if it's a valid Cloudinary/HTTP URL
+          if (!isValidCloudinaryURL) {
+            // Check Auth photoURL only if it's a valid Cloudinary/HTTP URL
+            const authPhotoURL = user.photoURL;
+            const isValidAuthURL = authPhotoURL && (
+              authPhotoURL.includes('cloudinary.com') || 
+              authPhotoURL.startsWith('https://') || 
+              authPhotoURL.startsWith('http://')
+            );
+            
+            if (isValidAuthURL) {
+              photoURLToUse = authPhotoURL;
+            } else {
+              photoURLToUse = undefined; // No valid URL available, use placeholder
+            }
+          }
+          
+          console.log('🎯 Selected photoURL for resolution:', photoURLToUse);
+          const resolved = await resolvePhotoURL(photoURLToUse);
+          console.log('✅ Resolved photoURL:', resolved);
+          
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
             photoURL: resolved,
           });
         } else {
-        // Fallback to auth data if Firestore document doesn't exist
-        const resolved = await resolvePhotoURL(user.photoURL || undefined);
-        setUserProfile({
-          displayName: user.displayName || 'User',
-          photoURL: resolved,
-        });
+          console.log('❌ No Firestore document found, checking auth data');
+          // Only use auth photoURL if it's a valid Cloudinary/HTTP URL
+          const authPhotoURL = user.photoURL;
+          const isValidAuthURL = authPhotoURL && (
+            authPhotoURL.includes('cloudinary.com') || 
+            authPhotoURL.startsWith('https://') || 
+            authPhotoURL.startsWith('http://')
+          );
+          
+          const photoURLToUse = isValidAuthURL ? authPhotoURL : undefined;
+          const resolved = await resolvePhotoURL(photoURLToUse);
+          console.log('✅ Fallback resolved photoURL:', resolved);
+          
+          setUserProfile({
+            displayName: user.displayName || 'User',
+            photoURL: resolved,
+          });
         }
       } catch (error) {
-        console.error('Error fetching user profile:', error);
-        // Fallback to auth data on error
-        const resolved = await resolvePhotoURL(user?.photoURL || undefined);
+        console.error('❌ Error fetching user profile:', error);
+        // Only use auth photoURL if it's a valid Cloudinary/HTTP URL
+        const authPhotoURL = user?.photoURL;
+        const isValidAuthURL = authPhotoURL && (
+          authPhotoURL.includes('cloudinary.com') || 
+          authPhotoURL.startsWith('https://') || 
+          authPhotoURL.startsWith('http://')
+        );
+        
+        const photoURLToUse = isValidAuthURL ? authPhotoURL : undefined;
+        const resolved = await resolvePhotoURL(photoURLToUse);
+        console.log('✅ Error fallback resolved photoURL:', resolved);
+        
         setUserProfile({
           displayName: user.displayName || 'User',
           photoURL: resolved,
@@ -99,8 +184,10 @@ export default function ProfilePage() {
   }, [user]);
 
   const handleLogout = () => {
+    console.log('Logout button pressed');
     setLogoutError(null);
     setShowLogoutModal(true);
+    console.log('Modal should now be visible:', true);
   };
 
   const cancelLogout = () => {
@@ -131,21 +218,47 @@ export default function ProfilePage() {
     console.log('Theme changed to:', newTheme);
   };
 
+
   const handleEditProfile = () => {
     setIsEditMode(true);
     setEditName(userProfile?.displayName || user?.displayName || '');
-    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || undefined);
+    
+    // Check if current photo URL is a local file path
+    const currentPhotoURL = userProfile?.photoURL || user?.photoURL || undefined;
+    if (currentPhotoURL && currentPhotoURL.startsWith('file://')) {
+      console.warn('⚠️ Current photo URL is a local file path, clearing it');
+      setEditPhotoURL(undefined); // Clear local file paths
+    } else {
+      setEditPhotoURL(currentPhotoURL);
+    }
   };
 
   const handleCancelEdit = () => {
     setIsEditMode(false);
     setEditName(userProfile?.displayName || user?.displayName || '');
-    setEditPhotoURL(userProfile?.photoURL || user?.photoURL || undefined);
+    
+    // Check if current photo URL is a local file path
+    const currentPhotoURL = userProfile?.photoURL || user?.photoURL || undefined;
+    if (currentPhotoURL && currentPhotoURL.startsWith('file://')) {
+      console.warn('⚠️ Cancel edit: Current photo URL is a local file path, clearing it');
+      setEditPhotoURL(undefined); // Clear local file paths
+    } else {
+      setEditPhotoURL(currentPhotoURL);
+    }
   };
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
     try {
+      console.log('💾 Saving profile with:', { displayName: editName, photoURL: editPhotoURL });
+      
+      // Check if photoURL is a local file path and warn
+      if (editPhotoURL && editPhotoURL.startsWith('file://')) {
+        console.warn('⚠️ Attempting to save local file path as photoURL:', editPhotoURL);
+        Alert.alert('Error', 'Cannot save local file path. Please wait for image upload to complete or select a new image.');
+        return;
+      }
+      
       await updateProfile({ displayName: editName, photoURL: editPhotoURL });
       
       // Update local profile state with the new data
@@ -154,10 +267,11 @@ export default function ProfilePage() {
         photoURL: editPhotoURL,
       });
       
+      console.log('✅ Profile saved successfully');
       Alert.alert('Success', 'Profile updated successfully');
       setIsEditMode(false);
     } catch (err: any) {
-      console.error('Profile update error:', err);
+      console.error('❌ Profile update error:', err);
       let errorMessage = 'Failed to update profile';
       
       if (err?.code === 'auth/invalid-profile-attribute') {
@@ -198,21 +312,25 @@ export default function ProfilePage() {
       if (asset.base64) {
         const mime = asset.mimeType || 'image/jpeg';
         const dataUrl = `data:${mime};base64,${asset.base64}`;
-        setEditPhotoURL(dataUrl);
         uploadSource = dataUrl;
-      } else {
-        setEditPhotoURL(selectedImageUri);
       }
 
       try {
+        console.log('🔄 Uploading image to Cloudinary...');
+        // Don't set any URL until upload completes
         const result = await cloudinaryService.uploadImage(uploadSource, { folder: UPLOAD_FOLDERS.PROFILES, preset: UPLOAD_PRESETS.PROFILES });
         if (result.success && result.url) {
-          setEditPhotoURL(result.url);
+          console.log('✅ Cloudinary upload successful:', result.url);
+          setEditPhotoURL(result.url); // Only set the Cloudinary URL
         } else {
+          console.error('❌ Cloudinary upload failed:', result.error);
           Alert.alert('Upload Error', result.error || 'Failed to upload profile image.');
+          // Keep the previous photo URL on failure
         }
       } catch (err) {
+        console.error('❌ Cloudinary upload error:', err);
         Alert.alert('Upload Error', 'Failed to upload profile image.');
+        // Keep the previous photo URL on failure
       }
     }
   };
@@ -308,6 +426,36 @@ export default function ProfilePage() {
     }
   };
 
+  // Feedback handling
+  const sentiments = [
+    { label: 'Terrible', emoji: '😣' },
+    { label: 'Bad', emoji: '😕' },
+    { label: 'Good', emoji: '😊' },
+    { label: 'Loved it', emoji: '😍' },
+  ];
+
+  const handleSendFeedback = async () => {
+    if (feedbackSelected === null || !feedbackText.trim()) {
+      Alert.alert('Error', 'Please select a rating and enter your feedback.');
+      return;
+    }
+    const rating = sentiments[feedbackSelected].label;
+    try {
+      await addDoc(collection(db, 'feedback'), {
+        rating,
+        description: feedbackText,
+        userId: auth.currentUser?.uid,
+        createdAt: new Date().toISOString(),
+      });
+      Alert.alert('Thank you!', 'Your feedback has been submitted successfully.');
+      setFeedbackSelected(null);
+      setFeedbackText('');
+      setShowFeedbackModal(false);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to send feedback. Please try again.');
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Modal Header */}
@@ -318,7 +466,7 @@ export default function ProfilePage() {
         >
           <IconSymbol name="xmark" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Profile & Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Profile & Settings</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -429,6 +577,7 @@ export default function ProfilePage() {
             <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
           </TouchableOpacity>
 
+
          
         </View>
 
@@ -451,6 +600,7 @@ export default function ProfilePage() {
               color={colors.textTertiary} 
             />
           </TouchableOpacity>
+
 
           {/* Preferences Dropdown */}
           {preferencesExpanded && (
@@ -535,6 +685,17 @@ export default function ProfilePage() {
 
           <TouchableOpacity 
             style={[styles.menuItem, { backgroundColor: colors.surface }]}
+            onPress={() => setShowFeedbackModal(true)}
+          >
+            <IconSymbol name="hand.thumbsup" size={24} color={colors.primary} />
+            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
+              Feedback
+            </Text>
+            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: colors.surface }]}
             onPress={() => setShowHelpModal(true)}
           >
             <IconSymbol name="questionmark.circle" size={24} color={colors.primary} />
@@ -566,6 +727,8 @@ export default function ProfilePage() {
           ]} 
           onPress={handleLogout}
           disabled={isLoggingOut}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color={colors.surface} />
           <Text style={[styles.logoutText, { color: colors.surface }]}>
@@ -588,11 +751,22 @@ export default function ProfilePage() {
               {logoutError ? <Text style={styles.errorText}>{logoutError}</Text> : null}
 
               <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface }]} onPress={cancelLogout}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
+                  onPress={cancelLogout}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                >
                   <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Cancel</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.modalButtonConfirm, { backgroundColor: colors.error }]} onPress={confirmLogout} disabled={isLoggingOut}>
+                <TouchableOpacity 
+                  style={[styles.modalButtonConfirm, { backgroundColor: colors.error }]} 
+                  onPress={confirmLogout} 
+                  disabled={isLoggingOut}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                >
                   {isLoggingOut ? (
                     <ActivityIndicator color={colors.surface} />
                   ) : (
@@ -849,6 +1023,82 @@ export default function ProfilePage() {
             </View>
           </View>
         </Modal>
+
+        {/* Feedback Modal */}
+        <Modal
+          visible={showFeedbackModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowFeedbackModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.feedbackModalContainer, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Send us your feedback</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
+                Do you have a suggestion or experienced any problem? Let us know below.
+              </Text>
+              
+              <Text style={[styles.feedbackQuestion, { color: colors.textPrimary }]}>How was your experience?</Text>
+              
+              <View style={styles.feedbackRow}>
+                {sentiments.map((s, idx) => {
+                  const active = feedbackSelected === idx;
+                  return (
+                    <TouchableOpacity
+                      key={s.label}
+                      style={[
+                        styles.feedbackReaction, 
+                        { backgroundColor: colors.background, borderColor: colors.border },
+                        active && { backgroundColor: colors.primary + '20', borderColor: colors.primary }
+                      ]}
+                      onPress={() => setFeedbackSelected(idx)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.feedbackReactionEmoji}>{s.emoji}</Text>
+                      <Text style={[styles.feedbackReactionLabel, { color: colors.textSecondary }]}>{s.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                value={feedbackText}
+                onChangeText={setFeedbackText}
+                multiline
+                placeholder="Please leave your feedback here..."
+                placeholderTextColor={colors.textTertiary}
+                style={[
+                  styles.feedbackInput, 
+                  { 
+                    backgroundColor: colors.background, 
+                    borderColor: colors.border, 
+                    color: colors.textPrimary 
+                  }
+                ]}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
+                  onPress={() => {
+                    setShowFeedbackModal(false);
+                    setFeedbackSelected(null);
+                    setFeedbackText('');
+                  }}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.modalButtonConfirm, { backgroundColor: colors.primary }]} 
+                  onPress={handleSendFeedback}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.surface }]}>Send Feedback</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
         </View>
       </ScrollView>
     </View>
@@ -871,7 +1121,7 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: 8,
   },
-  modalTitle: {
+  headerTitle: {
     fontSize: 18,
     fontWeight: '600',
   },
@@ -1039,10 +1289,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    zIndex: 9999,
   },
   modalContainer: {
-    width: '80%'
+    width: '80%',
+    borderRadius: 12,
+    padding: 20,
+    zIndex: 10000,
   },
   modalTitle: {
     fontSize: 18,
@@ -1154,6 +1408,53 @@ const styles = StyleSheet.create({
   requirementText: {
     fontSize: 12,
     marginBottom: 2,
+  },
+  feedbackModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 12,
+    padding: 20,
+  },
+  feedbackQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  feedbackReaction: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    borderWidth: 2,
+    minWidth: 60,
+    flex: 1,
+    marginHorizontal: 2,
+  },
+  feedbackReactionEmoji: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  feedbackReactionLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  feedbackInput: {
+    height: 100,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+    textAlignVertical: 'top',
+    fontSize: 14,
   },
 });
 

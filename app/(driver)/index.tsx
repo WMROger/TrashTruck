@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import DriverHistoryPage from './pages/DriverHistoryPage';
 import DriverHomePage from './pages/DriverHomePage';
 import DriverProfilePage from './pages/DriverProfilePage';
@@ -18,6 +18,7 @@ export default function DriverHome() {
   const colors = Colors[theme ?? 'light'];
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     // If user is not driver, send back to tabs home
@@ -45,10 +46,37 @@ export default function DriverHome() {
       case 'history':
         return <DriverHistoryPage />;
       case 'profile':
-        return <DriverProfilePage />;
+        return <DriverProfilePage onBack={() => setActiveTab('home')} />;
       default:
         return <DriverHomePage onTabChange={setActiveTab} />;
     }
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth as any);
+              setShowSettings(false);
+              setShowLogoutConfirm(false);
+              router.replace('/auth' as any);
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -66,8 +94,11 @@ export default function DriverHome() {
             <Text style={[styles.greeting, { color: colors.textPrimary }]}>Ready to Work!</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]} onPress={() => setShowSettings(true)}>
-              <IconSymbol name="gear" size={20} color={colors.primary} />
+            <TouchableOpacity 
+              style={[styles.iconBtn, { backgroundColor: activeTab === 'profile' ? colors.primary : colors.secondary }]} 
+              onPress={() => setActiveTab('profile')}
+            >
+              <IconSymbol name="person.fill" size={20} color={activeTab === 'profile' ? colors.secondary : colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]}>
               <IconSymbol name="bell" size={20} color={colors.primary} />
@@ -104,14 +135,6 @@ export default function DriverHome() {
           <IconSymbol name="clock.fill" size={20} color={activeTab === 'history' ? colors.primary : colors.textTertiary} />
           <Text style={[styles.tabText, { color: activeTab === 'history' ? colors.primary : colors.textTertiary }]}>History</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.tabItem, activeTab === 'profile' && { backgroundColor: colors.secondary }]} 
-          onPress={() => setActiveTab('profile')}
-        >
-          <IconSymbol name="person.fill" size={20} color={activeTab === 'profile' ? colors.primary : colors.textTertiary} />
-          <Text style={[styles.tabText, { color: activeTab === 'profile' ? colors.primary : colors.textTertiary }]}>Profile</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Settings Modal */}
@@ -124,15 +147,15 @@ export default function DriverHome() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Settings</Text>
+            
+            <Text style={[styles.settingsDescription, { color: colors.textSecondary }]}>
+              Manage your notifications and account settings
+            </Text>
+            
+            {/* Actions */}
             <TouchableOpacity
-              style={[styles.btn, styles.btnWarn, { alignSelf: 'stretch', marginTop: 8 }]}
-              onPress={async () => {
-                try {
-                  await signOut(auth as any);
-                } catch {}
-                setShowSettings(false);
-                router.replace('/auth' as any);
-              }}
+              style={[styles.btn, styles.btnWarn, { alignSelf: 'stretch', marginTop: 24 }]}
+              onPress={handleLogout}
               activeOpacity={0.85}
             >
               <Text style={styles.btnText}>Logout</Text>
@@ -163,7 +186,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 16,
+      paddingTop: 48,
     paddingBottom: 8,
   },
   headerLeft: {
@@ -216,6 +239,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 8,
     textAlign: 'center',
+  },
+  settingsDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  btn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnWarn: {
+    backgroundColor: '#dc3545',
+  },
+  btnText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
   // Tab Bar Styles
   tabBar: {

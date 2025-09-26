@@ -14,9 +14,9 @@ import {
   Dimensions,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -37,7 +37,11 @@ interface UserData {
 
 const { height: screenHeight } = Dimensions.get('window');
 
-export default function DriverProfilePage() {
+interface DriverProfilePageProps {
+  onBack?: () => void;
+}
+
+export default function DriverProfilePage({ onBack }: DriverProfilePageProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const colors = Colors[theme ?? 'light'];
@@ -46,6 +50,8 @@ export default function DriverProfilePage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   
   // Draggable modal state
   const translateY = useRef(new Animated.Value(screenHeight)).current;
@@ -325,13 +331,30 @@ export default function DriverProfilePage() {
     return photoURL;
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.replace('/auth' as any);
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              router.replace('/auth' as any);
+            } catch (error) {
+              console.error('Error signing out:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -360,7 +383,7 @@ export default function DriverProfilePage() {
       <View style={[styles.backHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={onBack || (() => router.back())}
         >
           <IconSymbol name="chevron.left" size={24} color={colors.primary} />
         </TouchableOpacity>
@@ -468,33 +491,6 @@ export default function DriverProfilePage() {
             </View>
           </TouchableOpacity>
 
-          <View style={[styles.menuItem, { backgroundColor: colors.surface }]}>
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
-                <IconSymbol 
-                  name={theme === 'dark' ? "moon.fill" : "sun.max.fill"} 
-                  size={20} 
-                  color={colors.primary} 
-                />
-              </View>
-              <View style={styles.menuTextContainer}>
-                <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>
-                  {theme === 'dark' ? 'Dark Mode' : 'Light Mode'}
-                </Text>
-                <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>
-                  Toggle {theme === 'dark' ? 'light' : 'dark'} mode
-                </Text>
-              </View>
-            </View>
-            <View style={styles.menuItemRight}>
-              <Switch
-                value={theme === 'dark'}
-                onValueChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor={theme === 'dark' ? colors.surface : colors.primary}
-              />
-            </View>
-          </View>
 
           <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
             <View style={styles.menuItemLeft}>
@@ -527,11 +523,10 @@ export default function DriverProfilePage() {
           </TouchableOpacity>
         </View>
 
-        {/* More Section */}
-        <View style={styles.moreSection}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>More</Text>
-          
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+        {/* Help & Support Section */}
+        <Text style={[styles.sectionTitle, styles.moreSectionTitle, { color: colors.textPrimary }]}>More</Text>
+        <View style={[styles.menuSection, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]} onPress={() => setShowHelpModal(true)}>
             <View style={styles.menuItemLeft}>
               <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
                 <IconSymbol name="questionmark.circle.fill" size={20} color={colors.primary} />
@@ -546,7 +541,7 @@ export default function DriverProfilePage() {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]} onPress={() => setShowAboutModal(true)}>
             <View style={styles.menuItemLeft}>
               <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
                 <IconSymbol name="info.circle.fill" size={20} color={colors.primary} />
@@ -742,6 +737,151 @@ export default function DriverProfilePage() {
         </View>
       </Modal>
 
+      {/* Help & Support Modal */}
+      <Modal
+        transparent={true}
+        visible={showHelpModal}
+        animationType="slide"
+        onRequestClose={() => setShowHelpModal(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View style={[styles.infoModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Help & Support</Text>
+              <TouchableOpacity onPress={() => setShowHelpModal(false)} style={styles.closeButton}>
+                <IconSymbol name="xmark" size={24} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.infoModalContent}>
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>📞 Contact Support</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  Need immediate assistance? Contact our support team:
+                </Text>
+                <Text style={[styles.contactInfo, { color: colors.primary }]}>
+                  📧 Email: support@trashtruck.com{'\n'}
+                  📱 Phone: +1 (555) 123-4567{'\n'}
+                  🕒 Hours: 24/7 Support Available
+                </Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>❓ Frequently Asked Questions</Text>
+                
+                <View style={styles.faqItem}>
+                  <Text style={[styles.faqQuestion, { color: colors.textPrimary }]}>How do I complete a pickup?</Text>
+                  <Text style={[styles.faqAnswer, { color: colors.textSecondary }]}>
+                    1. Navigate to your assigned route{'\n'}
+                    2. Take a photo of the completed pickup{'\n'}
+                    3. Mark the pickup as completed in the app
+                  </Text>
+                </View>
+
+                <View style={styles.faqItem}>
+                  <Text style={[styles.faqQuestion, { color: colors.textPrimary }]}>What if I encounter an issue during pickup?</Text>
+                  <Text style={[styles.faqAnswer, { color: colors.textSecondary }]}>
+                    Contact dispatch immediately through the app or call the support number. Report any safety concerns or access issues.
+                  </Text>
+                </View>
+
+                <View style={styles.faqItem}>
+                  <Text style={[styles.faqQuestion, { color: colors.textPrimary }]}>How do I update my schedule?</Text>
+                  <Text style={[styles.faqAnswer, { color: colors.textSecondary }]}>
+                    Your schedule is managed by dispatch. For schedule changes, contact your supervisor or use the support contact above.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>🚛 Driver Guidelines</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  • Always prioritize safety{'\n'}
+                  • Follow designated routes{'\n'}
+                  • Complete pickups during assigned time windows{'\n'}
+                  • Report any vehicle issues immediately{'\n'}
+                  • Maintain professional conduct with residents
+                </Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* About App Modal */}
+      <Modal
+        transparent={true}
+        visible={showAboutModal}
+        animationType="slide"
+        onRequestClose={() => setShowAboutModal(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View style={[styles.infoModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>About TrashTruck</Text>
+              <TouchableOpacity onPress={() => setShowAboutModal(false)} style={styles.closeButton}>
+                <IconSymbol name="xmark" size={24} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.infoModalContent}>
+              <View style={styles.aboutHeader}>
+                <View style={[styles.appIconContainer, { backgroundColor: colors.secondary }]}>
+                  <IconSymbol name="truck.box.fill" size={40} color={colors.primary} />
+                </View>
+                <Text style={[styles.appName, { color: colors.textPrimary }]}>TrashTruck Driver</Text>
+                <Text style={[styles.appVersion, { color: colors.textSecondary }]}>Version 1.0.0</Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>🎯 Mission</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  TrashTruck is dedicated to revolutionizing waste management through smart technology, 
+                  connecting drivers, dispatchers, and communities for efficient and reliable service.
+                </Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>✨ Features</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  • Real-time route management{'\n'}
+                  • Digital pickup confirmation{'\n'}
+                  • Schedule tracking{'\n'}
+                  • Performance analytics{'\n'}
+                  • Direct communication with dispatch{'\n'}
+                  • Safety and compliance tools
+                </Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>👥 Development Team</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  Built with ❤️ by the TrashTruck development team{'\n'}
+                  Committed to sustainable waste management solutions
+                </Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>📄 Legal</Text>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  © 2024 TrashTruck Inc. All rights reserved.{'\n'}
+                  Terms of Service • Privacy Policy
+                </Text>
+              </View>
+
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: colors.textPrimary }]}>🔧 Technical Info</Text>
+                <Text style={[styles.technicalInfo, { color: colors.textTertiary }]}>
+                  React Native • Expo • Firebase{'\n'}
+                  Build: 1.0.0 (100){'\n'}
+                  Platform: {Platform.OS === 'ios' ? 'iOS' : Platform.OS === 'android' ? 'Android' : 'Web'}
+                </Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -916,15 +1056,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 20,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#2F3A31',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
   // Modal Styles
   modalOverlay: {
     flex: 1,
@@ -959,16 +1090,6 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: '#E8F5E8',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   modalTitle: {
     fontSize: 18,
@@ -1102,5 +1223,149 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     fontFamily: 'monospace',
+  },
+  // Info Modal Styles
+  centeredModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  infoModalCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  infoModalContent: {
+    maxHeight: 400,
+    minHeight: 200,
+  },
+  infoSection: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  infoSectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    letterSpacing: 0.5,
+  },
+  infoText: {
+    fontSize: 15,
+    lineHeight: 24,
+    marginBottom: 12,
+    opacity: 0.8,
+  },
+  contactInfo: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  faqItem: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 12,
+  },
+  faqQuestion: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  faqAnswer: {
+    fontSize: 14,
+    lineHeight: 22,
+    opacity: 0.8,
+  },
+  aboutHeader: {
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(76, 175, 80, 0.05)',
+  },
+  appIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  appName: {
+    fontSize: 28,
+    fontWeight: '800',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  appVersion: {
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.7,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  technicalInfo: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  moreSectionTitle: {
+    marginTop: 8,
+    paddingHorizontal: 28,
+    top: 20,
   },
 });

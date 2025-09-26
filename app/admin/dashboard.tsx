@@ -449,12 +449,33 @@ export default function AdminDashboard() {
       if (value?.toDate) {
         d = value.toDate();
       } else if (typeof value === 'string') {
-        // Handle different string formats
+        // Handle different string formats more safely
         if (value.match(/^[A-Za-z]+\s+\d{1,2},\s*\d{4}$/)) {
-          // Handle "September 20, 2025" format
-          d = new Date(value);
-          if (isNaN(d.getTime())) {
-            console.error('Invalid date format:', value);
+          // Handle "September 20, 2025" format - try multiple approaches
+          try {
+            // First try standard parsing
+            d = new Date(value);
+            if (isNaN(d.getTime())) {
+              // If that fails, try manual parsing
+              const match = value.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+              if (match) {
+                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December'];
+                const monthIndex = monthNames.indexOf(match[1]);
+                if (monthIndex !== -1) {
+                  d = new Date(parseInt(match[3]), monthIndex, parseInt(match[2]));
+                } else {
+                  console.warn('Unknown month name in date:', value);
+                  return '';
+                }
+              }
+            }
+            if (isNaN(d.getTime())) {
+              console.warn('Could not parse date format:', value);
+              return '';
+            }
+          } catch (error) {
+            console.warn('Error parsing date string:', value, error);
             return '';
           }
         } else {

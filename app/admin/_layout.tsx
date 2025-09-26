@@ -4,6 +4,13 @@ export default function AdminLayout() {
   return (
     <Stack>
       <Stack.Screen
+        name="splash"
+        options={{
+          title: 'Admin Portal',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="login"
         options={{
           title: 'Admin Login',

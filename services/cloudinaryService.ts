@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 import { UPLOAD_FOLDERS, UPLOAD_PRESET, UPLOAD_PRESETS } from '../config/cloudinary';
 
 export interface UploadResult {
@@ -51,17 +52,59 @@ class CloudinaryService {
       }
       
       console.log('Uploading image with URI:', uriString.substring(0, 100) + '...');
+      console.log('Platform:', Platform.OS);
+      console.log('URI type:', {
+        isDataUri: uriString.startsWith('data:'),
+        isBlobUri: uriString.startsWith('blob:'),
+        isFileUri: uriString.startsWith('file:'),
+        isHttpUri: uriString.startsWith('http')
+      });
 
       // Prepare form data
       const formData = new FormData();
       
       // Handle different image URI types
       if (uriString.startsWith('data:')) {
-        // Base64 data URI - convert to blob for web
+        // Base64 data URI - handle differently for web vs native
         try {
-          const response = await fetch(uriString);
-          const blob = await response.blob();
-          formData.append('file', blob, `image_${Date.now()}.jpg`);
+          if (Platform.OS === 'web') {
+            // Web: Create blob from base64
+            const [mimeType, base64Data] = uriString.split(',');
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType.split(':')[1].split(';')[0] });
+            console.log('Created blob from base64:', blob.size, 'bytes, type:', blob.type);
+            formData.append('file', blob, `image_${Date.now()}.jpg`);
+          } else {
+            // React Native: Convert base64 to temporary file
+            console.log('Converting base64 to file for React Native upload');
+            try {
+              const [mimeType, base64Data] = uriString.split(',');
+              const fileType = mimeType.split(':')[1].split(';')[0];
+              
+              // For React Native, we'll use the react-native-fs or similar approach
+              // But for now, let's try using the base64 data directly with proper structure
+              const fileName = `image_${Date.now()}.jpg`;
+              
+              // Create a file-like object that React Native FormData can handle
+              const fileObject = {
+                uri: uriString, // Data URI
+                type: fileType || 'image/jpeg',
+                name: fileName,
+              };
+              
+              console.log('File object created:', { type: fileObject.type, name: fileObject.name });
+              formData.append('file', fileObject as any);
+            } catch (rnError) {
+              console.error('React Native file creation error:', rnError);
+              // Fallback: try direct append
+              formData.append('file', uriString);
+            }
+          }
         } catch (error) {
           console.error('Error converting data URI to blob:', error);
           return { success: false, error: 'Failed to process image data' };
@@ -78,11 +121,24 @@ class CloudinaryService {
         }
       } else {
         // Regular file URI (for native platforms)
-        formData.append('file', {
-          uri: uriString,
-          type: 'image/jpeg',
-          name: `image_${Date.now()}.jpg`,
-        } as any);
+        if (Platform.OS === 'web') {
+          // For web, we need to fetch the file and convert to blob
+          try {
+            const response = await fetch(uriString);
+            const blob = await response.blob();
+            formData.append('file', blob, `image_${Date.now()}.jpg`);
+          } catch (error) {
+            console.error('Error fetching file for web upload:', error);
+            return { success: false, error: 'Failed to process image file for web' };
+          }
+        } else {
+          // For native platforms, use the file URI directly
+          formData.append('file', {
+            uri: uriString,
+            type: 'image/jpeg',
+            name: `image_${Date.now()}.jpg`,
+          } as any);
+        }
       }
 
       // Add upload preset (use specific preset or default)

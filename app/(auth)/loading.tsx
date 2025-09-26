@@ -1,7 +1,10 @@
 import { auth, db } from '@/config/firebase';
+import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
+import { storage } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -44,6 +47,50 @@ export default function LoadingPage() {
     setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
+  // Helper function to update user profile in Firestore
+  const upsertUserProfile = async (provider: string) => {
+    try {
+      const user = auth?.currentUser;
+      if (!user || !db) return;
+
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) {
+        // New user - create profile
+        await setDoc(userRef, {
+          uid: user.uid,
+          email: user.email,
+          name: user.displayName || user.email?.split('@')[0] || 'User',
+          role: 'user', // Default role
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          provider: provider,
+        });
+        console.log('Created new user profile');
+      } else {
+        // Existing user - update login timestamp
+        await setDoc(userRef, {
+          updatedAt: serverTimestamp(),
+          lastLogin: serverTimestamp(),
+        }, { merge: true });
+        console.log('Updated existing user profile');
+      }
+    } catch (error) {
+      console.error('Error upserting user profile:', error);
+    }
+  };
+
+  // Clear credentials helper
+  const clearCredentials = async () => {
+    try {
+      await storage.deleteItem('loginCredentials');
+      console.log('Credentials cleared');
+    } catch (error) {
+      console.error('Failed to clear credentials:', error);
+    }
+  };
+
   useEffect(() => {
     // Start animations
     Animated.parallel([
@@ -60,87 +107,230 @@ export default function LoadingPage() {
       }),
     ]).start();
 
-    // Simulate loading progress
-    const loadingSteps = [
-      { text: 'Verifying credentials...', duration: 1000 },
-      { text: 'Loading your profile...', duration: 1200 },
-      { text: 'Preparing dashboard...', duration: 1000 },
-      { text: 'Almost ready...', duration: 800 },
-    ];
-
-    let currentStep = 0;
-    let currentProgress = 0;
-
-    const progressInterval = setInterval(() => {
-      currentProgress += 2;
-      setProgress(Math.min(currentProgress, 100));
-
-      if (currentStep < loadingSteps.length && currentProgress >= (currentStep + 1) * 25) {
-        setLoadingText(loadingSteps[currentStep].text);
-        currentStep++;
-      }
-    }, 50);
-
-
-    // Decide destination based on role
-    const decideAndNavigate = async () => {
+    // Start authentication process
+    const handleAuthentication = async () => {
       try {
-        const currentUser = auth?.currentUser;
-        if (currentUser && db) {
-          const snap = await getDoc(doc(db, 'users', currentUser.uid));
-          const role = snap.exists() ? (snap.data() as any)?.role : undefined;
+        // Check if we have stored credentials to process
+        const tempCredentials = await storage.getItem('temp_login_credentials');
+        const tempAuthType = await storage.getItem('temp_auth_type');
+
+        if (tempCredentials) {
+          // Handle email/password authentication
+          const credentials = JSON.parse(tempCredentials);
+          await handleEmailPasswordAuth(credentials);
+        } else if (tempAuthType) {
+          // Handle social authentication
+          await handleSocialAuth(tempAuthType);
+        } else {
+          // No authentication data found - this shouldn't happen
+          showError('No authentication data found. Please try logging in again.', 'Authentication Error', 'error');
+          setTimeout(() => {
+            router.replace('/(auth)/login' as any);
+          }, 2000);
+        }
+      } catch (error: any) {
+        console.error('Error during authentication:', error);
+        showError('Authentication failed. Please try again.', 'Authentication Error', 'error');
+        setTimeout(() => {
+          router.replace('/(auth)/login' as any);
+        }, 2000);
+      }
+    };
+
+    // Start authentication after brief delay for UI
+    const authTimeout = setTimeout(handleAuthentication, 1000);
+
+    return () => {
+      clearTimeout(authTimeout);
+    };
+  }, [router, fadeAnim, scaleAnim]);
+
+  // Handle email/password authentication
+  const handleEmailPasswordAuth = async (credentials: any) => {
+    try {
+      setLoadingText('Verifying credentials...');
+      setProgress(25);
+
+      // Clean up temp credentials
+      await storage.deleteItem('temp_login_credentials');
+
+      if (!auth) {
+        throw new Error('Firebase auth not available');
+      }
+
+      const userCredential = await signInWithEmailAndPassword(auth, credentials.email, credentials.password);
+      const user = userCredential.user;
+      console.log('User logged in successfully:', user.email);
+
+      setLoadingText('Checking user role...');
+      setProgress(50);
+
+      // Check user role and prevent admin login on user/driver UI
+      if (db) {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          const userRole = (data as any)?.role;
           
-          // Additional role validation - this should not happen if login validation works correctly
-          // but serves as a safety net
-          if (role === 'admin') {
-            console.log('Admin user detected, redirecting to admin dashboard');
-            router.replace('/admin/dashboard' as any);
+          // If user is admin, show error and redirect to admin login
+          if (userRole === 'admin') {
+            try { 
+              await signOut(auth);
+              await clearCredentials();
+            } catch {}
+            showError('Admin accounts must use the admin login portal. Please go to the admin login page.', 'Wrong Login Portal', 'warning');
+            setTimeout(() => {
+              router.replace('/(auth)/login' as any);
+            }, 3000);
             return;
           }
-          if (role === 'driver') {
-            console.log('Driver user detected, redirecting to driver interface');
-            router.replace('/(driver)' as any);
-            return;
+        }
+      }
+
+      setLoadingText('Verifying email...');
+      setProgress(75);
+
+      // Check email verification for password providers (allow drivers to bypass)
+      const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
+      if (isPasswordProvider && !user.emailVerified) {
+        let allowBypass = false;
+        if (db) {
+          try {
+            const snap = await getDoc(doc(db, 'users', user.uid));
+            if (snap.exists()) {
+              const data = snap.data();
+              if ((data as any)?.role === 'driver') {
+                allowBypass = true;
+              }
+            }
+          } catch {}
+        }
+        if (!allowBypass) {
+          try {
+            await sendEmailVerification(user);
+            showError('A verification link has been sent to your email. Please verify before logging in.', 'Email Verification Required', 'info');
+          } catch (e: any) {
+            showError('Could not send verification email. Please check spam and try again.', 'Email Verification Error', 'warning');
           }
-          if (role === 'user') {
-            console.log('Regular user detected, redirecting to home');
-            router.replace('/home' as any);
-            return;
-          }
-          
-          // If role is undefined or unknown, show error
-          console.log('Unknown or undefined user role:', role);
-          showError('User role could not be determined. Please contact support.', 'Authentication Error', 'error');
-          // Redirect to login after showing error
+          try { 
+            await signOut(auth);
+            await clearCredentials();
+          } catch {}
           setTimeout(() => {
             router.replace('/(auth)/login' as any);
           }, 3000);
           return;
         }
-      } catch (error: any) {
-        console.error('Error during navigation decision:', error);
-        showError('Failed to load user profile. Please try logging in again.', 'Authentication Error', 'error');
-        // Redirect to login after showing error
-        setTimeout(() => {
-          router.replace('/(auth)/login' as any);
-        }, 3000);
-        return;
+      }
+
+      setLoadingText('Setting up profile...');
+      setProgress(90);
+
+      // Update user profile
+      await upsertUserProfile(isPasswordProvider ? 'password' : 'oauth');
+
+      setLoadingText('Almost ready...');
+      setProgress(100);
+
+      // Navigate based on role
+      await navigateBasedOnRole();
+
+    } catch (error: any) {
+      console.error('Email/password authentication error:', error);
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else if (error.code === 'auth/user-disabled') {
+        errorMessage = 'This account has been disabled.';
       }
       
-      // Fallback for when no user or no database
-      console.log('No user or database available, redirecting to home');
-      router.replace('/home' as any);
-    };
+      showError(errorMessage, 'Authentication Failed', 'error');
+      setTimeout(() => {
+        router.replace('/(auth)/login' as any);
+      }, 3000);
+    }
+  };
 
-    const navigationTimeout = setTimeout(() => {
-      decideAndNavigate();
-    }, 4000);
+  // Handle social authentication
+  const handleSocialAuth = async (authType: string) => {
+    try {
+      setLoadingText(`Signing in with ${authType}...`);
+      setProgress(25);
 
-    return () => {
-      clearInterval(progressInterval);
-      clearTimeout(navigationTimeout);
-    };
-  }, [router, fadeAnim, scaleAnim]);
+      // Clean up temp auth type
+      await storage.deleteItem('temp_auth_type');
+
+      let result;
+      if (authType === 'google') {
+        result = await signInWithGoogle();
+      } else if (authType === 'facebook') {
+        result = await signInWithFacebook();
+      } else {
+        throw new Error('Unsupported authentication type');
+      }
+
+      if (!result.success) {
+        throw new Error(result.error || `${authType} sign-in failed`);
+      }
+
+      setLoadingText('Setting up profile...');
+      setProgress(75);
+
+      await upsertUserProfile(authType);
+
+      setLoadingText('Almost ready...');
+      setProgress(100);
+
+      // Navigate based on role
+      await navigateBasedOnRole();
+
+    } catch (error: any) {
+      console.error(`${authType} authentication error:`, error);
+      showError(error.message || `${authType} sign-in failed`, 'Authentication Failed', 'error');
+      setTimeout(() => {
+        router.replace('/(auth)/login' as any);
+      }, 3000);
+    }
+  };
+
+  // Navigate based on user role
+  const navigateBasedOnRole = async () => {
+    try {
+      const currentUser = auth?.currentUser;
+      if (currentUser && db) {
+        const snap = await getDoc(doc(db, 'users', currentUser.uid));
+        const role = snap.exists() ? (snap.data() as any)?.role : 'user';
+        
+        setTimeout(() => {
+          if (role === 'admin') {
+            console.log('Admin user detected, redirecting to admin dashboard');
+            router.replace('/admin/dashboard' as any);
+          } else if (role === 'driver') {
+            console.log('Driver user detected, redirecting to driver interface');
+            router.replace('/(driver)' as any);
+          } else {
+            console.log('Regular user detected, redirecting to home');
+            router.replace('/(tabs)/home' as any);
+          }
+        }, 1000);
+      }
+    } catch (error: any) {
+      console.error('Error during navigation decision:', error);
+      showError('Failed to load user profile. Please try logging in again.', 'Navigation Error', 'error');
+      setTimeout(() => {
+        router.replace('/(auth)/login' as any);
+      }, 3000);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>

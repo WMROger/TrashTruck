@@ -40,7 +40,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
               <Ionicons
                 name={isActive ? item.activeIcon : item.icon}
                 size={24}
-                color={isActive ? '#2E8B57' : '#E5E7EB'}
+                color={isActive ? '#FFFFFF' : '#E5E7EB'}
               />
               <Text style={[
                 styles.navText,
@@ -92,22 +92,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
-    marginHorizontal: 8,
-    marginVertical: 2,
-    borderRadius: 8,
   },
   activeNavItem: {
-    backgroundColor: '#F0F9F0',
-    borderLeftWidth: 4,
-    borderLeftColor: '#2E8B57',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    backgroundColor: '#1B5E20',
   },
   navText: {
     fontSize: 16,
@@ -116,7 +103,7 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   activeNavText: {
-    color: '#2E8B57',
+    color: '#FFFFFF',
     fontWeight: 'bold',
   },
 });

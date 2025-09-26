@@ -240,9 +240,6 @@ export default function ReportScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backBtn} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={20} color="#234033" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Report a Trash Pile</Text>
       </View>
 
@@ -436,7 +433,7 @@ export default function ReportScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ECF8ED' },
-  content: { padding: 26, paddingBottom: 24, paddingTop: 64 },
+  content: { padding: 26, paddingBottom: 120, paddingTop: 64 },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   backBtn: {
     width: 32,

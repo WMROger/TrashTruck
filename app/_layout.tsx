@@ -56,9 +56,9 @@ function RootLayoutNav() {
     if (!isAuthenticated) {
       // Not authenticated - redirect to appropriate login
       if (isDesktopWeb) {
-        // Desktop: redirect to admin login
+        // Desktop: redirect to admin splash screen
         if (currentSegment !== 'admin') {
-          router.replace('/admin/login' as any);
+          router.replace('/admin/splash' as any);
         }
       } else {
         // Mobile: redirect to user auth

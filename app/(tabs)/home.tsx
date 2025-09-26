@@ -1,11 +1,9 @@
-import AIChatModal from '@/components/AIChatModal';
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationService } from '@/services/notificationService';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
@@ -21,7 +19,6 @@ export default function HomePage() {
     displayName?: string;
     photoURL?: string;
   } | null>(null);
-  const [showAIChat, setShowAIChat] = useState(false);
   const [announcements, setAnnouncements] = useState<{
     id: string;
     title: string;
@@ -219,7 +216,7 @@ export default function HomePage() {
             )}
           </View>
           <Text style={[styles.greeting, { color: colors.textPrimary }]}>
-            Hello, {userProfile?.displayName || 'User'}!
+            Hello, {userProfile?.displayName?.split(' ')[0] || 'User'}!
           </Text>
         </View>
         
@@ -336,30 +333,6 @@ export default function HomePage() {
         </View>
       </View>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity 
-        style={styles.fab}
-        onPress={() => setShowAIChat(true)}
-      >
-        <LinearGradient
-          colors={['#73946B', '#242E21']}
-          style={styles.fabGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <Image 
-            source={require('../../assets/images/AIChatBot.png')} 
-            style={styles.aiChatIcon}
-            resizeMode="contain"
-          />
-        </LinearGradient>
-      </TouchableOpacity>
-
-      {/* AI Chat Modal */}
-      <AIChatModal 
-        visible={showAIChat} 
-        onClose={() => setShowAIChat(false)} 
-      />
     </ScrollView>
   );
 }
@@ -374,7 +347,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: 30,
+    paddingTop: 60,
   },
   profileSection: {
     flexDirection: 'row',
@@ -543,29 +516,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textDecorationLine: 'underline',
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 0, // Lower position, closer to the tab bar
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  aiChatIcon: {
-    width: 32,
-    height: 32,
   },
 });

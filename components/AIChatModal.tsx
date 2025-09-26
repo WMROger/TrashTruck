@@ -17,6 +17,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 
@@ -152,6 +153,24 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
     };
   }, []);
 
+  // Add escape key handling for web
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (event: any) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [visible, onClose]);
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -205,65 +224,137 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
+      transparent={Platform.OS === 'web'}
     >
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>
-            TrashTrack AI Assistant
-          </Text>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
+      {Platform.OS === 'web' ? (
+        // Web version with click-outside-to-close
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={styles.webOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.webContainer, { backgroundColor: colors.background }]}>
+                <View style={[styles.container, { backgroundColor: colors.background }]}>
+                  <View style={[styles.header, { borderBottomColor: colors.border }]}>
+                    <Text style={[styles.title, { color: colors.textPrimary }]}>
+                      TrashTrack AI Assistant
+                    </Text>
+                    <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                      <Ionicons name="close" size={24} color={colors.textPrimary} />
+                    </TouchableOpacity>
+                  </View>
 
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          style={styles.messagesList}
-          contentContainerStyle={styles.messagesContainer}
-          showsVerticalScrollIndicator={false}
-        />
+                  <FlatList
+                    ref={flatListRef}
+                    data={messages}
+                    renderItem={renderMessage}
+                    keyExtractor={(item) => item.id}
+                    style={styles.messagesList}
+                    contentContainerStyle={styles.messagesContainer}
+                    showsVerticalScrollIndicator={false}
+                  />
 
-        {isLoading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-              AI is thinking...
-            </Text>
+                  {isLoading && (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                        AI is thinking...
+                      </Text>
+                    </View>
+                  )}
+
+                  <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={[styles.inputContainer, { borderTopColor: colors.border }]}
+                  >
+                    <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
+                      <TextInput
+                        style={[styles.input, { color: colors.textPrimary }]}
+                        value={input}
+                        onChangeText={setInput}
+                        placeholder="Ask me about waste management..."
+                        placeholderTextColor={colors.textTertiary}
+                        multiline
+                        maxLength={500}
+                        onSubmitEditing={sendMessage}
+                      />
+                      <TouchableOpacity
+                        style={[styles.sendButton, { backgroundColor: colors.primary }]}
+                        onPress={sendMessage}
+                        disabled={!input.trim() || isLoading}
+                      >
+                        <IconSymbol 
+                          name="paperplane.fill" 
+                          size={20} 
+                          color={colors.surface} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </KeyboardAvoidingView>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        )}
-
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={[styles.inputContainer, { borderTopColor: colors.border }]}
-        >
-          <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
-            <TextInput
-              style={[styles.input, { color: colors.textPrimary }]}
-              value={input}
-              onChangeText={setInput}
-              placeholder="Ask me about waste management..."
-              placeholderTextColor={colors.textTertiary}
-              multiline
-              maxLength={500}
-              onSubmitEditing={sendMessage}
-            />
-            <TouchableOpacity
-              style={[styles.sendButton, { backgroundColor: colors.primary }]}
-              onPress={sendMessage}
-              disabled={!input.trim() || isLoading}
-            >
-              <IconSymbol 
-                name="paperplane.fill" 
-                size={20} 
-                color={colors.surface} 
-              />
+        </TouchableWithoutFeedback>
+      ) : (
+        // Native version
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>
+              TrashTrack AI Assistant
+            </Text>
+            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+              <Ionicons name="close" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            style={styles.messagesList}
+            contentContainerStyle={styles.messagesContainer}
+            showsVerticalScrollIndicator={false}
+          />
+
+          {isLoading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                AI is thinking...
+              </Text>
+            </View>
+          )}
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={[styles.inputContainer, { borderTopColor: colors.border }]}
+          >
+            <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
+              <TextInput
+                style={[styles.input, { color: colors.textPrimary }]}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ask me about waste management..."
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                maxLength={500}
+                onSubmitEditing={sendMessage}
+              />
+              <TouchableOpacity
+                style={[styles.sendButton, { backgroundColor: colors.primary }]}
+                onPress={sendMessage}
+                disabled={!input.trim() || isLoading}
+              >
+                <IconSymbol 
+                  name="paperplane.fill" 
+                  size={20} 
+                  color={colors.surface} 
+                />
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      )}
     </Modal>
   );
 }
@@ -331,5 +422,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  // Web-specific styles
+  webOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  webContainer: {
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
 });
