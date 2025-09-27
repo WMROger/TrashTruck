@@ -1,3 +1,4 @@
+import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
@@ -10,6 +11,7 @@ import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 export default function ScheduleScreen() {
   const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
+  const { user } = useAuthContext();
 
   type RawSchedule = ScheduleData;
 
@@ -143,15 +145,23 @@ export default function ScheduleScreen() {
       });
       setRawSchedules(rows);
       
-      // Schedule notifications for all schedules
+      // Upsert notifications only for this user's schedules
       try {
-        await ScheduleNotificationService.schedulePickupNotifications(rows);
+        if (user?.uid) {
+          const myRows = rows.filter((r: any) => r.userId === user.uid);
+          for (const r of myRows) {
+            await ScheduleNotificationService.upsertScheduleNotifications({
+              ...r,
+              userId: user.uid,
+            } as any);
+          }
+        }
       } catch (error) {
-        console.error('Error scheduling pickup notifications:', error);
+        console.error('Error upserting pickup notifications:', error);
       }
     });
     return () => unsub();
-  }, []);
+  }, [user?.uid]);
 
   // Expand recurring schedules for current month
   useEffect(() => {
@@ -240,11 +250,29 @@ export default function ScheduleScreen() {
             const key = `${cell.getFullYear()}-${(cell.getMonth()+1).toString().padStart(2,'0')}-${cell.getDate().toString().padStart(2,'0')}`;
             const items = monthScheduleDates[key] || [];
             const hasItems = items.length > 0;
+            const allCompleted = hasItems && items.every((it: any) => (it.status || '').toLowerCase() === 'completed');
             const color = hasItems ? (CATEGORY_COLORS[items[0].wasteCategory] || colors.primary) : undefined;
             const isSelected = selectedDate && isSameDate(cell, selectedDate);
             return (
-              <TouchableOpacity key={cell.toISOString()} style={[styles.calendarCell, hasItems ? { backgroundColor: color, borderRadius: 8 } : null, isSelected ? { borderWidth: 1, borderColor: colors.primary } : null]} onPress={() => setSelectedDate(cell)}>
-                <Text style={[styles.calendarDay, hasItems ? { color: 'white', fontWeight: '700' } : null]}>{cell.getDate()}</Text>
+              <TouchableOpacity
+                key={cell.toISOString()}
+                style={[
+                  styles.calendarCell,
+                  hasItems && !allCompleted ? { backgroundColor: color, borderRadius: 8 } : null,
+                  allCompleted ? { backgroundColor: '#F1F5F9', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' } : null,
+                  isSelected ? { borderWidth: 1, borderColor: colors.primary } : null
+                ]}
+                onPress={() => setSelectedDate(cell)}
+              >
+                <Text
+                  style={[
+                    styles.calendarDay,
+                    hasItems && !allCompleted ? { color: 'white', fontWeight: '700' } : null,
+                    allCompleted ? { color: '#94A3B8', fontWeight: '700' } : null,
+                  ]}
+                >
+                  {cell.getDate()}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -289,7 +317,7 @@ export default function ScheduleScreen() {
           (monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).length > 0 ? (
             <>
               {(monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).map((s) => (
-                <View key={s.id} style={[styles.infoItem, { backgroundColor: colors.surface }]}> 
+                <View key={s.id} style={[styles.infoItem, { backgroundColor: colors.surface }, (s as any).status && (s as any).status.toLowerCase() === 'completed' ? { opacity: 0.55 } : null]}> 
                   <IconSymbol name="calendar" size={18} color={colors.primary} />
                   <Text style={styles.infoText}>
                     {s.dateText} • {s.timeText} • {s.wasteCategory} • {s.street}

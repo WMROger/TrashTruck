@@ -25,7 +25,7 @@ interface HistoryData {
 
 export default function DriverHistoryPage({}: DriverHistoryPageProps) {
   const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
+  const colors = Colors['light'];
   const [showSortModal, setShowSortModal] = useState(false);
   const [selectedSort, setSelectedSort] = useState('Date (Newest First)');
   const [historyData, setHistoryData] = useState<HistoryData[]>([]);

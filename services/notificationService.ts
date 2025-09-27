@@ -157,4 +157,74 @@ export class NotificationService {
     }
     return await Notifications.getAllScheduledNotificationsAsync();
   }
+
+  static buildReminderIds(scheduleId: string) {
+    return {
+      tomorrowId: `sched_${scheduleId}_tomorrow`,
+      oneHourId: `sched_${scheduleId}_1hour`,
+    };
+  }
+
+  static async cancelReminderById(identifier: string) {
+    if (Platform.OS === 'web') return;
+    try {
+      await Notifications.cancelScheduledNotificationAsync(identifier);
+    } catch {}
+  }
+
+  static async getAllScheduledIdentifiers(): Promise<string[]> {
+    if (Platform.OS === 'web') return [];
+    const list = await Notifications.getAllScheduledNotificationsAsync();
+    return list.map(n => n.identifier);
+  }
+
+  static async upsertPickupReminders(schedule: { id: string; date: Date; time: string; type: string; }) {
+    if (Platform.OS === 'web') return;
+
+    const hasPermission = await this.requestPermissions();
+    if (!hasPermission) return;
+
+    const { tomorrowId, oneHourId } = this.buildReminderIds(schedule.id);
+
+    // Cancel existing ones for this schedule
+    await this.cancelReminderById(tomorrowId);
+    await this.cancelReminderById(oneHourId);
+
+    const scheduleDate = new Date(schedule.date);
+    const [hours, minutes] = schedule.time.split(':').map(Number);
+    scheduleDate.setHours(hours, minutes, 0, 0);
+
+    const now = new Date();
+    if (scheduleDate <= now) return;
+
+    // 1 hour before
+    const oneHourBefore = new Date(scheduleDate.getTime() - 60 * 60 * 1000);
+    if (oneHourBefore > now) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: oneHourId,
+        content: {
+          title: 'Pickup Reminder',
+          body: `Your ${schedule.type} pickup is in 1 hour`,
+          data: { type: 'pickup_reminder', scheduleId: schedule.id, reminderType: '1hour' },
+          sound: 'default',
+        },
+        trigger: { date: oneHourBefore },
+      });
+    }
+
+    // 24 hours before
+    const tomorrow = new Date(scheduleDate.getTime() - 24 * 60 * 60 * 1000);
+    if (tomorrow > now) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: tomorrowId,
+        content: {
+          title: 'Pickup Tomorrow',
+          body: `Your ${schedule.type} pickup is scheduled for tomorrow`,
+          data: { type: 'pickup_reminder', scheduleId: schedule.id, reminderType: 'tomorrow' },
+          sound: 'default',
+        },
+        trigger: { date: tomorrow },
+      });
+    }
+  }
 }

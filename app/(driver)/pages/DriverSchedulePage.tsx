@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
 import driverImageService from '../../../services/driverImageService';
+import { ScheduleNotificationService } from '../../../services/scheduleNotificationService';
 
 interface DriverSchedulePageProps {
   // Add any props you might need
@@ -142,6 +143,28 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
       
       setSchedules(active);
       setLoading(false);
+
+      // Upsert notifications for upcoming active schedules (dedup by identifiers)
+      (async () => {
+        try {
+          for (const a of active) {
+            await ScheduleNotificationService.upsertScheduleNotifications({
+              id: a.id,
+              userId: auth?.currentUser?.uid || '',
+              dateText: a.dateText,
+              timeText: a.timeText,
+              street: a.street,
+              frequency: a.frequency || 'One-time',
+              wasteCategory: a.wasteCategory,
+              truck: undefined,
+              driver: a.driver,
+              note: a.note,
+            });
+          }
+        } catch (e) {
+          console.warn('Notification upsert skipped:', e);
+        }
+      })();
     }, (error) => {
       console.error('Error fetching schedules:', error);
       setLoading(false);

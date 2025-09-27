@@ -2,11 +2,12 @@ import { AuthProvider, useAuthContext } from '@/components/AuthContext';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { ThemeProvider, useTheme } from '@/hooks/useTheme';
+import { getTransitionConfig } from '@/utils/transitions';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Text, TextInput, useWindowDimensions } from 'react-native';
+import { Platform, useWindowDimensions } from 'react-native';
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
@@ -104,13 +105,22 @@ function RootLayoutNav() {
 
     const targetFont = isAdminRoute ? adminFont : sfProStack;
 
-    if (!Text.defaultProps) Text.defaultProps = {};
-    if (!Text.defaultProps.style) Text.defaultProps.style = {} as any;
-    (Text.defaultProps.style as any).fontFamily = targetFont;
+    // Set global font styles using style injection (web only)
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const style = document.createElement('style');
+      style.textContent = `
+        * {
+          font-family: ${targetFont} !important;
+        }
+      `;
+      document.head.appendChild(style);
 
-    if (!TextInput.defaultProps) TextInput.defaultProps = {} as any;
-    if (!TextInput.defaultProps.style) TextInput.defaultProps.style = {} as any;
-    (TextInput.defaultProps.style as any).fontFamily = targetFont;
+      return () => {
+        if (document.head.contains(style)) {
+          document.head.removeChild(style);
+        }
+      };
+    }
   }, [segments]);
 
   const [loaded] = useFonts({
@@ -123,46 +133,107 @@ function RootLayoutNav() {
   }
 
   return (
-    <Stack initialRouteName="splash">
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="splash" options={{ headerShown: false }} />
-      <Stack.Screen name="auth" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="(driver)" options={{ headerShown: false }} />
-      <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
-      <Stack.Screen name="test-tabs" options={{ headerShown: false }} />
-      <Stack.Screen name="admin" options={{ headerShown: false }} />
-      <Stack.Screen name="+not-found" />
+    <Stack 
+      initialRouteName="splash"
+      screenOptions={getTransitionConfig('slideFromRight')}
+    >
+      <Stack.Screen 
+        name="index" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('fade'),
+        }} 
+      />
+      <Stack.Screen 
+        name="splash" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('fade'),
+        }} 
+      />
+      <Stack.Screen 
+        name="auth" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
+        name="(auth)" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('auth'),
+        }} 
+      />
+      <Stack.Screen 
+        name="(tabs)" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
+        name="(driver)" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
+        name="profile" 
+        options={{ 
+          headerShown: false, 
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
+        name="test-tabs" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
+        name="admin" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('admin'),
+        }} 
+      />
+      <Stack.Screen 
+        name="+not-found" 
+        options={{
+          ...getTransitionConfig('fade'),
+        }}
+      />
     </Stack>
   );
 }
 
 export default function RootLayout() {
-  // Set global default fonts (SF Pro system on iOS, sans-serif on Android)
-  if (!Text.defaultProps) Text.defaultProps = {};
-  if (!Text.defaultProps.style) Text.defaultProps.style = {} as any;
-  const textStyle = Text.defaultProps.style as any;
-  if (!textStyle.fontFamily) {
-    textStyle.fontFamily = Platform.select({
-      ios: 'System',
-      android: 'Roboto',
-      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
-      default: 'System',
-    }) as string;
-  }
+  // Set global default fonts using CSS for web platform
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const defaultFont = Platform.select({
+        web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+        default: 'System',
+      }) as string;
 
-  if (!TextInput.defaultProps) TextInput.defaultProps = {} as any;
-  if (!TextInput.defaultProps.style) TextInput.defaultProps.style = {} as any;
-  const inputStyle = TextInput.defaultProps.style as any;
-  if (!inputStyle.fontFamily) {
-    inputStyle.fontFamily = Platform.select({
-      ios: 'System',
-      android: 'Roboto',
-      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
-      default: 'System',
-    }) as string;
-  }
+      const style = document.createElement('style');
+      style.textContent = `
+        * {
+          font-family: ${defaultFont} !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      return () => {
+        if (document.head.contains(style)) {
+          document.head.removeChild(style);
+        }
+      };
+    }
+  }, []);
 
   return (
     <ThemeProvider>

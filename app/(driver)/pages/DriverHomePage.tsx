@@ -25,11 +25,12 @@ interface PickupData {
   createdAt: any;
   completedAt?: any;
   completionImage?: string;
+  driver?: string;
 }
 
 export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
   const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
+  const colors = Colors['light'];
   const [nextPickup, setNextPickup] = useState<PickupData | null>(null);
   const [recentHistory, setRecentHistory] = useState<PickupData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -583,12 +584,12 @@ export default function DriverHomePage({ onTabChange }: DriverHomePageProps) {
         </View>
         {nextPickup ? (
           <View style={styles.nextPickup}>
-            <Text style={[styles.label, { color: colors.textPrimary }]}>{nextPickup.street}</Text>
-            <Text style={[styles.line, { color: colors.textSecondary }]}>• Street: {nextPickup.street}</Text>
-            <Text style={[styles.line, { color: colors.textSecondary }]}>• Time: {nextPickup.timeText}</Text>
-            <Text style={[styles.line, { color: colors.textSecondary }]}>• Type: {nextPickup.wasteCategory}</Text>
+            <Text style={styles.label}>{nextPickup.street}</Text>
+            <Text style={styles.line}>• Street: {nextPickup.street}</Text>
+            <Text style={styles.line}>• Time: {nextPickup.timeText}</Text>
+            <Text style={styles.line}>• Type: {nextPickup.wasteCategory}</Text>
             {nextPickup.note && (
-              <Text style={[styles.line, { color: colors.textSecondary }]}>• Note: {nextPickup.note}</Text>
+              <Text style={styles.line}>• Note: {nextPickup.note}</Text>
             )}
             <View style={styles.actionsRow}>
               <TouchableOpacity 
@@ -795,17 +796,19 @@ const styles = StyleSheet.create({
     color: '#2E8B57',
   },
   nextPickup: {
-    backgroundColor: '#5D815D',
+    backgroundColor: '#F7FBF7',
     borderRadius: 12,
     padding: 12,
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
   },
   label: {
-    color: '#E7F6E7',
+    color: '#234033',
     fontWeight: '700',
     marginBottom: 6,
   },
   line: {
-    color: '#E7F6E7',
+    color: '#234033',
     marginBottom: 4,
   },
   actionsRow: {

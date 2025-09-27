@@ -17,6 +17,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -52,6 +53,9 @@ export default function DriverProfilePage({ onBack }: DriverProfilePageProps) {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
   
   // Draggable modal state
   const translateY = useRef(new Animated.Value(screenHeight)).current;
@@ -461,45 +465,14 @@ export default function DriverProfilePage({ onBack }: DriverProfilePageProps) {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
-                <IconSymbol name="lock.shield.fill" size={20} color={colors.primary} />
-              </View>
-              <View style={styles.menuTextContainer}>
-                <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>Privacy & Security</Text>
-                <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Manage your account security</Text>
-              </View>
-            </View>
-            <View style={styles.menuItemRight}>
-              <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]} onPress={() => setShowNotificationsModal(true)}>
             <View style={styles.menuItemLeft}>
               <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
                 <IconSymbol name="bell.badge.fill" size={20} color={colors.primary} />
               </View>
               <View style={styles.menuTextContainer}>
                 <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>Notifications</Text>
-                <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Customize your notifications</Text>
-              </View>
-            </View>
-            <View style={styles.menuItemRight}>
-              <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-            </View>
-          </TouchableOpacity>
-
-
-          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.surface }]}>
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: colors.secondary }]}>
-                <IconSymbol name="shield.fill" size={20} color={colors.primary} />
-              </View>
-              <View style={styles.menuTextContainer}>
-                <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>Two-Factor Authentication</Text>
-                <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Further secure your account for safety</Text>
+                <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Manage push alerts and pickup reminders</Text>
               </View>
             </View>
             <View style={styles.menuItemRight}>
@@ -878,6 +851,36 @@ export default function DriverProfilePage({ onBack }: DriverProfilePageProps) {
                 </Text>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notifications Modal */}
+      <Modal
+        transparent={true}
+        visible={showNotificationsModal}
+        animationType="slide"
+        onRequestClose={() => setShowNotificationsModal(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View style={[styles.infoModalCard, { backgroundColor: colors.surface, borderColor: colors.border }] }>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Notifications</Text>
+              <TouchableOpacity onPress={() => setShowNotificationsModal(false)} style={styles.closeButton}>
+                <IconSymbol name="xmark" size={24} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            <View style={{ padding: 16 }}>
+              <View style={styles.settingsRow}>
+                <Text style={[styles.settingsLabel, { color: colors.textPrimary }]}>Enable push notifications</Text>
+                <Switch value={pushEnabled} onValueChange={setPushEnabled} />
+              </View>
+              <View style={styles.settingsRow}>
+                <Text style={[styles.settingsLabel, { color: colors.textPrimary }]}>Pickup reminders</Text>
+                <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
+              </View>
+              <Text style={[styles.infoText, { color: colors.textSecondary, marginTop: 8 }]}>You can change these anytime. Reminders help you remember upcoming pickups and important updates.</Text>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1367,5 +1370,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 28,
     top: 20,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  settingsLabel: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

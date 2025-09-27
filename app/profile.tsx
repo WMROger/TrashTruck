@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
   const { theme, setTheme, toggleSystem } = useTheme();
@@ -41,8 +41,8 @@ export default function ProfilePage() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
-  const [enableAnnouncementNotifs, setEnableAnnouncementNotifs] = useState(true);
-  const [enableScheduleNotifs, setEnableScheduleNotifs] = useState(true);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
   const router = useRouter();
 
   // Resolve storage path to public URL if needed
@@ -778,7 +778,7 @@ export default function ProfilePage() {
           </View>
         </Modal>
 
-        {/* Notifications Modal */}
+        {/* Notifications Modal (Driver-style) */}
         <Modal
           visible={showNotificationsModal}
           transparent
@@ -788,54 +788,36 @@ export default function ProfilePage() {
           <View style={styles.modalOverlay}>
             <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}> 
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Notifications</Text>
-              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>Choose what you want to be notified about.</Text>
-              <View style={{ gap: 12 }}>
-                <TouchableOpacity 
-                  style={[
-                    styles.selectableItem,
-                    {
-                      backgroundColor: enableAnnouncementNotifs ? '#242E21' : colors.background,
-                      borderColor: enableAnnouncementNotifs ? '#242E21' : colors.border
-                    }
-                  ]}
-                  onPress={() => setEnableAnnouncementNotifs(!enableAnnouncementNotifs)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[
-                    styles.selectableLabel, 
-                    { color: enableAnnouncementNotifs ? '#FFFFFF' : colors.textPrimary }
-                  ]}>Announcements</Text>
-                  <IconSymbol 
-                    name={enableAnnouncementNotifs ? 'checkmark.circle.fill' : 'circle'} 
-                    size={22} 
-                    color={enableAnnouncementNotifs ? '#FFFFFF' : colors.textTertiary} 
-                  />
-                </TouchableOpacity>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
+                Control push notifications and pickup reminders.
+              </Text>
+              <View style={{ gap: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Enable Push Notifications</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                      Allow the app to send you notifications on this device.
+                    </Text>
+                  </View>
+                  <Switch value={pushEnabled} onValueChange={setPushEnabled} />
+                </View>
 
-                <TouchableOpacity 
-                  style={[
-                    styles.selectableItem,
-                    {
-                      backgroundColor: enableScheduleNotifs ? '#242E21' : colors.background,
-                      borderColor: enableScheduleNotifs ? '#242E21' : colors.border
-                    }
-                  ]}
-                  onPress={() => setEnableScheduleNotifs(!enableScheduleNotifs)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[
-                    styles.selectableLabel, 
-                    { color: enableScheduleNotifs ? '#FFFFFF' : colors.textPrimary }
-                  ]}>Pickup reminders</Text>
-                  <IconSymbol 
-                    name={enableScheduleNotifs ? 'checkmark.circle.fill' : 'circle'} 
-                    size={22} 
-                    color={enableScheduleNotifs ? '#FFFFFF' : colors.textTertiary} 
-                  />
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Pickup Reminders</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                      Receive reminders 24h and 1h before your scheduled pickup.
+                    </Text>
+                  </View>
+                  <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
+                </View>
               </View>
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} onPress={() => setShowNotificationsModal(false)}>
+
+              <View style={[styles.modalActions, { marginTop: 16 }]}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
+                  onPress={() => setShowNotificationsModal(false)}
+                >
                   <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Done</Text>
                 </TouchableOpacity>
               </View>

@@ -5,10 +5,10 @@ import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationService } from '@/services/notificationService';
 import { useRouter } from 'expo-router';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function HomePage() {
   const router = useRouter();
@@ -28,6 +28,11 @@ export default function HomePage() {
     createdAt: any;
   }[]>([]);
   const [lastAnnouncementId, setLastAnnouncementId] = useState<string | null>(null);
+
+  // Notifications inbox state
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean }>>([]);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   // Request notification permissions on mount
   useEffect(() => {
@@ -158,6 +163,94 @@ export default function HomePage() {
     };
   }, [lastAnnouncementId]);
 
+  // Subscribe to user notifications (inbox)
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const q = query(
+      collection(db, 'userNotifications'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const items: Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean }> = [];
+      snap.forEach((d) => {
+        const data: any = d.data();
+        items.push({
+          id: d.id,
+          title: data.title || 'Notification',
+          body: data.body || '',
+          createdAt: data.createdAt,
+          read: !!data.read,
+        });
+      });
+      setNotifications(items);
+    });
+    return () => unsub();
+  }, [user?.uid]);
+
+  const markAsRead = async (id: string) => {
+    try {
+      if (!db) return;
+      await updateDoc(doc(db, 'userNotifications', id), { read: true, readAt: new Date().toISOString() });
+    } catch (e) {
+      console.warn('Failed to mark notification read:', e);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      for (const n of notifications) {
+        if (!n.read) {
+          await markAsRead(n.id);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to mark all as read:', e);
+    }
+  };
+
+  // Test function to send fake notifications
+  const sendTestNotifications = async () => {
+    if (!db || !user?.uid) return;
+    
+    try {
+      const testNotifications = [
+        {
+          title: "🚛 Pickup Reminder",
+          body: "Your trash pickup is scheduled for tomorrow at 9:00 AM. Please have your bins ready!",
+          userId: user.uid,
+          type: "pickup_reminder",
+          createdAt: new Date(),
+          read: false
+        },
+        {
+          title: "📢 New Announcement",
+          body: "Important: Schedule changes for next week due to holiday. Check your updated pickup times.",
+          userId: user.uid,
+          type: "announcement",
+          createdAt: new Date(),
+          read: false
+        },
+        {
+          title: "✅ Pickup Completed",
+          body: "Your trash has been successfully collected today. Thank you for using our service!",
+          userId: user.uid,
+          type: "pickup_completed",
+          createdAt: new Date(),
+          read: false
+        }
+      ];
+
+      for (const notification of testNotifications) {
+        await addDoc(collection(db, 'userNotifications'), notification);
+      }
+      
+      console.log('Test notifications sent successfully!');
+    } catch (error) {
+      console.error('Error sending test notifications:', error);
+    }
+  };
+
   const handleLogout = () => {
     // Navigate back to splash screen (logout)
     router.replace('/splash');
@@ -221,11 +314,19 @@ export default function HomePage() {
         </View>
         
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.notificationButton}>
+          <TouchableOpacity 
+            style={[styles.testButton, { backgroundColor: colors.primary, borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }]}
+            onPress={sendTestNotifications}
+          >
+            <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>+</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.notificationButton} onPress={() => setShowNotificationsModal(true)}>
             <IconSymbol name="bell.badge.fill" size={24} color={colors.textSecondary} />
-            <View style={[styles.notificationBadge, { backgroundColor: colors.error }]}>
-              <Text style={[styles.notificationText, { color: colors.surface }]}>1</Text>
-            </View>
+            {unreadCount > 0 && (
+              <View style={[styles.notificationBadge, { backgroundColor: colors.error }]}>
+                <Text style={[styles.notificationText, { color: colors.surface }]}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.settingsButton}
@@ -333,6 +434,53 @@ export default function HomePage() {
         </View>
       </View>
 
+      {/* Notifications Modal */}
+      <Modal
+        transparent
+        visible={showNotificationsModal}
+        animationType="fade"
+        onRequestClose={() => setShowNotificationsModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <View style={{ width: '100%', maxWidth: 420, borderRadius: 12, backgroundColor: colors.surface, padding: 16 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary }}>Notifications</Text>
+              <TouchableOpacity onPress={() => setShowNotificationsModal(false)}>
+                <IconSymbol name="xmark" size={20} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
+              {unreadCount > 0 && (
+                <TouchableOpacity onPress={markAllAsRead} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: colors.secondary }}>
+                  <Text style={{ color: colors.primary, fontWeight: '600' }}>Mark all as read</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <ScrollView style={{ maxHeight: 400 }}>
+              {notifications.length === 0 ? (
+                <View style={{ padding: 16, alignItems: 'center' }}>
+                  <Text style={{ color: colors.textSecondary }}>No notifications yet</Text>
+                </View>
+              ) : (
+                notifications.map((n) => (
+                  <TouchableOpacity key={n.id} onPress={() => markAsRead(n.id)} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: n.read ? '500' as any : '700' as any }}>{n.title}</Text>
+                    {!!n.body && (
+                      <Text style={{ color: colors.textSecondary, marginTop: 2 }}>{n.body}</Text>
+                    )}
+                    <Text style={{ color: colors.textTertiary, fontSize: 12, marginTop: 4 }}>
+                      {(() => {
+                        const d = n.createdAt?.toDate ? n.createdAt.toDate() : new Date(n.createdAt);
+                        return isNaN(d?.getTime?.() || NaN) ? '' : `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                      })()}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -392,6 +540,9 @@ const styles = StyleSheet.create({
   notificationText: {
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  testButton: {
+    padding: 4,
   },
   settingsButton: {
     padding: 4,

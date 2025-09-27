@@ -98,11 +98,27 @@ export class ScheduleNotificationService {
     }
   }
 
+  static async upsertScheduleNotifications(schedule: ScheduleData) {
+    try {
+      const date = this.parseScheduleDate(schedule.dateText);
+      if (!date) return;
+      await NotificationService.upsertPickupReminders({
+        id: schedule.id,
+        date,
+        time: schedule.timeText,
+        type: schedule.wasteCategory,
+      });
+    } catch (e) {
+      console.error('Upsert schedule notifications error:', e);
+    }
+  }
+
   static async rescheduleAllNotifications(schedules: ScheduleData[]) {
     // Cancel all existing schedule notifications
     await NotificationService.cancelAllNotifications();
-    
-    // Schedule new notifications
-    await this.schedulePickupNotifications(schedules);
+    // Upsert notifications per schedule to avoid duplicates on iOS
+    for (const s of schedules) {
+      await this.upsertScheduleNotifications(s);
+    }
   }
 }

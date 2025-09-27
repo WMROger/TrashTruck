@@ -6,19 +6,19 @@ import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Keyboard,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
 } from 'react-native';
 
 interface Message {
@@ -262,7 +262,8 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
                   )}
 
                   <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
                     style={[styles.inputContainer, { borderTopColor: colors.border }]}
                   >
                     <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
@@ -326,7 +327,8 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
           )}
 
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 55 : 0}
             style={[styles.inputContainer, { borderTopColor: colors.border }]}
           >
             <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
@@ -399,6 +401,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
+    bottom: 10,
   },
   inputWrapper: {
     flexDirection: 'row',

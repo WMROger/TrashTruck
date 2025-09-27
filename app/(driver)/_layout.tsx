@@ -1,42 +1,50 @@
+import { getTransitionConfig } from '@/utils/transitions';
 import { Stack } from 'expo-router';
 import React from 'react';
 
 export default function DriverLayout() {
   return (
-    <Stack>
+    <Stack
+      screenOptions={getTransitionConfig('slideFromRight')}
+    >
       <Stack.Screen 
         name="index" 
         options={{ 
           headerShown: false,
-          title: 'Driver Dashboard'
+          title: 'Driver Dashboard',
+          ...getTransitionConfig('slideFromRight'),
         }} 
       />
       <Stack.Screen 
         name="pages/DriverHomePage" 
         options={{ 
           headerShown: false,
-          title: 'Driver Home'
+          title: 'Driver Home',
+          ...getTransitionConfig('slideFromRight'),
         }} 
       />
       <Stack.Screen 
         name="pages/DriverHistoryPage" 
         options={{ 
           headerShown: false,
-          title: 'Driver History'
+          title: 'Driver History',
+          ...getTransitionConfig('slideFromRight'),
         }} 
       />
       <Stack.Screen 
         name="pages/DriverSchedulePage" 
         options={{ 
           headerShown: false,
-          title: 'Driver Schedule'
+          title: 'Driver Schedule',
+          ...getTransitionConfig('slideFromRight'),
         }} 
       />
       <Stack.Screen 
         name="pages/DriverProfilePage" 
         options={{ 
           headerShown: false,
-          title: 'Driver Profile'
+          title: 'Driver Profile',
+          ...getTransitionConfig('slideFromRight'),
         }} 
       />
     </Stack>

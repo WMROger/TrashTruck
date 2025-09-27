@@ -15,7 +15,7 @@ import DriverSchedulePage from './pages/DriverSchedulePage';
 export default function DriverHome() {
   const router = useRouter();
   const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
+  const colors = Colors['light'];
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -99,9 +99,6 @@ export default function DriverHome() {
               onPress={() => setActiveTab('profile')}
             >
               <IconSymbol name="person.fill" size={20} color={activeTab === 'profile' ? colors.secondary : colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.secondary }]}>
-              <IconSymbol name="bell" size={20} color={colors.primary} />
             </TouchableOpacity>
           </View>
         </View>
