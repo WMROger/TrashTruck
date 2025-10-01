@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 
@@ -6,7 +6,7 @@ interface AdminInputProps {
   placeholder: string;
   value: string;
   onChangeText: (text: string) => void;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof MaterialIcons.glyphMap;
   secureTextEntry?: boolean;
   rightComponent?: React.ReactNode;
   editable?: boolean;
@@ -23,7 +23,7 @@ export default function AdminInput({
 }: AdminInputProps) {
   return (
     <View style={styles.inputContainer}>
-      <Ionicons name={icon} size={20} color="#666" style={styles.inputIcon} />
+      <MaterialIcons name={icon} size={20} color="#333" style={styles.inputIcon} />
       <TextInput
         style={styles.input}
         placeholder={placeholder}

@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -9,13 +9,13 @@ interface AdminSidebarProps {
 
 const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) => {
   const navigationItems = [
-    { id: 'home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
-    { id: 'schedule', label: 'Schedule', icon: 'calendar-outline', activeIcon: 'calendar' },
-    { id: 'announcements', label: 'Announcements', icon: 'megaphone-outline', activeIcon: 'megaphone' },
-    { id: 'reports', label: 'Reports', icon: 'document-text-outline', activeIcon: 'document-text' },
-    { id: 'history', label: 'History', icon: 'time-outline', activeIcon: 'time' },
-    { id: 'feedbacks', label: 'Feedbacks', icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses' },
-    { id: 'accounts', label: 'Accounts', icon: 'people-outline', activeIcon: 'people' },
+    { id: 'home', label: 'Home', icon: 'home', activeIcon: 'home' },
+    { id: 'schedule', label: 'Schedule', icon: 'event', activeIcon: 'event' },
+    { id: 'announcements', label: 'Announcements', icon: 'campaign', activeIcon: 'campaign' },
+    { id: 'reports', label: 'Reports', icon: 'description', activeIcon: 'description' },
+    { id: 'history', label: 'History', icon: 'history', activeIcon: 'history' },
+    { id: 'feedbacks', label: 'Feedbacks', icon: 'chat', activeIcon: 'chat' },
+    { id: 'accounts', label: 'Accounts', icon: 'people', activeIcon: 'people' },
   ];
 
   return (
@@ -37,7 +37,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
               onPress={() => onTabPress(item.id)}
               activeOpacity={0.7}
             >
-              <Ionicons
+              <MaterialIcons
                 name={isActive ? item.activeIcon : item.icon}
                 size={24}
                 color={isActive ? '#FFFFFF' : '#E5E7EB'}

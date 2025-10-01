@@ -30,8 +30,11 @@ export default function HomePage() {
   const [lastAnnouncementId, setLastAnnouncementId] = useState<string | null>(null);
 
   // Notifications inbox state
-  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean }>>([]);
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string }>>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<{ id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string } | null>(null);
+  const [showNotificationDetail, setShowNotificationDetail] = useState(false);
+  const [currentNotificationType, setCurrentNotificationType] = useState(0); // 0, 1, 2 for cycling
   const unreadCount = notifications.filter(n => !n.read).length;
 
   // Request notification permissions on mount
@@ -172,7 +175,7 @@ export default function HomePage() {
       orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(q, (snap) => {
-      const items: Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean }> = [];
+      const items: Array<{ id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string }> = [];
       snap.forEach((d) => {
         const data: any = d.data();
         items.push({
@@ -181,6 +184,7 @@ export default function HomePage() {
           body: data.body || '',
           createdAt: data.createdAt,
           read: !!data.read,
+          type: data.type || 'general',
         });
       });
       setNotifications(items);
@@ -197,6 +201,27 @@ export default function HomePage() {
     }
   };
 
+  const handleNotificationPress = (notification: { id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string }) => {
+    console.log('Notification pressed:', notification.title);
+    setSelectedNotification(notification);
+    setShowNotificationsModal(false); // Close the notifications list first
+    setShowNotificationDetail(true);
+    // Mark as read when opened
+    if (!notification.read) {
+      markAsRead(notification.id);
+    }
+  };
+
+  const handleCloseNotificationDetail = () => {
+    setShowNotificationDetail(false);
+    setSelectedNotification(null);
+  };
+
+  const getCurrentNotificationTypeName = () => {
+    const types = ['Pickup Reminder', 'Announcement', 'Pickup Completed'];
+    return types[currentNotificationType];
+  };
+
   const markAllAsRead = async () => {
     try {
       for (const n of notifications) {
@@ -209,45 +234,49 @@ export default function HomePage() {
     }
   };
 
-  // Test function to send fake notifications
-  const sendTestNotifications = async () => {
+  // Test function to send one notification at a time, cycling through types
+  const sendTestNotification = async () => {
     if (!db || !user?.uid) return;
     
     try {
-      const testNotifications = [
+      const notificationTemplates = [
         {
           title: "🚛 Pickup Reminder",
           body: "Your trash pickup is scheduled for tomorrow at 9:00 AM. Please have your bins ready!",
-          userId: user.uid,
-          type: "pickup_reminder",
-          createdAt: new Date(),
-          read: false
+          type: "pickup_reminder"
         },
         {
           title: "📢 New Announcement",
           body: "Important: Schedule changes for next week due to holiday. Check your updated pickup times.",
-          userId: user.uid,
-          type: "announcement",
-          createdAt: new Date(),
-          read: false
+          type: "announcement"
         },
         {
           title: "✅ Pickup Completed",
           body: "Your trash has been successfully collected today. Thank you for using our service!",
-          userId: user.uid,
-          type: "pickup_completed",
-          createdAt: new Date(),
-          read: false
+          type: "pickup_completed"
         }
       ];
 
-      for (const notification of testNotifications) {
-        await addDoc(collection(db, 'userNotifications'), notification);
-      }
+      // Get current notification template
+      const currentTemplate = notificationTemplates[currentNotificationType];
       
-      console.log('Test notifications sent successfully!');
+      const notification = {
+        title: currentTemplate.title,
+        body: currentTemplate.body,
+        userId: user.uid,
+        type: currentTemplate.type,
+        createdAt: new Date(),
+        read: false
+      };
+
+      await addDoc(collection(db, 'userNotifications'), notification);
+      
+      // Cycle to next notification type
+      setCurrentNotificationType((prev) => (prev + 1) % 3);
+      
+      console.log(`Test notification sent: ${currentTemplate.title} (Type: ${currentTemplate.type})`);
     } catch (error) {
-      console.error('Error sending test notifications:', error);
+      console.error('Error sending test notification:', error);
     }
   };
 
@@ -271,6 +300,29 @@ export default function HomePage() {
     }
   };
 
+  const getCategoryColor = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'general':
+        return '#22C55E'; // Green
+      case 'schedule':
+        return '#3B82F6'; // Blue
+      case 'maintenance':
+        return '#F59E0B'; // Orange
+      case 'policy update':
+        return '#8B5CF6'; // Purple
+      case 'emergency':
+        return '#EF4444'; // Red
+      case 'service':
+        return '#06B6D4'; // Cyan
+      case 'weather':
+        return '#84CC16'; // Lime
+      case 'holiday':
+        return '#F97316'; // Orange
+      default:
+        return '#6B7280'; // Gray
+    }
+  };
+
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
       case 'Urgent':
@@ -286,10 +338,84 @@ export default function HomePage() {
     }
   };
 
+  const getCategoryIcon = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'general':
+        return 'megaphone.fill';
+      case 'schedule':
+        return 'calendar';
+      case 'maintenance':
+        return 'wrench.and.screwdriver.fill';
+      case 'policy update':
+        return 'doc.text.fill';
+      case 'emergency':
+        return 'exclamationmark.triangle.fill';
+      case 'service':
+        return 'gearshape.fill';
+      case 'weather':
+        return 'cloud.fill';
+      case 'holiday':
+        return 'gift.fill';
+      default:
+        return 'info.circle.fill';
+    }
+  };
+
   const formatAnnouncementDate = (createdAt: any) => {
     if (!createdAt) return '';
     const dateObj = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
     return `${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'pickup_reminder':
+        return 'truck.box.fill';
+      case 'announcement':
+        return 'megaphone.fill';
+      case 'pickup_completed':
+        return 'checkmark.circle.fill';
+      case 'schedule_change':
+        return 'calendar.badge.exclamationmark';
+      case 'emergency':
+        return 'exclamationmark.triangle.fill';
+      default:
+        return 'bell.fill';
+    }
+  };
+
+  const getNotificationColor = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'pickup_reminder':
+        return '#3B82F6'; // Blue
+      case 'announcement':
+        return '#8B5CF6'; // Purple
+      case 'pickup_completed':
+        return '#22C55E'; // Green
+      case 'schedule_change':
+        return '#F59E0B'; // Orange
+      case 'emergency':
+        return '#EF4444'; // Red
+      default:
+        return '#6B7280'; // Gray
+    }
+  };
+
+  const getNotificationTypeLabel = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'pickup_reminder':
+        return 'Pickup Reminder';
+      case 'announcement':
+        return 'Announcement';
+      case 'pickup_completed':
+        return 'Pickup Completed';
+      case 'schedule_change':
+        return 'Schedule Change';
+      case 'emergency':
+        return 'Emergency';
+      default:
+        return 'General';
+    }
   };
 
   return (
@@ -314,12 +440,17 @@ export default function HomePage() {
         </View>
         
         <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={[styles.testButton, { backgroundColor: colors.primary, borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }]}
-            onPress={sendTestNotifications}
-          >
-            <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>+</Text>
-          </TouchableOpacity>
+          <View style={{ alignItems: 'center' }}>
+            <TouchableOpacity 
+              style={[styles.testButton, { backgroundColor: colors.primary, borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }]}
+              onPress={sendTestNotification}
+            >
+              <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>+</Text>
+            </TouchableOpacity>
+            <Text style={[styles.notificationTypeIndicator, { color: colors.textTertiary, fontSize: 10 }]}>
+              {getCurrentNotificationTypeName()}
+            </Text>
+          </View>
           <TouchableOpacity style={styles.notificationButton} onPress={() => setShowNotificationsModal(true)}>
             <IconSymbol name="bell.badge.fill" size={24} color={colors.textSecondary} />
             {unreadCount > 0 && (
@@ -391,9 +522,9 @@ export default function HomePage() {
               >
                 <View style={styles.announcementLeft}>
                   <IconSymbol 
-                    name={getPriorityIcon(announcement.priority)} 
+                    name={getCategoryIcon(announcement.category)} 
                     size={24} 
-                    color={getPriorityColor(announcement.priority)} 
+                    color={getCategoryColor(announcement.category)} 
                   />
                   <View style={styles.announcementText}>
                     <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
@@ -413,7 +544,7 @@ export default function HomePage() {
                   <Text style={[styles.nextPickupLabel, { color: colors.textSecondary }]}>
                     {announcement.priority}
                   </Text>
-                  <Text style={[styles.nextPickupDate, { color: getPriorityColor(announcement.priority) }]}>
+                  <Text style={[styles.nextPickupDate, { color: getCategoryColor(announcement.category) }]}>
                     {announcement.category}
                   </Text>
                 </View>
@@ -463,21 +594,117 @@ export default function HomePage() {
                 </View>
               ) : (
                 notifications.map((n) => (
-                  <TouchableOpacity key={n.id} onPress={() => markAsRead(n.id)} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: colors.textPrimary, fontWeight: n.read ? '500' as any : '700' as any }}>{n.title}</Text>
-                    {!!n.body && (
-                      <Text style={{ color: colors.textSecondary, marginTop: 2 }}>{n.body}</Text>
-                    )}
-                    <Text style={{ color: colors.textTertiary, fontSize: 12, marginTop: 4 }}>
-                      {(() => {
-                        const d = n.createdAt?.toDate ? n.createdAt.toDate() : new Date(n.createdAt);
-                        return isNaN(d?.getTime?.() || NaN) ? '' : `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                      })()}
-                    </Text>
+                  <TouchableOpacity key={n.id} onPress={() => handleNotificationPress(n)} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.textPrimary, fontWeight: n.read ? '500' as any : '700' as any }}>{n.title}</Text>
+                        {!!n.body && (
+                          <Text style={{ color: colors.textSecondary, marginTop: 2 }} numberOfLines={2}>{n.body}</Text>
+                        )}
+                        <Text style={{ color: colors.textTertiary, fontSize: 12, marginTop: 4 }}>
+                          {(() => {
+                            const d = n.createdAt?.toDate ? n.createdAt.toDate() : new Date(n.createdAt);
+                            return isNaN(d?.getTime?.() || NaN) ? '' : `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                          })()}
+                        </Text>
+                      </View>
+                      <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
+                    </View>
                   </TouchableOpacity>
                 ))
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notification Detail Modal */}
+      <Modal
+        visible={showNotificationDetail}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseNotificationDetail}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.notificationDetailContainer, { backgroundColor: colors.surface }]}>
+            <View style={[styles.notificationDetailHeader, { borderBottomColor: colors.border }]}>
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={handleCloseNotificationDetail}
+              >
+                <IconSymbol name="xmark" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={[styles.notificationDetailTitle, { color: colors.textPrimary }]}>
+                Notification Details
+              </Text>
+              <View style={styles.headerSpacer} />
+            </View>
+
+            {selectedNotification && (
+              <ScrollView style={styles.notificationDetailContent}>
+                <View style={styles.notificationDetailCard}>
+                  <View style={styles.notificationTypeContainer}>
+                    <IconSymbol 
+                      name={getNotificationIcon(selectedNotification.type || 'general')} 
+                      size={24} 
+                      color={getNotificationColor(selectedNotification.type || 'general')} 
+                    />
+                    <Text style={[styles.notificationTypeText, { color: getNotificationColor(selectedNotification.type || 'general') }]}>
+                      {getNotificationTypeLabel(selectedNotification.type || 'general')}
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.notificationDetailTitleText, { color: colors.textPrimary }]}>
+                    {selectedNotification.title}
+                  </Text>
+
+                  <Text style={[styles.notificationDetailBody, { color: colors.textSecondary }]}>
+                    {selectedNotification.body}
+                  </Text>
+
+                  <View style={[styles.notificationDetailMeta, { backgroundColor: colors.background }]}>
+                    <View style={styles.notificationMetaRow}>
+                      <IconSymbol name="clock" size={16} color={colors.textTertiary} />
+                      <Text style={[styles.notificationMetaText, { color: colors.textTertiary }]}>
+                        {(() => {
+                          const d = selectedNotification.createdAt?.toDate ? selectedNotification.createdAt.toDate() : new Date(selectedNotification.createdAt);
+                          return isNaN(d?.getTime?.() || NaN) ? 'Unknown time' : `${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                        })()}
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.notificationMetaRow}>
+                      <IconSymbol name="checkmark.circle" size={16} color={selectedNotification.read ? colors.primary : colors.textTertiary} />
+                      <Text style={[styles.notificationMetaText, { color: selectedNotification.read ? colors.primary : colors.textTertiary }]}>
+                        {selectedNotification.read ? 'Read' : 'Unread'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+
+            <View style={[styles.notificationDetailActions, { borderTopColor: colors.border }]}>
+              <TouchableOpacity 
+                style={[styles.notificationActionButton, { backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1, marginRight: 8 }]}
+                onPress={() => {
+                  handleCloseNotificationDetail();
+                  setShowNotificationsModal(true);
+                }}
+              >
+                <Text style={[styles.notificationActionText, { color: colors.textPrimary }]}>
+                  Back to Notifications
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.notificationActionButton, { backgroundColor: colors.primary, flex: 1 }]}
+                onPress={handleCloseNotificationDetail}
+              >
+                <Text style={[styles.notificationActionText, { color: colors.surface }]}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -667,5 +894,107 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textDecorationLine: 'underline',
+  },
+  // Notification Detail Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  notificationDetailContainer: {
+    width: '100%',
+    height: '60%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  notificationDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  notificationDetailTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  notificationDetailContent: {
+    flex: 1,
+    padding: 20,
+  },
+  notificationDetailCard: {
+    gap: 20,
+  },
+  notificationTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  notificationTypeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  notificationDetailTitleText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    lineHeight: 32,
+  },
+  notificationDetailBody: {
+    fontSize: 18,
+    lineHeight: 28,
+    marginTop: 8,
+  },
+  notificationDetailMeta: {
+    padding: 16,
+    borderRadius: 8,
+    gap: 12,
+    marginTop: 8,
+  },
+  notificationMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notificationMetaText: {
+    fontSize: 14,
+  },
+  notificationDetailActions: {
+    padding: 20,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  notificationActionButton: {
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    flex: 1,
+  },
+  notificationActionText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  notificationTypeIndicator: {
+    marginTop: 2,
+    textAlign: 'center',
+    maxWidth: 60,
   },
 });

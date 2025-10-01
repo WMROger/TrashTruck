@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -307,7 +307,7 @@ const FeedbackTab: React.FC = () => {
             <View style={styles.feedbackCards}>
               {feedbacks.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="chatbubbles-outline" size={64} color="#9CA3AF" />
+                  <MaterialIcons name="chat" size={64} color="#9CA3AF" />
                   <Text style={styles.emptyText}>No feedbacks found</Text>
                   <Text style={styles.emptySubtext}>Feedbacks will appear here when users submit them</Text>
                 </View>

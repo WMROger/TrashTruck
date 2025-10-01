@@ -224,6 +224,22 @@ export default function RootLayout() {
         * {
           font-family: ${defaultFont} !important;
         }
+        /* Desktop web: force Material Icons font ONLY for actual icon elements */
+        [style*="font-family: material"][style*="font-size: 24px"],
+        [style*="font-family: material"][style*="font-size: 20px"],
+        [style*="font-family: material"][style*="font-size: 18px"],
+        [style*="font-family: material"][style*="font-size: 16px"] {
+          font-family: 'Material Icons' !important;
+          font-style: normal !important;
+          font-weight: normal !important;
+          font-variant: normal !important;
+          text-transform: none !important;
+          line-height: 1 !important;
+          letter-spacing: normal !important;
+          direction: ltr !important;
+          -webkit-font-feature-settings: 'liga';
+          -webkit-font-smoothing: antialiased;
+        }
       `;
       document.head.appendChild(style);
 

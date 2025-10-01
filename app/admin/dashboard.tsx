@@ -1,9 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
 import { AdminSidebar, AnnouncementsTab, FeedbackTab, HistoryTab, ManageAccountsTab, ReportsTab, ScheduleTab } from '../../components/admin';
@@ -16,6 +16,8 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
+  const [isTabLoading, setIsTabLoading] = useState(false);
+  const spinValue = new Animated.Value(0);
   const [latestReportImages, setLatestReportImages] = useState<string[]>([]);
   const [latestFeedback, setLatestFeedback] = useState<{ userName: string; message: string; rating: string; createdAt?: any; photoURL?: string } | null>(null);
   const [feedbackStats, setFeedbackStats] = useState<{ loved: number; good: number; bad: number; terrible: number }>({ loved: 0, good: 0, bad: 0, terrible: 0 });
@@ -552,7 +554,25 @@ export default function AdminDashboard() {
   };
 
   const handleTabPress = (tab: string) => {
+    if (tab === activeTab) return; // Don't show loader if clicking the same tab
+    
+    setIsTabLoading(true);
     setActiveTab(tab);
+    
+    // Start spinner animation
+    spinValue.setValue(0);
+    Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    ).start();
+    
+    // Simulate loading time for better UX
+    setTimeout(() => {
+      setIsTabLoading(false);
+    }, 300);
   };
 
   return (
@@ -570,7 +590,7 @@ export default function AdminDashboard() {
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="log-out-outline" size={24} color="white" />
+            <MaterialIcons name="logout" size={24} color="white" />
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -579,7 +599,28 @@ export default function AdminDashboard() {
       <View style={styles.mainContainer}>
         <AdminSidebar activeTab={activeTab} onTabPress={handleTabPress} />
         <View style={styles.contentContainer}>
-          {renderContent()}
+          {isTabLoading ? (
+            <View style={styles.tabLoaderContainer}>
+              <View style={styles.tabLoader}>
+                <Animated.View 
+                  style={[
+                    styles.loaderSpinner,
+                    {
+                      transform: [{
+                        rotate: spinValue.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        })
+                      }]
+                    }
+                  ]} 
+                />
+                <Text style={styles.loaderText}>Loading...</Text>
+              </View>
+            </View>
+          ) : (
+            renderContent()
+          )}
         </View>
       </View>
 
@@ -590,15 +631,38 @@ export default function AdminDashboard() {
         onRequestClose={() => setShowLogoutModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Logout</Text>
-            <Text style={styles.modalMessage}>Are you sure you want to logout from admin panel?</Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalButton} onPress={confirmLogout}>
-                <Text style={styles.modalButtonText}>Logout</Text>
+          <View style={styles.logoutModalContainer}>
+            {/* Header with Icon */}
+            <View style={styles.logoutModalHeader}>
+              <View style={styles.logoutIconContainer}>
+                <Text style={styles.logoutIconText}>🚪</Text>
+              </View>
+              <Text style={styles.logoutModalTitle}>Confirm Logout</Text>
+              <Text style={styles.logoutModalSubtitle}>Admin Panel</Text>
+            </View>
+            
+            {/* Content */}
+            <View style={styles.logoutModalContent}>
+              <Text style={styles.logoutModalMessage}>
+                Are you sure you want to logout from the admin panel? You'll need to sign in again to access administrative features.
+              </Text>
+            </View>
+            
+            {/* Actions */}
+            <View style={styles.logoutModalActions}>
+              <TouchableOpacity 
+                style={styles.logoutCancelButton} 
+                onPress={cancelLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalButton} onPress={cancelLogout}>
-                <Text style={styles.modalButtonText}>Cancel</Text>
+              <TouchableOpacity 
+                style={styles.logoutConfirmButton} 
+                onPress={confirmLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutConfirmButtonText}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -629,7 +693,7 @@ export default function AdminDashboard() {
               ) : null}
             </ScrollView>
             <TouchableOpacity style={styles.imagePreviewClose} onPress={() => setIsImagePreviewVisible(false)}>
-              <Ionicons name="close" size={24} color="#fff" />
+              <MaterialIcons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -652,7 +716,7 @@ export default function AdminDashboard() {
                 onPress={() => setShowHistoryModal(false)}
                 style={styles.historyModalClose}
               >
-                <Ionicons name="close" size={24} color="#666" />
+                <MaterialIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
@@ -693,14 +757,14 @@ export default function AdminDashboard() {
                 style={styles.exportButton}
                 onPress={() => exportToCSV(historyReports)}
               >
-                <Ionicons name="download" size={16} color="#fff" />
+                <MaterialIcons name="download" size={16} color="#fff" />
                 <Text style={styles.exportButtonText}>Export CSV</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.exportButton}
                 onPress={() => exportToExcel(historyReports)}
               >
-                <Ionicons name="document" size={16} color="#fff" />
+                <MaterialIcons name="description" size={16} color="#fff" />
                 <Text style={styles.exportButtonText}>Export Excel</Text>
               </TouchableOpacity>
             </View>
@@ -1158,6 +1222,151 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // Beautiful Logout Modal Styles
+  logoutModalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
+    overflow: 'hidden',
+  },
+  logoutModalHeader: {
+    backgroundColor: '#F8F9FA',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  logoutIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFE4E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: '#FF6B6B',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  logoutIconText: {
+    fontSize: 28,
+  },
+  logoutModalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2C3E50',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  logoutModalSubtitle: {
+    fontSize: 14,
+    color: '#6C757D',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  logoutModalContent: {
+    padding: 24,
+  },
+  logoutModalMessage: {
+    fontSize: 16,
+    color: '#495057',
+    lineHeight: 24,
+    textAlign: 'center',
+  },
+  logoutModalActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    gap: 12,
+  },
+  logoutCancelButton: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 2,
+    borderColor: '#DEE2E6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCancelButtonText: {
+    color: '#6C757D',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  logoutConfirmButton: {
+    flex: 1,
+    backgroundColor: '#DC3545',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#DC3545',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  logoutConfirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Tab Loader Styles
+  tabLoaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+  },
+  tabLoader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  loaderSpinner: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: '#E3F0E3',
+    borderTopColor: '#2E8B57',
+    marginBottom: 16,
+    // Animation will be handled by React Native's built-in animation
+  },
+  loaderText: {
+    fontSize: 16,
+    color: '#6C757D',
+    fontWeight: '500',
   },
   imagePreviewOverlay: {
     flex: 1,

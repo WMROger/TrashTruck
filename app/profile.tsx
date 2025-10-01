@@ -7,7 +7,9 @@ import { useTheme } from '@/hooks/useTheme';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import { signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
 import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
+import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -75,7 +77,6 @@ export default function ProfilePage() {
       }
       
       console.log('🔄 Fetching download URL from Firebase Storage...');
-      const { getDownloadURL, ref } = await import('firebase/storage');
       const r = ref(storage, maybePath);
       const downloadURL = await getDownloadURL(r);
       console.log('✅ Download URL obtained:', downloadURL);
@@ -288,7 +289,7 @@ export default function ProfilePage() {
 
   const pickImage = async () => {
     const mediaTypes = (ImagePicker as any).MediaType
-      ? [(ImagePicker as any).MediaType.image]
+      ? (ImagePicker as any).MediaType.image
       : ((ImagePicker as any).MediaTypeOptions?.Images ?? ImagePicker.MediaTypeOptions.Images);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: mediaTypes as any,
@@ -390,10 +391,6 @@ export default function ProfilePage() {
 
     setIsChangingPassword(true);
     try {
-      // Import Firebase Auth functions
-      const { signInWithEmailAndPassword, updatePassword } = await import('firebase/auth');
-      const { auth } = await import('@/config/firebase');
-      
       if (!auth || !user?.email) {
         throw new Error('Authentication not available');
       }
@@ -435,7 +432,7 @@ export default function ProfilePage() {
   ];
 
   const handleSendFeedback = async () => {
-    if (feedbackSelected === null || !feedbackText.trim()) {
+    if (feedbackSelected === null || !feedbackText.trim() || feedbackSelected < 0 || feedbackSelected >= sentiments.length) {
       Alert.alert('Error', 'Please select a rating and enter your feedback.');
       return;
     }
@@ -559,7 +556,7 @@ export default function ProfilePage() {
             style={[styles.menuItem, { backgroundColor: colors.surface }]} 
             onPress={handleChangePassword}
           >
-            <IconSymbol name="lock.rotation" size={24} color={colors.primary} />
+            <IconSymbol name="lock" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               Change Password
             </Text>

@@ -96,6 +96,18 @@ function cleanAiResponse(response: string): string {
   return response;
 }
 
+// Basic domain filter to ensure queries are related to TrashTrack or waste topics
+function isTrashRelatedQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  const keywords = [
+    'trash','waste','recycle','recycling','compost','garbage','bin','landfill','plastic','paper','glass','metal',
+    'e-waste','organic','hazardous','disposal','segregation','collection','pickup','schedule','litter','pollution',
+    'sustainability','environment','eco','composting','reuse','reduce','sorting','incineration','municipal',
+    'trashtrack','trash track','app','driver','route','dump','junk','debris','scrap','rubbish','refuse'
+  ];
+  return keywords.some(k => q.includes(k));
+}
+
 function applyGuardrails(response: string, originalQuery: string): string {
   // Basic content filtering for inappropriate responses
   const inappropriateKeywords = ['illegal', 'dangerous', 'harmful', 'toxic'];
@@ -107,6 +119,11 @@ function applyGuardrails(response: string, originalQuery: string): string {
     return 'I apologize, but I cannot provide advice about that. Please focus on safe and legal waste management practices. How can I help you with proper waste disposal and recycling?';
   }
   
+  // Enforce domain restriction; gently steer back to topic
+  if (!isTrashRelatedQuery(originalQuery)) {
+    return 'I can help with TrashTrack app support, waste disposal, recycling tips, composting, schedules, and related topics. Please rephrase your question to focus on trash or recycling.';
+  }
+
   return response;
 }
 
@@ -173,6 +190,19 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
+
+    // Front-end domain check before sending to backend/webhook
+    if (!isTrashRelatedQuery(input.trim())) {
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        text: 'I’m specialized in TrashTrack and waste-related topics (recycling, disposal, composting, pickup schedules). Ask me something in that area.',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text: input.trim(), timestamp: new Date() }, aiMessage]);
+      setInput('');
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -262,8 +292,8 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
                   )}
 
                   <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
+                    behavior={'position'}
+                    keyboardVerticalOffset={0}
                     style={[styles.inputContainer, { borderTopColor: colors.border }]}
                   >
                     <View style={[styles.inputWrapper, { borderColor: colors.border }]}>

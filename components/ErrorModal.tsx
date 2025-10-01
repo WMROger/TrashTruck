@@ -1,15 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect } from 'react';
 import {
-    Animated,
-    Dimensions,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  Animated,
+  Dimensions,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -123,15 +123,15 @@ export default function ErrorModal({
   const getIconAndColor = () => {
     switch (type) {
       case 'error':
-        return { icon: 'alert-circle', color: '#EF4444', bgColor: '#FEF2F2' };
+        return { icon: 'alert-circle-outline', color: '#EF4444', bgColor: '#FEF2F2' };
       case 'warning':
-        return { icon: 'warning', color: '#F59E0B', bgColor: '#FFFBEB' };
+        return { icon: 'warning-outline', color: '#F59E0B', bgColor: '#FFFBEB' };
       case 'info':
-        return { icon: 'information-circle', color: '#3B82F6', bgColor: '#EFF6FF' };
+        return { icon: 'information-circle-outline', color: '#3B82F6', bgColor: '#EFF6FF' };
       case 'success':
         return { icon: 'checkmark-circle', color: '#10B981', bgColor: '#ECFDF5' };
       default:
-        return { icon: 'alert-circle', color: '#EF4444', bgColor: '#FEF2F2' };
+        return { icon: 'alert-circle-outline', color: '#EF4444', bgColor: '#FEF2F2' };
     }
   };
 
@@ -162,14 +162,18 @@ export default function ErrorModal({
                 {/* Header */}
                 <View style={styles.header}>
                   <View style={[styles.iconContainer, { backgroundColor: color }]}>
-                    <Ionicons name={icon as any} size={24} color="white" />
+                    {type === 'success' ? (
+                      <Text style={styles.checkmarkText}>✓</Text>
+                    ) : (
+                      <Ionicons name={icon as any} size={24} color="white" />
+                    )}
                   </View>
                   {showCloseButton && (
                     <TouchableOpacity
                       style={styles.closeButton}
                       onPress={handleClose}
                     >
-                      <Ionicons name="close" size={20} color="#666" />
+                      <Text style={styles.closeButtonText}>×</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -278,5 +282,15 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  checkmarkText: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  closeButtonText: {
+    color: '#666',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
 });

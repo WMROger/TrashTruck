@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 // Web-only portal to ensure dropdown overlays escape ScrollView clipping
@@ -608,7 +608,7 @@ const ScheduleTab: React.FC = () => {
               onPress={() => setScheduleMode('add')}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={18} color="#234033" style={styles.buttonIcon} />
+              <MaterialIcons name="add" size={18} color="#234033" style={styles.buttonIcon} />
               <Text style={[styles.compactButtonText, { color: '#234033' }]}>Add Schedule</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -616,7 +616,7 @@ const ScheduleTab: React.FC = () => {
               onPress={() => setScheduleMode('edit')}
               activeOpacity={0.8}
             >
-              <Ionicons name="create-outline" size={16} color="#234033" style={styles.buttonIcon} />
+              <MaterialIcons name="edit" size={16} color="#234033" style={styles.buttonIcon} />
               <Text style={[styles.compactButtonText, { color: '#234033' }]}>Edit Schedule</Text>
             </TouchableOpacity>
           </View>
@@ -629,11 +629,11 @@ const ScheduleTab: React.FC = () => {
             <View style={styles.calendarCard}>
               <View style={styles.calendarHeader}>
                 <TouchableOpacity style={styles.calendarButton} onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}>
-                  <Ionicons name="chevron-back" size={20} color="#333" />
+                  <MaterialIcons name="chevron-left" size={20} color="#333" />
                 </TouchableOpacity>
                 <Text style={styles.calendarTitle}>{formatMonthYear(currentMonth)}</Text>
                 <TouchableOpacity style={styles.calendarButton} onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}>
-                  <Ionicons name="chevron-forward" size={20} color="#333" />
+                  <MaterialIcons name="chevron-right" size={20} color="#333" />
                 </TouchableOpacity>
               </View>
               <View style={styles.calendarGrid}>
@@ -681,7 +681,7 @@ const ScheduleTab: React.FC = () => {
                   <Text style={styles.fieldLabel}>Set date<Text style={{ color: '#EF4444' }}> *</Text></Text>
                   <TouchableOpacity style={styles.inputField}>
                     <Text style={styles.inputText}>{selectedDate ? formatDate(selectedDate) : 'Set date'}</Text>
-                    <Ionicons name="calendar-outline" size={18} color="#4B5F4F" />
+                    <MaterialIcons name="event" size={18} color="#4B5F4F" />
                   </TouchableOpacity>
                 </View>
                 
@@ -690,7 +690,7 @@ const ScheduleTab: React.FC = () => {
                   <View style={[styles.dropdownContainer, showTimeDropdown ? styles.dropdownContainerOpen : null]} ref={timeAnchorRef}>
                     <TouchableOpacity style={styles.inputField} onPress={() => { setShowStreetDropdown(false); const next = !showTimeDropdown; setShowTimeDropdown(next); if (Platform.OS === 'web' && next && timeAnchorRef.current && timeAnchorRef.current.getBoundingClientRect) { const rect = timeAnchorRef.current.getBoundingClientRect(); setTimePortalRect({ top: rect.bottom, left: rect.left, width: rect.width }); } }}>
                       <Text style={styles.inputText}>{timeText || 'Set time'}</Text>
-                      <Ionicons name={showTimeDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      <MaterialIcons name={showTimeDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showTimeDropdown && (
                       Platform.OS === 'web'
@@ -699,7 +699,7 @@ const ScheduleTab: React.FC = () => {
                               <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
                                 {generateTimeSlots(selectedDate).map((t) => (
                                   <TouchableOpacity key={t} style={styles.suggestionItem} onPress={() => { setTimeText(t); setShowTimeDropdown(false); }}>
-                                    <Ionicons name="time-outline" size={16} color="#4B5F4F" />
+                                    <MaterialIcons name="access-time" size={16} color="#4B5F4F" />
                                     <Text style={styles.suggestionText}>{t}</Text>
                                   </TouchableOpacity>
                                 ))}
@@ -712,7 +712,7 @@ const ScheduleTab: React.FC = () => {
                         <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
                           {generateTimeSlots(selectedDate).map((t) => (
                             <TouchableOpacity key={t} style={styles.suggestionItem} onPress={() => { setTimeText(t); setShowTimeDropdown(false); }}>
-                              <Ionicons name="time-outline" size={16} color="#4B5F4F" />
+                              <MaterialIcons name="access-time" size={16} color="#4B5F4F" />
                               <Text style={styles.suggestionText}>{t}</Text>
                             </TouchableOpacity>
                           ))}
@@ -732,7 +732,7 @@ const ScheduleTab: React.FC = () => {
                 ]} ref={streetAnchorRef}>
                   <TouchableOpacity style={styles.inputField} onPress={showStreetDropdown ? closeStreetDropdown : openStreetDropdown}>
                     <Text style={styles.inputText}>{selectedStreet || 'Choose street'}</Text>
-                    <Ionicons name={showStreetDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                    <MaterialIcons name={showStreetDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                   </TouchableOpacity>
                   {showStreetDropdown && (
                     Platform.OS === 'web'
@@ -749,7 +749,7 @@ const ScheduleTab: React.FC = () => {
                                     setShowStreetDropdown(false);
                                   }}
                                 >
-                                  <Ionicons name="location-outline" size={16} color="#4B5F4F" />
+                                  <MaterialIcons name="location-on" size={16} color="#4B5F4F" />
                                   <Text style={styles.suggestionText}>{s.text}</Text>
                                 </TouchableOpacity>
                               ))}
@@ -770,7 +770,7 @@ const ScheduleTab: React.FC = () => {
                               setShowStreetDropdown(false);
                             }}
                           >
-                            <Ionicons name="location-outline" size={16} color="#4B5F4F" />
+                            <MaterialIcons name="location-on" size={16} color="#4B5F4F" />
                             <Text style={styles.suggestionText}>{s.text}</Text>
                           </TouchableOpacity>
                         ))}
@@ -798,7 +798,7 @@ const ScheduleTab: React.FC = () => {
                       }}
                     >
                       <Text style={styles.inputText}>{frequency || 'Frequency'}</Text>
-                      <Ionicons name={showFrequencyDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      <MaterialIcons name={showFrequencyDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showFrequencyDropdown && (
                       Platform.OS === 'web'
@@ -847,7 +847,7 @@ const ScheduleTab: React.FC = () => {
                         }}
                       >
                         <Text style={styles.inputText}>{duration || 'Select duration'}</Text>
-                        <Ionicons name={showDurationDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                        <MaterialIcons name={showDurationDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                       </TouchableOpacity>
                       {showDurationDropdown && (
                         Platform.OS === 'web'
@@ -895,7 +895,7 @@ const ScheduleTab: React.FC = () => {
                       }}
                     >
                       <Text style={styles.inputText}>{wasteCategory || 'Waste Category'}</Text>
-                      <Ionicons name={showWasteDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      <MaterialIcons name={showWasteDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showWasteDropdown && (
                       Platform.OS === 'web'
@@ -946,7 +946,7 @@ const ScheduleTab: React.FC = () => {
                       }}
                     >
                       <Text style={styles.inputText}>{truck || 'Assigned Truck'}</Text>
-                      <Ionicons name={showTruckDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      <MaterialIcons name={showTruckDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showTruckDropdown && (
                       Platform.OS === 'web'
@@ -994,7 +994,7 @@ const ScheduleTab: React.FC = () => {
                       }}
                     >
                       <Text style={styles.inputText}>{driver || (drivers.length === 0 ? 'Loading drivers...' : 'Choose Driver')}</Text>
-                      <Ionicons name={showDriverDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#4B5F4F" />
+                      <MaterialIcons name={showDriverDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
                     </TouchableOpacity>
                     {showDriverDropdown && (
                       Platform.OS === 'web'
@@ -1003,7 +1003,7 @@ const ScheduleTab: React.FC = () => {
                               <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
                                 {drivers.map((driver) => (
                                   <TouchableOpacity key={driver.id} style={styles.suggestionItem} onPress={() => { setDriver(driver.name); setShowDriverDropdown(false); }}>
-                                    <Ionicons name="person-outline" size={16} color="#4B5F4F" />
+                                    <MaterialIcons name="person" size={16} color="#4B5F4F" />
                                     <Text style={styles.suggestionText}>{driver.name}</Text>
                                   </TouchableOpacity>
                                 ))}
@@ -1016,7 +1016,7 @@ const ScheduleTab: React.FC = () => {
                               <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
                                 {drivers.map((driver) => (
                                   <TouchableOpacity key={driver.id} style={styles.suggestionItem} onPress={() => { setDriver(driver.name); setShowDriverDropdown(false); }}>
-                                    <Ionicons name="person-outline" size={16} color="#4B5F4F" />
+                                    <MaterialIcons name="person" size={16} color="#4B5F4F" />
                                     <Text style={styles.suggestionText}>{driver.name}</Text>
                                   </TouchableOpacity>
                                 ))}
@@ -1033,7 +1033,7 @@ const ScheduleTab: React.FC = () => {
                   <Text style={styles.fieldLabel}>Status</Text>
                   <TouchableOpacity style={styles.inputField}>
                     <Text style={styles.inputText}>Status</Text>
-                    <Ionicons name="chevron-down" size={18} color="#4B5F4F" />
+                    <MaterialIcons name="keyboard-arrow-down" size={18} color="#4B5F4F" />
                   </TouchableOpacity>
                 </View>
               )}
@@ -1143,7 +1143,7 @@ const ScheduleTab: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Ionicons name="warning" size={24} color="#EF4444" />
+              <MaterialIcons name="warning" size={24} color="#EF4444" />
               <Text style={styles.modalTitle}>Confirm Delete</Text>
             </View>
             
@@ -1198,7 +1198,7 @@ const ScheduleTab: React.FC = () => {
       {isBusy && (
         <View style={styles.busyOverlay} pointerEvents="auto">
           <View style={styles.busyBox}>
-            <Ionicons name="sync" size={20} color="#234033" />
+            <MaterialIcons name="sync" size={20} color="#234033" />
             <Text style={styles.busyText}>{busyText || 'Working...'}</Text>
           </View>
         </View>

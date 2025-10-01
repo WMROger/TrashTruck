@@ -734,7 +734,7 @@ export default function DriverProfilePage({ onBack }: DriverProfilePageProps) {
                 </Text>
                 <Text style={[styles.contactInfo, { color: colors.primary }]}>
                   📧 Email: support@trashtruck.com{'\n'}
-                  📱 Phone: +1 (555) 123-4567{'\n'}
+                  📱 Phone: +63 (123-456-7890){'\n'}
                   🕒 Hours: 24/7 Support Available
                 </Text>
               </View>

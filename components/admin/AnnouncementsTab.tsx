@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -706,7 +706,7 @@ const AnnouncementsTab: React.FC = () => {
         {/* Error State */}
         {error && (
           <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={48} color="#EF4444" />
+            <MaterialIcons name="error" size={48} color="#EF4444" />
             <Text style={styles.errorText}>{error}</Text>
             <TouchableOpacity 
               style={styles.retryButton}
@@ -758,7 +758,7 @@ const AnnouncementsTab: React.FC = () => {
                   style={styles.dateTimeButton}
                   onPress={() => setShowDatePicker(true)}
                 >
-                  <Ionicons name="calendar" size={20} color="#666" />
+                  <MaterialIcons name="event" size={20} color="#666" />
                   <Text style={styles.dateTimeText}>
                     {selectedDate.toLocaleDateString('en-US', {
                       month: 'short',
@@ -772,7 +772,7 @@ const AnnouncementsTab: React.FC = () => {
                   style={styles.dateTimeButton}
                   onPress={() => setShowTimePicker(true)}
                 >
-                  <Ionicons name="time" size={20} color="#666" />
+                  <MaterialIcons name="access-time" size={20} color="#666" />
                   <Text style={styles.dateTimeText}>
                     {selectedTime.toLocaleTimeString('en-US', {
                       hour: '2-digit',
@@ -795,7 +795,7 @@ const AnnouncementsTab: React.FC = () => {
                   <Text style={styles.dropdownText}>
                     {selectedPriority}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" />
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color="#666" />
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
@@ -805,7 +805,7 @@ const AnnouncementsTab: React.FC = () => {
                   <Text style={styles.dropdownText}>
                     {selectedCategory}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" />
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color="#666" />
                 </TouchableOpacity>
               </View>
 
@@ -871,7 +871,7 @@ const AnnouncementsTab: React.FC = () => {
               
               {announcements.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="megaphone-outline" size={64} color="#9CA3AF" />
+                  <MaterialIcons name="campaign" size={64} color="#9CA3AF" />
                   <Text style={styles.emptyText}>No announcements yet</Text>
                   <Text style={styles.emptySubtext}>Create your first announcement to get started</Text>
                 </View>
@@ -887,7 +887,7 @@ const AnnouncementsTab: React.FC = () => {
                           onPress={() => handleEdit(announcement)}
                           disabled={isDeletingId === announcement.id}
                         >
-                          <Ionicons name="create" size={16} color="#4169E1" />
+                          <MaterialIcons name="edit" size={16} color="#4169E1" />
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={styles.actionButton}
@@ -897,7 +897,7 @@ const AnnouncementsTab: React.FC = () => {
                           {isDeletingId === announcement.id ? (
                             <ActivityIndicator size="small" color="#FF6347" />
                           ) : (
-                            <Ionicons name="trash" size={16} color="#FF6347" />
+                            <MaterialIcons name="delete" size={16} color="#FF6347" />
                           )}
                         </TouchableOpacity>
                       </View>
@@ -913,7 +913,7 @@ const AnnouncementsTab: React.FC = () => {
                           {announcement.category}
                         </Text>
                         <View style={styles.publishStatus}>
-                          <Ionicons 
+                          <MaterialIcons 
                             name={getPublishStatus(announcement).icon as any} 
                             size={14} 
                             color={getPublishStatus(announcement).color} 
@@ -957,7 +957,7 @@ const AnnouncementsTab: React.FC = () => {
                 style={styles.closeButton}
                 onPress={handleCloseEditModal}
               >
-                <Ionicons name="close" size={24} color="#000" />
+                <MaterialIcons name="close" size={24} color="#000" />
               </TouchableOpacity>
             </View>
 
@@ -992,7 +992,7 @@ const AnnouncementsTab: React.FC = () => {
                   style={styles.dateTimeButton}
                   onPress={() => setShowDatePicker(true)}
                 >
-                  <Ionicons name="calendar" size={20} color="#666" />
+                  <MaterialIcons name="event" size={20} color="#666" />
                   <Text style={styles.dateTimeText}>
                     {selectedDate.toLocaleDateString('en-US', {
                       month: 'short',
@@ -1006,7 +1006,7 @@ const AnnouncementsTab: React.FC = () => {
                   style={styles.dateTimeButton}
                   onPress={() => setShowTimePicker(true)}
                 >
-                  <Ionicons name="time" size={20} color="#666" />
+                  <MaterialIcons name="access-time" size={20} color="#666" />
                   <Text style={styles.dateTimeText}>
                     {selectedTime.toLocaleTimeString('en-US', {
                       hour: '2-digit',
@@ -1025,7 +1025,7 @@ const AnnouncementsTab: React.FC = () => {
                   <Text style={styles.dropdownText}>
                     {selectedPriority}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" />
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color="#666" />
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
@@ -1035,7 +1035,7 @@ const AnnouncementsTab: React.FC = () => {
                   <Text style={styles.dropdownText}>
                     {selectedCategory}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" />
+                  <MaterialIcons name="keyboard-arrow-down" size={20} color="#666" />
                 </TouchableOpacity>
               </View>
 
@@ -1108,7 +1108,7 @@ const AnnouncementsTab: React.FC = () => {
               onPress={() => setShowDatePicker(false)}
               style={{ position: 'absolute', top: 12, right: 12, padding: 6 }}
             >
-              <Ionicons name="close" size={20} color="#111" />
+              <MaterialIcons name="close" size={20} color="#111" />
             </TouchableOpacity>
             <Text style={styles.pickerTitle}>Select Date</Text>
             <Text style={styles.pickerSubtitle}>Choose a future date for your announcement</Text>
@@ -1184,7 +1184,7 @@ const AnnouncementsTab: React.FC = () => {
               onPress={() => setShowTimePicker(false)}
               style={{ position: 'absolute', top: 12, right: 12, padding: 6 }}
             >
-              <Ionicons name="close" size={20} color="#111" />
+              <MaterialIcons name="close" size={20} color="#111" />
             </TouchableOpacity>
             <Text style={styles.pickerTitle}>Select Time</Text>
             <Text style={styles.pickerSubtitle}>Choose a time for your announcement</Text>

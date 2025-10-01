@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -473,7 +473,7 @@ const ReportsTab: React.FC = () => {
         {/* Search Input */}
         <View style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
-            <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
+            <MaterialIcons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search reports..."
@@ -486,7 +486,7 @@ const ReportsTab: React.FC = () => {
                 style={styles.clearButton}
                 onPress={() => handleSearch('')}
               >
-                <Ionicons name="close-circle" size={20} color="#6B7280" />
+                <MaterialIcons name="cancel" size={20} color="#6B7280" />
               </TouchableOpacity>
             )}
           </View>
@@ -503,7 +503,7 @@ const ReportsTab: React.FC = () => {
         {/* Error State */}
         {error && (
           <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={48} color="#EF4444" />
+            <MaterialIcons name="error" size={48} color="#EF4444" />
             <Text style={styles.errorText}>{error}</Text>
             <TouchableOpacity 
               style={styles.retryButton}
@@ -523,7 +523,7 @@ const ReportsTab: React.FC = () => {
           <View style={styles.cardListContainer}>
             {getFilteredReports().length === 0 ? (
               <View style={styles.emptyContainer}>
-                <Ionicons name="document-outline" size={64} color="#9CA3AF" />
+                <MaterialIcons name="description" size={64} color="#9CA3AF" />
                 <Text style={styles.emptyText}>
                   {searchQuery ? 'No reports found matching your search' : 'No reports found'}
                 </Text>
@@ -554,7 +554,7 @@ const ReportsTab: React.FC = () => {
                         <Image source={{ uri: report.imageURL }} style={styles.cardImage} resizeMode="cover" />
                       ) : (
                         <View style={styles.cardImagePlaceholder}>
-                          <Ionicons name="image" size={32} color="#9CA3AF" />
+                          <MaterialIcons name="image" size={32} color="#9CA3AF" />
                         </View>
                       )}
                     </TouchableOpacity>
@@ -601,7 +601,7 @@ const ReportsTab: React.FC = () => {
                     style={styles.closeButton}
                     onPress={handleCloseModal}
                   >
-                    <Ionicons name="close" size={24} color="#000" />
+                    <MaterialIcons name="close" size={24} color="#000" />
                   </TouchableOpacity>
                 </View>
 
@@ -686,7 +686,7 @@ const ReportsTab: React.FC = () => {
               ) : null}
             </ScrollView>
             <TouchableOpacity style={styles.previewClose} onPress={() => setIsImagePreviewVisible(false)}>
-              <Ionicons name="close" size={24} color="#fff" />
+              <MaterialIcons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>

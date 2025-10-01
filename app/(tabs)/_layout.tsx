@@ -7,11 +7,11 @@ import { Image, Platform, StyleSheet, TouchableOpacity, View } from 'react-nativ
 import AIChatModal from '@/components/AIChatModal';
 import { useAuthContext } from '@/components/AuthContext';
 import { CustomTabBar } from '@/components/CustomTabBar';
-import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import { MaterialIcons } from '@expo/vector-icons';
 
 export default function TabLayout() {
   const { theme } = useTheme();
@@ -110,10 +110,10 @@ export default function TabLayout() {
           name="home"
           options={{
             title: 'Home',
-            tabBarIcon: () => (
-              <IconSymbol 
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="home" 
                 size={28} 
-                name="house.fill" 
                 color="#FFFFFF"
               />
             ),
@@ -123,10 +123,10 @@ export default function TabLayout() {
           name="schedule"
           options={{
             title: 'Schedule',
-            tabBarIcon: () => (
-              <IconSymbol 
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="event" 
                 size={28} 
-                name="calendar" 
                 color="#FFFFFF"
               />
             ),
@@ -136,10 +136,10 @@ export default function TabLayout() {
           name="announcements"
           options={{
             title: 'Announcements',
-            tabBarIcon: () => (
-              <IconSymbol 
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="campaign" 
                 size={28} 
-                name="bell.badge.fill" 
                 color="#FFFFFF"
               />
             ),
@@ -149,10 +149,10 @@ export default function TabLayout() {
           name="report"
           options={{
             title: 'Report',
-            tabBarIcon: () => (
-              <IconSymbol 
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="description" 
                 size={28} 
-                name="doc.text.fill" 
                 color="#FFFFFF"
               />
             ),

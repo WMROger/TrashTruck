@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1.00001,viewport-fit=cover"
+  />
+  <title>TrashTrack</title>
+  <style>
+    /* Ensure fonts load properly */
+    @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=SF+Pro:wght@300;400;500;600;700&display=swap');
+
+    #root {
+      width: 100%;
+      /* To smooth any scrolling behavior */
+      -webkit-overflow-scrolling: touch;
+      margin: 0px;
+      padding: 0px;
+      /* Allows content to fill the viewport and go beyond the bottom */
+      min-height: 100%;
+    }
+    #root {
+      flex-shrink: 0;
+      flex-basis: auto;
+      flex-grow: 1;
+      display: flex;
+      flex: 1;
+    }
+
+    html, body {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      /* Allows you to scroll below the viewport; default value is visible */
+      overflow-y: auto;
+      overscroll-behavior-y: none;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      -ms-overflow-style: scrollbar;
+    }
+
+    /* Ensure Material Icons render properly */
+    .material-icons {
+      font-feature-settings: 'liga';
+      -webkit-font-feature-settings: 'liga';
+      -moz-font-feature-settings: 'liga';
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

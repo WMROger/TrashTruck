@@ -182,9 +182,21 @@ const sampleDocuments = [
   }
 ];
 
-// Simple keyword-based document retrieval
+// Simple keyword-based document retrieval with trash-domain allowlist
 function getRelevantDocs(query) {
   const queryLower = query.toLowerCase();
+  const domainKeywords = [
+    'trash','waste','recycle','recycling','compost','garbage','bin','landfill','plastic','paper','glass','metal',
+    'e-waste','organic','hazardous','disposal','segregation','collection','pickup','schedule','litter','pollution',
+    'sustainability','environment','eco','composting','reuse','reduce','sorting','incineration','municipal',
+    'trashtrack','trash track','app','driver','route','dump','junk','debris','scrap','rubbish','refuse'
+  ];
+
+  const isInDomain = domainKeywords.some(k => queryLower.includes(k));
+  if (!isInDomain) {
+    return [];
+  }
+
   const relevantDocs = sampleDocuments.filter(doc => {
     return doc.keywords.some(keyword => 
       queryLower.includes(keyword.toLowerCase())
@@ -203,8 +215,17 @@ exports.chatWithRAG = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'Query is required');
     }
 
-    // Step 1: Retrieve relevant documents
-    const relevantDocs = getRelevantDocs(query);
+    // Step 0: Hard domain guardrail
+    const domainKeywords = [
+      'trash','waste','recycle','recycling','compost','garbage','bin','landfill','plastic','paper','glass','metal',
+      'e-waste','organic','hazardous','disposal','segregation','collection','pickup','schedule','litter','pollution',
+      'sustainability','environment','eco','composting','reuse','reduce','sorting','incineration','municipal',
+      'trashtrack','trash track','app','driver','route','dump','junk','debris','scrap','rubbish','refuse'
+    ];
+    const inDomain = domainKeywords.some(k => query.toLowerCase().includes(k));
+    
+    // Step 1: Retrieve relevant documents (only if in domain)
+    const relevantDocs = inDomain ? getRelevantDocs(query) : [];
     
     // Step 2: Format context from documents
     const context = relevantDocs.length > 0 
@@ -212,7 +233,7 @@ exports.chatWithRAG = functions.https.onCall(async (data, context) => {
       : 'No specific information available about this topic.';
 
     // Step 3: Create prompt for Groq API
-    const prompt = `You are a helpful AI assistant for TrashTrack, a waste management app. Use the following context to answer the user's question. If the context doesn't contain relevant information, provide a general helpful response about waste management and sustainability.
+    const prompt = `You are a helpful AI assistant for TrashTrack, a waste management app. ONLY answer questions related to trash, recycling, waste disposal, composting, sustainability, or the TrashTrack app itself. If the user asks something outside these topics, politely refuse and suggest asking about waste-related topics.
 
 Context:
 ${context}
@@ -242,7 +263,7 @@ Please provide a helpful and informative response:`;
         messages: [
           {
             role: "system",
-            content: "You are a helpful AI assistant for TrashTrack, a waste management app. Provide informative and friendly responses about waste management, recycling, and sustainability."
+            content: "You are a TrashTrack AI assistant. STRICTLY limit responses to waste management: trash, recycling, composting, disposal rules, pickup schedules, sustainability tips, and TrashTrack app support. If out-of-domain, respond with a brief refusal and guide the user back to trash-related topics."
           },
           {
             role: "user",

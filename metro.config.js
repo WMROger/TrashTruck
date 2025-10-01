@@ -17,4 +17,13 @@ config.resolver.symlinks = false;
 // Add platforms
 config.resolver.platforms = ['ios', 'android', 'web', 'native'];
 
+// Web-specific configurations for better font loading
+if (process.env.EXPO_PLATFORM === 'web') {
+  // Ensure web assets are handled properly
+  config.transformer = {
+    ...config.transformer,
+    assetPlugins: ['expo-asset/tools/hashAssetFiles'],
+  };
+}
+
 module.exports = config;

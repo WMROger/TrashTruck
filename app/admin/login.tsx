@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
@@ -138,7 +138,7 @@ export default function AdminLogin() {
             onPress={() => router.replace('/admin/splash')}
             disabled={isLoading}
           >
-            <Ionicons name="arrow-back" size={20} color="#666" />
+            <MaterialIcons name="arrow-back" size={20} color="#333" />
             <Text style={adminStyles.backButtonText}>Back to Admin Portal</Text>
           </TouchableOpacity>
 
@@ -159,7 +159,7 @@ export default function AdminLogin() {
               placeholder="Password"
               value={password}
               onChangeText={setPassword}
-              icon="key"
+              icon="lock"
               secureTextEntry
               editable={!isLoading}
               rightComponent={
@@ -176,7 +176,7 @@ export default function AdminLogin() {
                 onPress={() => setKeepLoggedIn(!keepLoggedIn)}
                 disabled={isLoading}
               >
-                {keepLoggedIn && <Ionicons name="checkmark" size={16} color="white" />}
+                {keepLoggedIn && <MaterialIcons name="check" size={16} color="white" />}
               </TouchableOpacity>
               <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
             </View>
