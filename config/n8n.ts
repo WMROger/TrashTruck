@@ -57,7 +57,7 @@ function normalizeUrlForPlatform(url: string): string {
   // Android emulator cannot reach host's localhost; use 10.0.2.2 for loopback
   if (Platform.OS === 'android') {
     let updated = url.replace('://localhost', '://10.0.2.2');
-    updated = updated.replace('://127.0.0.1', '://10.0.2.2');
+    updated = updated.replace('://192.168.1.5', '://10.0.2.2');
     return updated;
   }
 

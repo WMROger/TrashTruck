@@ -5,10 +5,11 @@ import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationService } from '@/services/notificationService';
 import { useRouter } from 'expo-router';
-import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { getNotificationColor, getNotificationIcon, getNotificationTypeLabel, markAsRead as markAsReadHelper, sendTestNotification as sendTestNotificationHelper } from './home.notifications';
 
 export default function HomePage() {
   const router = useRouter();
@@ -193,12 +194,7 @@ export default function HomePage() {
   }, [user?.uid]);
 
   const markAsRead = async (id: string) => {
-    try {
-      if (!db) return;
-      await updateDoc(doc(db, 'userNotifications', id), { read: true, readAt: new Date().toISOString() });
-    } catch (e) {
-      console.warn('Failed to mark notification read:', e);
-    }
+    await markAsReadHelper(db, id);
   };
 
   const handleNotificationPress = (notification: { id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string }) => {
@@ -236,48 +232,8 @@ export default function HomePage() {
 
   // Test function to send one notification at a time, cycling through types
   const sendTestNotification = async () => {
-    if (!db || !user?.uid) return;
-    
-    try {
-      const notificationTemplates = [
-        {
-          title: "🚛 Pickup Reminder",
-          body: "Your trash pickup is scheduled for tomorrow at 9:00 AM. Please have your bins ready!",
-          type: "pickup_reminder"
-        },
-        {
-          title: "📢 New Announcement",
-          body: "Important: Schedule changes for next week due to holiday. Check your updated pickup times.",
-          type: "announcement"
-        },
-        {
-          title: "✅ Pickup Completed",
-          body: "Your trash has been successfully collected today. Thank you for using our service!",
-          type: "pickup_completed"
-        }
-      ];
-
-      // Get current notification template
-      const currentTemplate = notificationTemplates[currentNotificationType];
-      
-      const notification = {
-        title: currentTemplate.title,
-        body: currentTemplate.body,
-        userId: user.uid,
-        type: currentTemplate.type,
-        createdAt: new Date(),
-        read: false
-      };
-
-      await addDoc(collection(db, 'userNotifications'), notification);
-      
-      // Cycle to next notification type
-      setCurrentNotificationType((prev) => (prev + 1) % 3);
-      
-      console.log(`Test notification sent: ${currentTemplate.title} (Type: ${currentTemplate.type})`);
-    } catch (error) {
-      console.error('Error sending test notification:', error);
-    }
+    const next = await sendTestNotificationHelper(db, user, currentNotificationType);
+    setCurrentNotificationType(next);
   };
 
   const handleLogout = () => {
@@ -367,59 +323,10 @@ export default function HomePage() {
     return `${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  const getNotificationIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'pickup_reminder':
-        return 'truck.box.fill';
-      case 'announcement':
-        return 'megaphone.fill';
-      case 'pickup_completed':
-        return 'checkmark.circle.fill';
-      case 'schedule_change':
-        return 'calendar.badge.exclamationmark';
-      case 'emergency':
-        return 'exclamationmark.triangle.fill';
-      default:
-        return 'bell.fill';
-    }
-  };
-
-  const getNotificationColor = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'pickup_reminder':
-        return '#3B82F6'; // Blue
-      case 'announcement':
-        return '#8B5CF6'; // Purple
-      case 'pickup_completed':
-        return '#22C55E'; // Green
-      case 'schedule_change':
-        return '#F59E0B'; // Orange
-      case 'emergency':
-        return '#EF4444'; // Red
-      default:
-        return '#6B7280'; // Gray
-    }
-  };
-
-  const getNotificationTypeLabel = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'pickup_reminder':
-        return 'Pickup Reminder';
-      case 'announcement':
-        return 'Announcement';
-      case 'pickup_completed':
-        return 'Pickup Completed';
-      case 'schedule_change':
-        return 'Schedule Change';
-      case 'emergency':
-        return 'Emergency';
-      default:
-        return 'General';
-    }
-  };
+  // Notification helpers imported from './home.notifications'
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header Section */}
       <View style={styles.header}>
         <View style={styles.profileSection}>
@@ -708,13 +615,14 @@ export default function HomePage() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    height: '100%',
   },
   header: {
     flexDirection: 'row',
@@ -722,7 +630,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: 60,
+    paddingTop: 30,
   },
   profileSection: {
     flexDirection: 'row',
