@@ -75,14 +75,14 @@ export default function AnnouncementsScreen() {
   const PAGE_SIZE = 5;
 
   const priorityItems = [
-    { label: "All Priority", value: null },
+    { label: "All Priority", value: undefined },
     { label: "Low", value: "Low" },
     { label: "Medium", value: "Medium" },
     { label: "Urgent", value: "Urgent" },
   ];
 
   const categoryItems = [
-    { label: "All Category", value: null },
+    { label: "All Category", value: undefined },
     { label: "General", value: "General" },
     { label: "Schedule Change", value: "Schedule Change" },
     { label: "Service Update", value: "Service Update" },
@@ -100,7 +100,7 @@ export default function AnnouncementsScreen() {
       return;
     }
 
-    console.log("Setting up announcements listener...");
+    // Setting up announcements listener
 
     const announcementsRef = collection(db, "announcements");
     const q = query(announcementsRef, where("isPublished", "==", true));
@@ -122,11 +122,7 @@ export default function AnnouncementsScreen() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        console.log(
-          "Announcements snapshot received:",
-          snapshot.docs.length,
-          "documents"
-        );
+        // Announcements snapshot received
 
         const announcementsData: Announcement[] = snapshot.docs.map((doc) => {
           const data = doc.data();
@@ -153,20 +149,20 @@ export default function AnnouncementsScreen() {
           return dateB.getTime() - dateA.getTime();
         });
 
-        console.log("Processed announcements:", announcementsData.length);
+        // Processed announcements
         setAnnouncements(announcementsData);
         setLoading(false);
         setError(null);
       },
       (error) => {
-        console.error("Error fetching announcements:", error);
+        // Error fetching announcements
         setError("Failed to fetch announcements");
         setLoading(false);
       }
     );
 
     return () => {
-      console.log("Cleaning up announcements listener");
+      // Cleaning up announcements listener
       unsubscribe();
     };
   }, []);
@@ -175,7 +171,7 @@ export default function AnnouncementsScreen() {
   useEffect(() => {
     if (!db || announcements.length === 0) return;
 
-    console.log("Setting up comments listener...");
+    // Setting up comments listener
 
     const commentsRef = collection(db, "comments");
 
@@ -193,11 +189,7 @@ export default function AnnouncementsScreen() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        console.log(
-          "Comments snapshot received:",
-          snapshot.docs.length,
-          "documents"
-        );
+        // Comments snapshot received
 
         const commentsData: Comment[] = snapshot.docs.map((doc) => {
           const data = doc.data();
@@ -212,21 +204,16 @@ export default function AnnouncementsScreen() {
           };
         });
 
-        console.log("Processed comments:", commentsData.length);
+        // Processed comments
         setComments(commentsData);
       },
       (error) => {
-        console.error("Error fetching comments:", error);
-        // If it's a permission error, show a helpful message
-        if (error.code === "permission-denied") {
-          console.warn(
-            "Comments feature requires Firestore rules to be updated. Please deploy the updated firestore.rules file."
-          );
+        // Error fetching comments - permission denied
           setError(
             "Comments feature is not available. Please contact administrator to update database permissions."
           );
         }
-      }
+      
     );
 
     return () => {

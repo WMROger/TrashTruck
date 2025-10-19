@@ -25,7 +25,7 @@ interface HistoryData {
 
 export default function DriverHistoryPage({}: DriverHistoryPageProps) {
   const { theme } = useTheme();
-  const colors = Colors['light'];
+  const colors = Colors[theme ?? 'light'];
   const [showSortModal, setShowSortModal] = useState(false);
   const [selectedSort, setSelectedSort] = useState('Date (Newest First)');
   const [historyData, setHistoryData] = useState<HistoryData[]>([]);
@@ -343,11 +343,14 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
                   }}
                 >
                   <View style={styles.radioContainer}>
-                    <View style={[
-                      styles.radioButton,
-                      selectedSort === option && styles.radioButtonSelected
-                    ]}>
-                      {selectedSort === option && <View style={styles.radioInner} />}
+                    <View
+                      style={[
+                        styles.radioButton,
+                        { borderColor: colors.border },
+                        selectedSort === option && { borderColor: colors.primary }
+                      ]}
+                    >
+                      {selectedSort === option && <View style={[styles.radioInner, { backgroundColor: colors.primary }]} />}
                     </View>
                   </View>
                   <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
@@ -375,7 +378,6 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
   },
   header: {
     paddingHorizontal: 16,
@@ -385,12 +387,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#000',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
     fontWeight: '400',
     marginBottom: 16,
   },
@@ -398,16 +398,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-end',
-    backgroundColor: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
   },
   sortText: {
     fontSize: 14,
-    color: '#666',
     marginHorizontal: 8,
   },
   scrollView: {
@@ -420,7 +417,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   historyCard: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     marginBottom: 16,
     width: '48%',
@@ -456,22 +452,18 @@ const styles = StyleSheet.create({
   },
   streetText: {
     fontSize: 12,
-    color: '#333',
     marginBottom: 4,
   },
   typeText: {
     fontSize: 12,
-    color: '#333',
     marginBottom: 4,
   },
   dateText: {
     fontSize: 12,
-    color: '#333',
     marginBottom: 8,
   },
   statusText: {
     fontSize: 12,
-    color: '#4CAF50',
     fontWeight: 'bold',
     textAlign: 'center',
   },
@@ -483,7 +475,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sortModal: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     minWidth: 200,
@@ -503,22 +494,18 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#ddd',
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioButtonSelected: {
-    borderColor: '#4CAF50',
   },
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#4CAF50',
   },
   optionText: {
     fontSize: 14,
-    color: '#333',
   },
   loadingContainer: {
     flex: 1,
@@ -528,28 +515,23 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: '#666',
     textAlign: 'center',
   },
   emptyState: {
-    backgroundColor: '#f8f9fa',
     borderRadius: 8,
     padding: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e9ecef',
     width: '100%',
   },
   emptyText: {
     fontSize: 16,
-    color: '#6c757d',
     textAlign: 'center',
     marginTop: 12,
     fontWeight: '500',
   },
   emptySubText: {
     fontSize: 14,
-    color: '#6c757d',
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,

@@ -50,16 +50,16 @@ export default function ProfilePage() {
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
     try {
-      console.log('🖼️ Resolving photo URL for:', maybePath);
+      // Resolving photo URL
       if (!maybePath) {
-        console.log('❌ No photo path provided');
+        // No photo path provided
         return undefined;
       }
       
       // Check for local file paths (these won't work for display)
       const isLocalFile = /^file:\/\//.test(maybePath);
       if (isLocalFile) {
-        console.warn('⚠️ Local file path detected, cannot display:', maybePath);
+        // Local file path detected, cannot display
         return undefined; // Don't try to display local file paths
       }
       
@@ -67,22 +67,22 @@ export default function ProfilePage() {
       const isDataOrLocal = /^(data:|content:|asset(s)?:\/\/|blob:|expo-file:)/i.test(maybePath);
       
       if (isHttp || isDataOrLocal) {
-        console.log('✅ Direct URL found:', maybePath);
+        // Direct URL found
         return maybePath;
       }
       
       if (!storage) {
-        console.log('❌ Firebase storage not available');
+        // Firebase storage not available
         return undefined;
       }
       
-      console.log('🔄 Fetching download URL from Firebase Storage...');
+      // Fetching download URL from Firebase Storage
       const r = ref(storage, maybePath);
       const downloadURL = await getDownloadURL(r);
-      console.log('✅ Download URL obtained:', downloadURL);
+      // Download URL obtained
       return downloadURL;
     } catch (e) {
-      console.warn('❌ Failed to resolve photo URL:', e);
+      // Failed to resolve photo URL
       return undefined;
     }
   };
@@ -91,12 +91,12 @@ export default function ProfilePage() {
   useEffect(() => {
     const fetchUserProfile = async () => {
       if (!user || !db) {
-        console.log('❌ User or DB not available:', { user: !!user, db: !!db });
+        // User or DB not available
         return;
       }
 
       try {
-        console.log('👤 Fetching user profile for:', user.uid);
+        // Fetching user profile
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
         
@@ -161,7 +161,7 @@ export default function ProfilePage() {
           });
         }
       } catch (error) {
-        console.error('❌ Error fetching user profile:', error);
+        // Error fetching user profile
         // Only use auth photoURL if it's a valid Cloudinary/HTTP URL
         const authPhotoURL = user?.photoURL;
         const isValidAuthURL = authPhotoURL && (

@@ -100,6 +100,23 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // User Reports (new collection)
+    match /user_reports/{reportId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // Relax reads for authenticated users so admin UI can list reports without custom claims
+      allow read: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // Driver Reports (new collection)
+    match /driver_reports/{reportId} {
+      // Allow any authenticated driver to create; document carries driver identifiers
+      allow create: if isAuthenticated();
+      // Relax reads for authenticated users so admin UI can list driver reports
+      allow read: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
     // Announcements
     match /announcements/{announcementId} {
       allow create: if isAdmin();

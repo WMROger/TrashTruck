@@ -3,6 +3,7 @@ import { auth, db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams } from 'expo-router';
 import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -21,6 +22,7 @@ interface Schedule {
   street: string;
   wasteCategory: string;
   driver: string;
+  barangay?: string;
   status?: string;
   note?: string;
   frequency?: string;
@@ -30,6 +32,7 @@ interface Schedule {
 export default function DriverSchedulePage({}: DriverSchedulePageProps) {
   const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
+  const params = useLocalSearchParams<{ open?: string; pickupId?: string }>();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -203,6 +206,21 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
     setSelectedImageUri(null);
     setDescription('');
   };
+
+  // If navigated with params from Home, auto-open the modal for that pickup
+  useEffect(() => {
+    if (!params || (!params.open && !params.pickupId)) return;
+    if (!schedules || schedules.length === 0) return; // wait until schedules load
+
+    const target = schedules.find(s => s.id === params.pickupId);
+    if (!target) return;
+
+    if (params.open === 'complete') {
+      handleCompletePickup(target);
+    } else if (params.open === 'issue') {
+      handleReportIssue(target);
+    }
+  }, [params, schedules]);
 
   const handleImagePicker = async () => {
     try {
@@ -410,6 +428,32 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         // Add completion instance to a separate collection
         await addDoc(collection(db, 'pickupCompletions'), completionData);
         
+        // Also save to driver_reports collection for admin viewing
+        const driverReportData = {
+          title: `Recurring Pickup Completed - ${selectedPickup.wasteCategory || 'Waste Collection'}`,
+          description: description || 'Recurring pickup completed by driver',
+          barangay: selectedPickup.barangay || 'Unknown',
+          street: selectedPickup.street || 'Unknown Street',
+          userId: auth.currentUser?.uid || '',
+          userEmail: auth.currentUser?.email || 'Unknown Driver',
+          imageURL: cloudinaryImageUrl || null,
+          status: 'completed',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          // Driver completion specific fields
+          driverName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+          wasteCategory: selectedPickup.wasteCategory || 'General',
+          completionDate: new Date().toISOString(),
+          isDriverCompletion: true,
+          isRecurringCompletion: true,
+          originalScheduleId: selectedPickup.id,
+          completedBy: auth.currentUser?.email || 'Unknown Driver',
+          completedByUid: auth.currentUser?.uid || undefined,
+          completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver'
+        };
+        
+        await addDoc(collection(db, 'driver_reports'), driverReportData);
+        
         console.log('Created completion instance for recurring schedule:', selectedPickup.id);
       } else {
         // For one-time schedules, update the original record
@@ -424,6 +468,32 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
           completedByUid: auth.currentUser?.uid || undefined,
           completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
         });
+        
+        // Also save to driver_reports collection for admin viewing
+        const driverReportData = {
+          title: `Pickup Completed - ${selectedPickup.wasteCategory || 'Waste Collection'}`,
+          description: description || 'Pickup completed by driver',
+          barangay: selectedPickup.barangay || 'Unknown',
+          street: selectedPickup.street || 'Unknown Street',
+          userId: auth.currentUser?.uid || '',
+          userEmail: auth.currentUser?.email || 'Unknown Driver',
+          imageURL: cloudinaryImageUrl || null,
+          status: 'completed',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          // Driver completion specific fields
+          driverName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+          wasteCategory: selectedPickup.wasteCategory || 'General',
+          completionDate: new Date().toISOString(),
+          isDriverCompletion: true,
+          isRecurringCompletion: false,
+          originalScheduleId: selectedPickup.id,
+          completedBy: auth.currentUser?.email || 'Unknown Driver',
+          completedByUid: auth.currentUser?.uid || undefined,
+          completedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver'
+        };
+        
+        await addDoc(collection(db, 'driver_reports'), driverReportData);
         
         console.log('Updated one-time schedule as completed:', selectedPickup.id);
       }

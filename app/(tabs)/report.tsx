@@ -238,6 +238,7 @@ export default function ReportScreen() {
 
 
   return (
+    <View style={styles.root}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <Text style={styles.headerTitle}>Report a Trash Pile</Text>
@@ -275,9 +276,16 @@ export default function ReportScreen() {
               onPress={() => {
                 const next = !showBarangay;
                 setShowBarangay(next);
-                if (Platform.OS === 'web' && next && brgyAnchorRef.current?.getBoundingClientRect) {
-                  const rect = brgyAnchorRef.current.getBoundingClientRect();
-                  setBrgyPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                // Measure anchor for positioning (web + native)
+                if (next) {
+                  if (Platform.OS === 'web' && brgyAnchorRef.current?.getBoundingClientRect) {
+                    const rect = brgyAnchorRef.current.getBoundingClientRect();
+                    setBrgyPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                  } else if (brgyAnchorRef.current?.measureInWindow) {
+                    brgyAnchorRef.current.measureInWindow((x: number, y: number, width: number, height: number) => {
+                      setBrgyPortalRect({ top: y + height, left: x, width });
+                    });
+                  }
                 }
               }}
               activeOpacity={0.8}
@@ -299,15 +307,7 @@ export default function ReportScreen() {
                     </View>,
                     document.body
                   )
-                : (
-                  <View style={styles.dropdownPanel}>
-                    {BARANGAYS.map((b) => (
-                      <TouchableOpacity key={b} style={styles.dropdownItem} onPress={() => { setBarangay(b); setShowBarangay(false); }}>
-                        <Text style={styles.dropdownText}>{b}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )
+                : null
             )}
           </View>
         </View>
@@ -335,9 +335,16 @@ export default function ReportScreen() {
               onPress={() => {
                 const next = !showLandmark;
                 setShowLandmark(next);
-                if (Platform.OS === 'web' && next && landmarkAnchorRef.current?.getBoundingClientRect) {
-                  const rect = landmarkAnchorRef.current.getBoundingClientRect();
-                  setLandmarkPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                // Measure anchor for positioning (web + native)
+                if (next) {
+                  if (Platform.OS === 'web' && landmarkAnchorRef.current?.getBoundingClientRect) {
+                    const rect = landmarkAnchorRef.current.getBoundingClientRect();
+                    setLandmarkPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                  } else if (landmarkAnchorRef.current?.measureInWindow) {
+                    landmarkAnchorRef.current.measureInWindow((x: number, y: number, width: number, height: number) => {
+                      setLandmarkPortalRect({ top: y + height, left: x, width });
+                    });
+                  }
                 }
               }}
               activeOpacity={0.8}
@@ -359,15 +366,7 @@ export default function ReportScreen() {
                     </View>,
                     document.body
                   )
-                : (
-                  <View style={styles.dropdownPanel}>
-                    {LANDMARKS.map((l) => (
-                      <TouchableOpacity key={l} style={styles.dropdownItem} onPress={() => { setLandmark(l); setShowLandmark(false); }}>
-                        <Text style={styles.dropdownText}>{l}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )
+                : null
             )}
           </View>
         </View>
@@ -428,10 +427,37 @@ export default function ReportScreen() {
         </Text>
       </TouchableOpacity>
     </ScrollView>
+    {/* Native overlay dropdowns */}
+    {Platform.OS !== 'web' && showBarangay && (
+      <View style={styles.overlayRoot} pointerEvents="box-none">
+        <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowBarangay(false)} />
+        <View style={[styles.dropdownPanelPortalNative, { top: brgyPortalRect.top, left: brgyPortalRect.left, width: brgyPortalRect.width }]}>
+          {BARANGAYS.map((b) => (
+            <TouchableOpacity key={b} style={styles.dropdownItem} onPress={() => { setBarangay(b); setShowBarangay(false); }}>
+              <Text style={styles.dropdownText}>{b}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    )}
+    {Platform.OS !== 'web' && showLandmark && (
+      <View style={styles.overlayRoot} pointerEvents="box-none">
+        <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowLandmark(false)} />
+        <View style={[styles.dropdownPanelPortalNative, { top: landmarkPortalRect.top, left: landmarkPortalRect.left, width: landmarkPortalRect.width }]}>
+          {LANDMARKS.map((l) => (
+            <TouchableOpacity key={l} style={styles.dropdownItem} onPress={() => { setLandmark(l); setShowLandmark(false); }}>
+              <Text style={styles.dropdownText}>{l}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   container: { flex: 1, backgroundColor: '#ECF8ED' },
   content: { padding: 26, paddingBottom: 120, paddingTop: 64 },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
@@ -497,10 +523,42 @@ const styles = StyleSheet.create({
     zIndex: 2147483647,
     boxShadow: '0 6px 12px rgba(0,0,0,0.15)'
   } as any,
+  dropdownPanelPortalNative: {
+    position: 'absolute',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#C8D8CA',
+    borderRadius: 8,
+    overflow: 'hidden',
+    zIndex: 2147483647,
+    elevation: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
   dropdownContainer: { position: 'relative' },
   dropdownContainerOpen: { zIndex: 2147483647, elevation: 100 },
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEF3EE' },
   dropdownText: { fontSize: 12, color: '#234033' },
+
+  overlayRoot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2147483647,
+    elevation: 1000,
+  },
+  overlayBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
 
   textArea: {
     backgroundColor: '#F7FBF7',

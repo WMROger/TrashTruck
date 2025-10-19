@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // Web-only portal to ensure dropdown overlays escape ScrollView clipping
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - only resolved on web
@@ -45,6 +45,9 @@ const ScheduleTab: React.FC = () => {
   const durationAnchorRef = useRef<any>(null);
   const [showDriverDropdown, setShowDriverDropdown] = useState(false);
   const [driverPortalRect, setDriverPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [showStatusDropdown, setShowStatusDropdown] = useState<boolean>(false);
+  const [statusPortalRect, setStatusPortalRect] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const statusAnchorRef = useRef<any>(null);
   
   // Delete confirmation modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -122,6 +125,7 @@ const ScheduleTab: React.FC = () => {
     setShowWasteDropdown(false);
     setShowTruckDropdown(false);
     setShowDriverDropdown(false);
+    setShowStatusDropdown(false);
   };
 
   const showDeleteConfirmation = (id: string, info: { date: string; time: string; street: string; category: string }) => {
@@ -335,13 +339,14 @@ const ScheduleTab: React.FC = () => {
       return;
     }
     
-    const when = combineDateTime(selectedDate, timeText);
-    if (!isFutureDateTime(when)) {
-      showError('Selected date/time must be in the future', 'Validation Error', 'warning');
-      return;
-    }
+    // Skip future date validation for edit mode - allow editing existing schedules
+    // const when = combineDateTime(selectedDate, timeText);
+    // if (!isFutureDateTime(when)) {
+    //   showError('Selected date/time must be in the future', 'Validation Error', 'warning');
+    //   return;
+    // }
+    
     const payload: any = {
-      id: selectedId,
       dateText: formatDate(selectedDate),
       timeText,
       street: selectedStreet,
@@ -477,6 +482,7 @@ const ScheduleTab: React.FC = () => {
     wasteCategory: string;
     truck: string;
     driver: string;
+    status?: string;
     note?: string;
     docId: string; // Firestore document ID
   };
@@ -1031,17 +1037,65 @@ const ScheduleTab: React.FC = () => {
               {scheduleMode === 'edit' && (
                 <View style={styles.formField}>
                   <Text style={styles.fieldLabel}>Status</Text>
-                  <TouchableOpacity style={styles.inputField}>
-                    <Text style={styles.inputText}>Status</Text>
-                    <MaterialIcons name="keyboard-arrow-down" size={18} color="#4B5F4F" />
-                  </TouchableOpacity>
+                  <View style={[styles.dropdownContainer, showStatusDropdown ? styles.dropdownContainerOpen : null]} ref={statusAnchorRef}>
+                    <TouchableOpacity
+                      style={styles.inputField}
+                      onPress={() => {
+                        const next = !showStatusDropdown;
+                        closeAllDropdowns();
+                        setShowStatusDropdown(next);
+                        if (Platform.OS === 'web' && next && statusAnchorRef.current?.getBoundingClientRect) {
+                          const rect = statusAnchorRef.current.getBoundingClientRect();
+                          setStatusPortalRect({ top: rect.bottom, left: rect.left, width: rect.width });
+                        }
+                      }}
+                    >
+                      <Text style={styles.inputText}>{status || 'Select Status'}</Text>
+                      <MaterialIcons name={showStatusDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color="#4B5F4F" />
+                    </TouchableOpacity>
+                    {showStatusDropdown && (
+                      Platform.OS === 'web'
+                        ? createPortal(
+                            <View style={[styles.suggestionPanelPortal, { top: statusPortalRect.top, left: statusPortalRect.left, width: statusPortalRect.width, pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {['Pending', 'In Progress', 'Completed', 'Cancelled'].map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setStatus(opt); setShowStatusDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>,
+                            document.body
+                          )
+                        : (
+                            <View style={[styles.suggestionPanel, { pointerEvents: 'auto' }]}>
+                              <ScrollView style={styles.suggestionScroll} nestedScrollEnabled>
+                                {['Pending', 'In Progress', 'Completed', 'Cancelled'].map((opt) => (
+                                  <TouchableOpacity key={opt} style={styles.suggestionItem} onPress={() => { setStatus(opt); setShowStatusDropdown(false); }}>
+                                    <Text style={styles.suggestionText}>{opt}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )
+                    )}
+                  </View>
                 </View>
               )}
 
               <View style={styles.formField}>
                 <Text style={styles.fieldLabel}>Note</Text>
                 <View style={styles.textArea}>
-                  <Text style={styles.textAreaPlaceholder}>Add special instructions</Text>
+                  <TextInput
+                    style={styles.textInputField}
+                    placeholder="Add special instructions"
+                    placeholderTextColor="#7C8E80"
+                    value={note}
+                    onChangeText={setNote}
+                    multiline={true}
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
                 </View>
               </View>
 
@@ -1060,7 +1114,21 @@ const ScheduleTab: React.FC = () => {
                             onPress={() => {
                               setScheduleMode('edit');
                               setSelectedId(s.docId);
-                              setSelectedDate(new Date(s.dateText));
+                              // Parse the date properly from dateText
+                              const dateParts = s.dateText.split(' ');
+                              const monthName = dateParts[0];
+                              const day = parseInt(dateParts[1].replace(',', ''));
+                              const year = parseInt(dateParts[2]);
+                              
+                              // Convert month name to number
+                              const monthMap: { [key: string]: number } = {
+                                'January': 0, 'February': 1, 'March': 2, 'April': 3,
+                                'May': 4, 'June': 5, 'July': 6, 'August': 7,
+                                'September': 8, 'October': 9, 'November': 10, 'December': 11
+                              };
+                              const month = monthMap[monthName] || 0;
+                              
+                              setSelectedDate(new Date(year, month, day));
                               setTimeText(s.timeText);
                               setSelectedStreet(s.street);
                               setFrequency(s.frequency);
@@ -1068,6 +1136,7 @@ const ScheduleTab: React.FC = () => {
                               setWasteCategory(s.wasteCategory);
                               setTruck(s.truck);
                               setDriver(s.driver);
+                              setStatus(s.status || 'Pending');
                               setNote(s.note || '');
                             }}
                           >
@@ -1445,8 +1514,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     color: '#234033',
-    marginLeft: 8,
     paddingVertical: 0,
+    minHeight: 60,
+    textAlignVertical: 'top',
   },
   textArea: {
     backgroundColor: '#F7FBF7',

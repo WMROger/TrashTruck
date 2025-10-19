@@ -15,15 +15,29 @@ interface Report {
   userId: string;
   userEmail: string;
   imageURL?: string;
-  status: 'pending' | 'in-progress' | 'resolved' | 'closed';
+  status: 'pending' | 'in-progress' | 'resolved' | 'closed' | 'completed';
   createdAt: any; // Firestore timestamp
   updatedAt?: any; // Firestore timestamp
+  // Driver completion fields
+  driverName?: string;
+  wasteCategory?: string;
+  completionDate?: any;
+  isDriverCompletion?: boolean;
+  isRecurringCompletion?: boolean;
+  originalScheduleId?: string;
+  // Today's pickup fields
+  isTodayPickup?: boolean;
+  timeText?: string;
+  dateText?: string;
+  assignedDriverId?: string;
+  assignedDriverName?: string;
 }
 
 const ReportsTab: React.FC = () => {
   const { user } = useAuthContext();
   const [selectedDate, setSelectedDate] = useState('');
   const [reports, setReports] = useState<Report[]>([]);
+  const [driverReports, setDriverReports] = useState<Report[]>([]);
   const [filteredReports, setFilteredReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +51,7 @@ const ReportsTab: React.FC = () => {
   const [isResolving, setIsResolving] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'user' | 'driver'>('user');
   const [errorModal, setErrorModal] = useState({
     visible: false,
     title: 'Error',
@@ -59,7 +74,7 @@ const ReportsTab: React.FC = () => {
     setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
-  // Fetch reports from Firestore
+  // Fetch user reports from Firestore
   useEffect(() => {
     if (!db) {
       setError('Firebase not initialized');
@@ -67,14 +82,14 @@ const ReportsTab: React.FC = () => {
       return;
     }
 
-    console.log('Setting up real-time reports listener...');
+    console.log('Setting up real-time user reports listener...');
     
     const reportsRef = collection(db, 'reports');
     const q = query(reportsRef, orderBy('createdAt', 'desc'));
     
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
-        console.log('Reports snapshot received:', snapshot.docs.length, 'documents');
+        console.log('User reports snapshot received:', snapshot.docs.length, 'documents');
         
         const reportsData: Report[] = snapshot.docs.map(doc => {
           const data = doc.data();
@@ -93,21 +108,151 @@ const ReportsTab: React.FC = () => {
           };
         });
         
-        console.log('Processed reports:', reportsData.length);
+        console.log('Processed user reports:', reportsData.length);
         setReports(reportsData);
         setLoading(false);
         setError(null);
       },
       (error) => {
-        console.error('Error fetching reports:', error);
-        setError('Failed to fetch reports');
+        console.error('Error fetching user reports:', error);
+        setError('Failed to fetch user reports');
         setLoading(false);
       }
     );
 
     return () => {
-      console.log('Cleaning up reports listener');
+      console.log('Cleaning up user reports listener');
       unsubscribe();
+    };
+  }, []);
+
+  // Fetch driver reports from Firestore
+  useEffect(() => {
+    if (!db) {
+      return;
+    }
+
+    console.log('Setting up real-time driver reports listener...');
+    
+    const driverReportsRef = collection(db, 'driver_reports');
+    const q = query(driverReportsRef, orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        console.log('Driver reports snapshot received:', snapshot.docs.length, 'documents');
+        
+        const driverReportsData: Report[] = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || 'Driver Report',
+            description: data.description || '',
+            barangay: data.barangay || '',
+            street: data.street || '',
+            userId: data.userId || '',
+            userEmail: data.userEmail || '',
+            imageURL: data.imageURL || null,
+            status: data.status || 'pending',
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt
+          };
+        });
+        
+        console.log('Processed driver reports:', driverReportsData.length);
+        setDriverReports(driverReportsData);
+      },
+      (error) => {
+        console.error('Error fetching driver reports:', error);
+        // Don't set error for driver reports as it's optional
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up driver reports listener');
+      unsubscribe();
+    };
+  }, []);
+
+  // Fetch today's pickup data from schedules
+  useEffect(() => {
+    if (!db) {
+      return;
+    }
+
+    console.log('Setting up real-time today\'s pickup data listener...');
+    
+    const today = new Date();
+    const todayString = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    
+    // Listen to all schedules for today's pickups
+    const schedulesRef = collection(db, 'schedules');
+    const schedulesQuery = query(
+      schedulesRef, 
+      orderBy('createdAt', 'desc')
+    );
+    
+    const unsubscribeSchedules = onSnapshot(schedulesQuery, 
+      (snapshot) => {
+        console.log('Schedules snapshot received:', snapshot.docs.length, 'documents');
+        
+        const todayPickups: Report[] = [];
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          // Check if this is today's schedule
+          const scheduleDate = data.dateText || data.date;
+          const isToday = scheduleDate && (
+            scheduleDate.includes(todayString) ||
+            scheduleDate.includes(today.toLocaleDateString()) ||
+            scheduleDate.includes(today.toDateString())
+          );
+          
+          if (isToday) {
+            console.log('Found today\'s pickup:', data);
+            todayPickups.push({
+              id: doc.id,
+              title: `Today's Pickup - ${data.wasteCategory || 'Waste Collection'}`,
+              description: data.note || `Scheduled pickup for ${data.street || 'Unknown Street'}`,
+              barangay: data.barangay || 'Unknown',
+              street: data.street || 'Unknown Street',
+              userId: data.userId || '',
+              userEmail: data.userEmail || data.driver || 'Unknown',
+              imageURL: data.completionImage || null,
+              status: data.status || 'pending',
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
+              // Today's pickup specific fields
+              driverName: data.driver || data.assignedDriverName || 'Unassigned',
+              wasteCategory: data.wasteCategory || 'General',
+              completionDate: data.completedAt,
+              isDriverCompletion: false,
+              isTodayPickup: true,
+              timeText: data.timeText || 'Unknown Time',
+              dateText: data.dateText || 'Unknown Date',
+              assignedDriverId: data.assignedDriverId,
+              assignedDriverName: data.assignedDriverName
+            });
+          }
+        });
+        
+        console.log('Processed today\'s pickups:', todayPickups.length);
+        
+        // Update driver reports with today's pickup data
+        setDriverReports(prevReports => {
+          // Filter out old today's pickup data and add new ones
+          const filteredReports = prevReports.filter(report => !report.isTodayPickup);
+          return [...filteredReports, ...todayPickups];
+        });
+      },
+      (error) => {
+        console.error('Error fetching today\'s pickups:', error);
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up today\'s pickup listener');
+      unsubscribeSchedules();
     };
   }, []);
 
@@ -242,7 +387,10 @@ const ReportsTab: React.FC = () => {
 
         console.log('[Resolve] Keeping resolved item in reports collection');
         handleCloseModal();
-        showError('Report marked as resolved', 'Success', 'success');
+        const successMessage = activeTab === 'user' 
+          ? 'Report marked as resolved' 
+          : 'Driver report marked as completed';
+        showError(successMessage, 'Success', 'success');
         setIsResolving(false);
       } catch (e) {
         console.error('[Resolve] Flow failed:', e);
@@ -346,7 +494,10 @@ const ReportsTab: React.FC = () => {
   };
 
   const getFilteredReports = () => {
-    let filtered = [...reports];
+    // Get the appropriate reports based on active tab
+    const sourceReports = activeTab === 'user' ? reports : driverReports;
+    let filtered = [...sourceReports];
+    
     // Hide resolved items from the Reports tab. They will appear in History.
     filtered = filtered.filter(r => r.status !== 'resolved');
     
@@ -468,7 +619,36 @@ const ReportsTab: React.FC = () => {
       <View style={styles.mainSection}>
         <Text style={styles.title}>Reports</Text>
         
-        
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'user' && styles.activeTabButton]}
+            onPress={() => setActiveTab('user')}
+          >
+            <MaterialIcons 
+              name="person" 
+              size={20} 
+              color={activeTab === 'user' ? '#22C55E' : '#6B7280'} 
+            />
+            <Text style={[styles.tabButtonText, activeTab === 'user' && styles.activeTabButtonText]}>
+              User Reports
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'driver' && styles.activeTabButton]}
+            onPress={() => setActiveTab('driver')}
+          >
+            <MaterialIcons 
+              name="local-shipping" 
+              size={20} 
+              color={activeTab === 'driver' ? '#22C55E' : '#6B7280'} 
+            />
+            <Text style={[styles.tabButtonText, activeTab === 'driver' && styles.activeTabButtonText]}>
+              Driver Reports
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Search Input */}
         <View style={styles.searchContainer}>
@@ -525,10 +705,14 @@ const ReportsTab: React.FC = () => {
               <View style={styles.emptyContainer}>
                 <MaterialIcons name="description" size={64} color="#9CA3AF" />
                 <Text style={styles.emptyText}>
-                  {searchQuery ? 'No reports found matching your search' : 'No reports found'}
+                  {searchQuery ? 'No reports found matching your search' : `No ${activeTab} reports found`}
                 </Text>
                 <Text style={styles.emptySubtext}>
-                  {searchQuery ? 'Try adjusting your search terms' : 'Reports will appear here when users submit them'}
+                  {searchQuery ? 'Try adjusting your search terms' : 
+                    activeTab === 'user' 
+                      ? 'User reports will appear here when citizens submit them'
+                      : 'Driver reports will appear here when drivers submit completion or issue reports'
+                  }
                 </Text>
               </View>
             ) : (
@@ -560,15 +744,26 @@ const ReportsTab: React.FC = () => {
                     </TouchableOpacity>
                     <View style={styles.cardDetails}>
                       <Text style={styles.cardTitle} numberOfLines={1}>{report.title}</Text>
-                      <Text style={styles.cardSubtitle} numberOfLines={1}>Title: {report.title}</Text>
+                      <Text style={styles.cardSubtitle} numberOfLines={1}>
+                        {report.isTodayPickup ? `Today's Pickup` : 
+                         report.isDriverCompletion ? `Driver Completion` : 
+                         `Title: ${report.title}`}
+                      </Text>
                       <Text style={styles.cardLocation} numberOfLines={2}>
                         Location: {report.street ? `${report.street}, ` : ''}{report.barangay}
                       </Text>
                       <Text style={styles.cardDescription} numberOfLines={2}>
                         Description: {report.description || 'No description provided.'}
                       </Text>
+                      {report.isTodayPickup && (
+                        <Text style={styles.cardTimeInfo} numberOfLines={1}>
+                          Time: {report.timeText || 'Unknown'} | Driver: {report.driverName || 'Unassigned'}
+                        </Text>
+                      )}
                       <Text style={styles.cardSubmittedBy} numberOfLines={1}>
-                        Submitted by: {report.userEmail.split('@')[0]}
+                        {report.isTodayPickup ? `Scheduled By: ${report.userEmail.split('@')[0]}` :
+                         report.isDriverCompletion ? `Completed By: ${report.driverName || report.userEmail.split('@')[0]}` :
+                         `Submitted by: ${report.userEmail.split('@')[0]}`}
                       </Text>
                     </View>
                   </View>
@@ -658,7 +853,11 @@ const ReportsTab: React.FC = () => {
                   onPress={handleMarkAsResolved}
                   disabled={isResolving}
                 >
-                  <Text style={styles.modalActionButtonText}>{isResolving ? 'Marking…' : 'Mark as resolved'}</Text>
+                  <Text style={styles.modalActionButtonText}>
+                    {isResolving ? 'Marking…' : 
+                      activeTab === 'user' ? 'Mark as resolved' : 'Mark as completed'
+                    }
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
@@ -732,6 +931,37 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  // Tab styles
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    gap: 8,
+  },
+  activeTabButton: {
+    backgroundColor: '#22C55E',
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  activeTabButtonText: {
+    color: 'white',
   },
   filterContainer: {
     flexDirection: 'row',
@@ -838,6 +1068,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#1F3A2C',
     marginTop: 4,
+  },
+  cardTimeInfo: {
+    fontSize: 11,
+    color: '#4F6F52',
+    marginTop: 2,
+    fontWeight: '500',
   },
   cardDateText: {
     fontSize: 10,

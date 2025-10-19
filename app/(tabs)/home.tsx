@@ -44,7 +44,7 @@ export default function HomePage() {
       try {
         await NotificationService.requestPermissions();
       } catch (error) {
-        console.error('Error requesting notification permissions:', error);
+        // Error requesting notification permissions
       }
     };
     
@@ -62,7 +62,7 @@ export default function HomePage() {
       const r = ref(storage, maybePath);
       return await getDownloadURL(r);
     } catch (e) {
-      console.warn('Failed to resolve home photo URL:', e);
+      // Failed to resolve home photo URL
       return undefined;
     }
   };
@@ -92,7 +92,7 @@ export default function HomePage() {
           });
         }
       } catch (error) {
-        console.error('Error fetching user profile:', error);
+        // Error fetching user profile
         // Fallback to auth data on error
         const resolved = await resolvePhotoURL(user.photoURL || undefined);
         setUserProfile({
@@ -109,7 +109,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!db) return;
 
-    console.log('Setting up announcements listener for home...');
+    // Setting up announcements listener for home
     
     const announcementsRef = collection(db, 'announcements');
     const q = query(
@@ -119,7 +119,7 @@ export default function HomePage() {
     
     const unsubscribe = onSnapshot(q, 
       async (snapshot) => {
-        console.log('Home announcements snapshot received:', snapshot.docs.length, 'documents');
+        // Home announcements snapshot received
         
         const announcementsData = snapshot.docs.map(doc => {
           const data = doc.data();
@@ -149,7 +149,7 @@ export default function HomePage() {
               await NotificationService.scheduleAnnouncementNotification(latestAnnouncement);
               setLastAnnouncementId(latestAnnouncement.id);
             } catch (error) {
-              console.error('Error sending announcement notification:', error);
+              // Error sending announcement notification
             }
           }
         }
@@ -157,12 +157,12 @@ export default function HomePage() {
         setAnnouncements(announcementsData.slice(0, 2)); // Show only latest 2 announcements
       },
       (error) => {
-        console.error('Error fetching announcements for home:', error);
+        // Error fetching announcements for home
       }
     );
 
     return () => {
-      console.log('Cleaning up home announcements listener');
+      // Cleaning up home announcements listener
       unsubscribe();
     };
   }, [lastAnnouncementId]);
@@ -198,7 +198,7 @@ export default function HomePage() {
   };
 
   const handleNotificationPress = (notification: { id: string; title: string; body: string; createdAt: any; read?: boolean; type?: string }) => {
-    console.log('Notification pressed:', notification.title);
+    // Notification pressed
     setSelectedNotification(notification);
     setShowNotificationsModal(false); // Close the notifications list first
     setShowNotificationDetail(true);
