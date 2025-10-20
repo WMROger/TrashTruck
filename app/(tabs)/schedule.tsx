@@ -1,4 +1,5 @@
 import { useAuthContext } from '@/components/AuthContext';
+import PickupDetailsModal from '@/components/PickupDetailsModal';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
@@ -20,6 +21,8 @@ export default function ScheduleScreen() {
   const [rawSchedules, setRawSchedules] = useState<RawSchedule[]>([]);
   const [monthScheduleDates, setMonthScheduleDates] = useState<Record<string, RawSchedule[]>>({});
   const [showLegend, setShowLegend] = useState(false);
+  const [showPickupModal, setShowPickupModal] = useState(false);
+  const [selectedPickup, setSelectedPickup] = useState<RawSchedule | null>(null);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -37,6 +40,16 @@ export default function ScheduleScreen() {
   };
   const isSameDate = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const handlePickupPress = (pickup: RawSchedule) => {
+    setSelectedPickup(pickup);
+    setShowPickupModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowPickupModal(false);
+    setSelectedPickup(null);
+  };
 
   const CATEGORY_COLORS: Record<string, string> = useMemo(() => ({
     'Biodegradable': '#22C55E',
@@ -317,12 +330,18 @@ export default function ScheduleScreen() {
           (monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).length > 0 ? (
             <>
               {(monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).map((s) => (
-                <View key={s.id} style={[styles.infoItem, { backgroundColor: colors.surface }, (s as any).status && (s as any).status.toLowerCase() === 'completed' ? { opacity: 0.55 } : null]}> 
+                <TouchableOpacity 
+                  key={s.id} 
+                  style={[styles.infoItem, { backgroundColor: colors.surface }, (s as any).status && (s as any).status.toLowerCase() === 'completed' ? { opacity: 0.55 } : null]}
+                  onPress={() => handlePickupPress(s)}
+                  activeOpacity={0.7}
+                > 
                   <IconSymbol name="calendar" size={18} color={colors.primary} />
                   <Text style={styles.infoText}>
                     {s.dateText} • {s.timeText} • {s.wasteCategory} • {s.street}
                   </Text>
-                </View>
+                  <IconSymbol name="chevron.right" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
               ))}
             </>
           ) : (
@@ -338,6 +357,13 @@ export default function ScheduleScreen() {
           </View>
         )}
       </View>
+
+      {/* Pickup Details Modal */}
+      <PickupDetailsModal
+        visible={showPickupModal}
+        onClose={handleCloseModal}
+        pickupData={selectedPickup}
+      />
     </ScrollView>
   );
 }

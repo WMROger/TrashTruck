@@ -1,4 +1,4 @@
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -23,6 +23,9 @@ const FeedbackTab: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'loved it' | 'good' | 'bad' | 'terrible'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
 
   // Resolve storage path to download URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
@@ -213,14 +216,71 @@ const FeedbackTab: React.FC = () => {
     return stats;
   };
 
+  const getFilteredFeedbacks = () => {
+    if (selectedFilter === 'all') return feedbacks;
+    const key = selectedFilter.toLowerCase();
+    return feedbacks.filter(f => (f.rating || '').toLowerCase() === key);
+  };
+
+  const getPaginatedFeedbacks = () => {
+    const filtered = getFilteredFeedbacks();
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filtered.slice(startIndex, endIndex);
+  };
+
+  const getTotalPages = () => {
+    const filtered = getFilteredFeedbacks();
+    return Math.ceil(filtered.length / itemsPerPage);
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    const totalPages = getTotalPages();
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  // Reset to first page when filter changes
+  const handleFilterChange = (filter: 'all' | 'loved it' | 'good' | 'bad' | 'terrible') => {
+    setSelectedFilter(filter);
+    setCurrentPage(1);
+  };
+
+  const FilterChip: React.FC<{ label: string; emoji: string; value: 'all' | 'loved it' | 'good' | 'bad' | 'terrible' }>
+    = ({ label, emoji, value }) => (
+    <TouchableOpacity
+      style={[styles.filterChip, selectedFilter === value && styles.filterChipActive]}
+      onPress={() => handleFilterChange(value)}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.filterChipEmoji}>{emoji}</Text>
+      <Text style={[styles.filterChipText, selectedFilter === value && styles.filterChipTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.mainSection}>
         <View style={styles.header}>
           <Text style={styles.title}>Feedbacks</Text>
-          <TouchableOpacity style={styles.emojiButton}>
-            <Text style={styles.emojiButtonText}>Select emoji</Text>
-          </TouchableOpacity>
+          <View style={styles.filtersRow}>
+            <FilterChip label="All" emoji="🌐" value="all" />
+            <FilterChip label="Loved" emoji="😀" value="loved it" />
+            <FilterChip label="Good" emoji="😊" value="good" />
+            <FilterChip label="Bad" emoji="😐" value="bad" />
+            <FilterChip label="Terrible" emoji="😠" value="terrible" />
+          </View>
         </View>
 
         {/* Loading State */}
@@ -305,46 +365,103 @@ const FeedbackTab: React.FC = () => {
 
             {/* Individual Feedback Cards */}
             <View style={styles.feedbackCards}>
-              {feedbacks.length === 0 ? (
+              {getFilteredFeedbacks().length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <MaterialIcons name="chat" size={64} color="#9CA3AF" />
                   <Text style={styles.emptyText}>No feedbacks found</Text>
                   <Text style={styles.emptySubtext}>Feedbacks will appear here when users submit them</Text>
                 </View>
               ) : (
-                feedbacks.map((feedback) => (
-                  <View key={feedback.id} style={styles.feedbackCard}>
-                    <View style={styles.feedbackHeader}>
-                      <View style={styles.userInfo}>
-                        <View style={styles.avatarContainer}>
-                          {feedback.photoURL ? (
-                            <Image source={{ uri: feedback.photoURL }} style={styles.avatarImage} />
-                          ) : (
-                            <Ionicons name="person" size={24} color="#9CA3AF" />
-                          )}
-                          <View style={styles.ratingBadge}>
-                            <Text style={styles.ratingBadgeEmoji}>
-                              {getRatingEmoji(feedback.rating)}
-                            </Text>
+                <>
+                  {getPaginatedFeedbacks().map((feedback) => (
+                    <View key={feedback.id} style={styles.feedbackCard}>
+                      <View style={styles.feedbackHeader}>
+                        <View style={styles.userInfo}>
+                          <View style={styles.avatarContainer}>
+                            {feedback.photoURL ? (
+                              <Image source={{ uri: feedback.photoURL }} style={styles.avatarImage} />
+                            ) : (
+                              <Ionicons name="person" size={24} color="#9CA3AF" />
+                            )}
+                            <View style={styles.ratingBadge}>
+                              <Text style={styles.ratingBadgeEmoji}>
+                                {getRatingEmoji(feedback.rating)}
+                              </Text>
+                            </View>
                           </View>
+                          <Text style={styles.userName}>{feedback.userName}</Text>
                         </View>
-                        <Text style={styles.userName}>{feedback.userName}</Text>
-                      </View>
-                      
-                      <View style={styles.feedbackContent}>
-                        <Text style={styles.feedbackTitle}>
-                          "{getRatingText(feedback.rating)}"
-                        </Text>
-                        <Text style={styles.feedbackMessage}>
-                          {feedback.message}
-                        </Text>
-                        <Text style={styles.feedbackTimestamp}>
-                          {feedback.street ? `[${feedback.street}] ` : ''}on {formatDate(feedback.createdAt)}
-                        </Text>
+                        
+                        <View style={styles.feedbackContent}>
+                          <Text style={styles.feedbackTitle}>
+                            "{getRatingText(feedback.rating)}"
+                          </Text>
+                          <Text style={styles.feedbackMessage}>
+                            {feedback.message}
+                          </Text>
+                          <Text style={styles.feedbackTimestamp}>
+                            {feedback.street ? `[${feedback.street}] ` : ''}on {formatDate(feedback.createdAt)}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ))
+                  ))}
+
+                  {/* Pagination Controls */}
+                  {getTotalPages() > 1 && (
+                    <View style={styles.paginationContainer}>
+                      <View style={styles.paginationInfo}>
+                        <Text style={styles.paginationText}>
+                          Page {currentPage} of {getTotalPages()}
+                        </Text>
+                        <Text style={styles.paginationSubtext}>
+                          Showing {getPaginatedFeedbacks().length} of {getFilteredFeedbacks().length} feedbacks
+                        </Text>
+                      </View>
+                      
+                      <View style={styles.paginationControls}>
+                        <TouchableOpacity
+                          style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+                          onPress={handlePreviousPage}
+                          disabled={currentPage === 1}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons name="chevron-left" size={20} color={currentPage === 1 ? "#9CA3AF" : "#22C55E"} />
+                          <Text style={[styles.paginationButtonText, currentPage === 1 && styles.paginationButtonTextDisabled]}>
+                            Previous
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.pageNumbers}>
+                          {Array.from({ length: getTotalPages() }, (_, i) => i + 1).map((page) => (
+                            <TouchableOpacity
+                              key={page}
+                              style={[styles.pageNumber, currentPage === page && styles.pageNumberActive]}
+                              onPress={() => handlePageChange(page)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.pageNumberText, currentPage === page && styles.pageNumberTextActive]}>
+                                {page}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+
+                        <TouchableOpacity
+                          style={[styles.paginationButton, currentPage === getTotalPages() && styles.paginationButtonDisabled]}
+                          onPress={handleNextPage}
+                          disabled={currentPage === getTotalPages()}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.paginationButtonText, currentPage === getTotalPages() && styles.paginationButtonTextDisabled]}>
+                            Next
+                          </Text>
+                          <MaterialIcons name="chevron-right" size={20} color={currentPage === getTotalPages() ? "#9CA3AF" : "#22C55E"} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </>
               )}
             </View>
           </View>
@@ -396,6 +513,36 @@ const styles = StyleSheet.create({
   emojiButtonText: {
     fontSize: 14,
     color: '#6B7280',
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  filterChipActive: {
+    backgroundColor: '#22C55E',
+    borderColor: '#22C55E',
+  },
+  filterChipEmoji: {
+    marginRight: 6,
+  },
+  filterChipText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: 'white',
   },
   contentContainer: {
     flexDirection: 'row',
@@ -587,6 +734,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     textAlign: 'center',
+  },
+  paginationContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  paginationInfo: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  paginationText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  paginationSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  paginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  paginationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 6,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+  },
+  paginationButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#22C55E',
+  },
+  paginationButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
+  pageNumbers: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  pageNumber: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pageNumberActive: {
+    backgroundColor: '#22C55E',
+    borderColor: '#22C55E',
+  },
+  pageNumberText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  pageNumberTextActive: {
+    color: 'white',
   },
 });
 

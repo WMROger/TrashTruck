@@ -1113,7 +1113,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: 60,
+    paddingTop: 20,
   },
   title: {
     fontSize: 24,
@@ -1250,7 +1250,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 8,
     marginTop: 20,
-    marginBottom: 70,
+    marginBottom: 40,
   },
   logoutText: {
     fontSize: 16,

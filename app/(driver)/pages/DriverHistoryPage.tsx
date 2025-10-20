@@ -3,10 +3,9 @@ import { auth, db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
-import driverImageService from '../../../services/driverImageService';
 
 interface DriverHistoryPageProps {
   // Add any props you might need
@@ -55,7 +54,7 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
     }
   }, [showSortModal]);
 
-  // Fetch completed history data
+  // Fetch completed and issue history data
   useEffect(() => {
     if (!db || !auth?.currentUser) {
       console.log('No db or user available for history');
@@ -75,7 +74,7 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
     // Try different driver field variations
     const historyQuery = query(
       collection(db, 'schedules'),
-      where('status', '==', 'completed')
+      where('status', 'in', ['completed', 'issue'])
     );
 
     const unsubscribe = onSnapshot(historyQuery, (snapshot) => {
@@ -117,48 +116,35 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
         
         matchingDriverCount++;
         console.log('Found matching driver document:', data);
-        // Handle image source - prioritize Cloudinary URLs
+        // Determine image source (completion or issue)
+        const rawImage = data.status === 'issue' ? data.issueImage : data.completionImage;
         let imageSource;
-        if (data.completionImage) {
-          if (driverImageService.isCloudinaryUrl(data.completionImage)) {
-            // It's a Cloudinary URL, use it directly
-            imageSource = { uri: data.completionImage };
-          } else {
-            // It might be a local URI, try to use it but it might fail
-            imageSource = { uri: data.completionImage };
-          }
+        if (rawImage) {
+          imageSource = { uri: rawImage };
         } else {
-          // No image, use fallback
           imageSource = require('../../../assets/images/icon.png');
         }
+
+        // Normalize timestamp for sorting/display
+        const finalTimestamp = data.completedAt || data.issueReportedAt;
+        const finalStatusText = data.status === 'issue' ? 'Issue' : 'Completed';
 
         historyList.push({
           id: doc.id,
           street: data.street,
           type: data.wasteCategory,
-          status: 'Completed',
+          status: finalStatusText,
           date: data.dateText,
           time: data.timeText,
           image: imageSource,
-          completedAt: data.completedAt,
+          completedAt: finalTimestamp,
         });
       });
       
       console.log(`Found ${matchingDriverCount} matching driver documents out of ${snapshot.docs.length} total completed documents`);
-      
-      // Sort by completedAt in descending order (newest first)
-      const sortedHistory = historyList.sort((a, b) => {
-        if (a.completedAt && b.completedAt) {
-          // Handle both Firestore Timestamp and regular Date objects
-          const aTime = a.completedAt.toMillis ? a.completedAt.toMillis() : new Date(a.completedAt).getTime();
-          const bTime = b.completedAt.toMillis ? b.completedAt.toMillis() : new Date(b.completedAt).getTime();
-          return bTime - aTime;
-        }
-        return 0;
-      });
-      
-      console.log('Final processed history items:', sortedHistory.length);
-      setHistoryData(sortedHistory);
+      console.log('Final processed history items:', historyList.length);
+      // Store raw list; sorting is applied by UI selection
+      setHistoryData(historyList);
       setLoading(false);
     }, (error) => {
       console.error('Error fetching history:', error);
@@ -167,6 +153,36 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
 
     return () => unsubscribe();
   }, []);
+
+  // Derived, sorted history based on selectedSort
+  const sortedHistoryData = useMemo(() => {
+    const copy = [...historyData];
+    const toMillis = (ts: any) => {
+      if (!ts) return 0;
+      try {
+        return ts.toMillis ? ts.toMillis() : new Date(ts).getTime();
+      } catch {
+        return 0;
+      }
+    };
+
+    if (selectedSort === 'Date (Newest First)') {
+      return copy.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
+    }
+    if (selectedSort === 'Date (Oldest First)') {
+      return copy.sort((a, b) => toMillis(a.completedAt) - toMillis(b.completedAt));
+    }
+    if (selectedSort === 'Status') {
+      // Order: Issue first, then Completed; tie-breaker by newest first
+      const statusRank = (s: string) => (s?.toLowerCase() === 'issue' ? 0 : 1);
+      return copy.sort((a, b) => {
+        const diff = statusRank(a.status) - statusRank(b.status);
+        if (diff !== 0) return diff;
+        return toMillis(b.completedAt) - toMillis(a.completedAt);
+      });
+    }
+    return copy;
+  }, [historyData, selectedSort]);
 
   // Show error modal
   const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
@@ -228,8 +244,14 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
             <Text style={[styles.dateText, { color: colors.textSecondary }]}>Date & Time: {item.date} - {item.time}</Text>
           </View>
           <View style={styles.statusRow}>
-            <IconSymbol name="checkmark.circle.fill" size={12} color={colors.success} />
-            <Text style={[styles.statusText, { color: colors.success }]}>{item.status}</Text>
+            <IconSymbol 
+              name={item.status === 'Issue' ? 'exclamationmark.triangle.fill' : 'checkmark.circle.fill'} 
+              size={12} 
+              color={item.status === 'Issue' ? colors.warning : colors.success} 
+            />
+            <Text style={[styles.statusText, { color: item.status === 'Issue' ? colors.warning : colors.success }]}>
+              {item.status}
+            </Text>
           </View>
         </View>
       </View>
@@ -268,16 +290,16 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.gridContainer}>
-          {historyData.length > 0 ? (
-            historyData.map((item) => (
+          {sortedHistoryData.length > 0 ? (
+            sortedHistoryData.map((item) => (
               <HistoryCard key={item.id} item={item} />
             ))
           ) : (
             <View style={styles.emptyState}>
               <IconSymbol name="clock.fill" size={48} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No completed pickups found</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No history found</Text>
               <Text style={[styles.emptySubText, { color: colors.textTertiary }]}>
-                Your completed pickup history will appear here
+                Your completed and issue records will appear here
               </Text>
               <TouchableOpacity 
                 style={[styles.debugButton, { backgroundColor: colors.secondary }]}
@@ -292,73 +314,42 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
 
       {/* Sort Modal */}
       <Modal
-        transparent={Platform.OS === 'web'}
+        transparent={true}
         visible={showSortModal}
         animationType="fade"
         onRequestClose={() => setShowSortModal(false)}
       >
-        {Platform.OS === 'web' ? (
-          <TouchableWithoutFeedback onPress={() => setShowSortModal(false)}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <View style={[styles.sortModal, { backgroundColor: colors.surface }]}>
-                  {sortOptions.map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={styles.sortOption}
-                      onPress={() => {
-                        setSelectedSort(option);
-                        setShowSortModal(false);
-                      }}
-                    >
-                      <View style={styles.radioContainer}>
-                        <View style={[
+        <TouchableWithoutFeedback onPress={() => setShowSortModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={[styles.sortModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>                
+                {sortOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={styles.sortOption}
+                    onPress={() => {
+                      setSelectedSort(option);
+                      setShowSortModal(false);
+                    }}
+                  >
+                    <View style={styles.radioContainer}>
+                      <View
+                        style={[
                           styles.radioButton,
-                          selectedSort === option && styles.radioButtonSelected
-                        ]}>
-                          {selectedSort === option && <View style={styles.radioInner} />}
-                        </View>
+                          { borderColor: colors.border },
+                          selectedSort === option && { borderColor: colors.primary }
+                        ]}
+                      >
+                        {selectedSort === option && <View style={[styles.radioInner, { backgroundColor: colors.primary }]} />}
                       </View>
-                      <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        ) : (
-          <TouchableOpacity 
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowSortModal(false)}
-          >
-            <View style={[styles.sortModal, { backgroundColor: colors.surface }]}>
-              {sortOptions.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={styles.sortOption}
-                  onPress={() => {
-                    setSelectedSort(option);
-                    setShowSortModal(false);
-                  }}
-                >
-                  <View style={styles.radioContainer}>
-                    <View
-                      style={[
-                        styles.radioButton,
-                        { borderColor: colors.border },
-                        selectedSort === option && { borderColor: colors.primary }
-                      ]}
-                    >
-                      {selectedSort === option && <View style={[styles.radioInner, { backgroundColor: colors.primary }]} />}
                     </View>
-                  </View>
-                  <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        )}
+                    <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Error Modal */}
@@ -470,21 +461,27 @@ const styles = StyleSheet.create({
   // Sort Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   sortModal: {
     borderRadius: 12,
-    padding: 16,
-    minWidth: 200,
+    padding: 12,
+    minWidth: 220,
     maxWidth: 300,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
   },
   sortOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
   },
   radioContainer: {
     marginRight: 12,

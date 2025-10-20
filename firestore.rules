@@ -28,8 +28,21 @@ service cloud.firestore {
       'status',
       'completedAt',
       'completionImage',
+      'completionImagePublicId',
       'completionDescription',
-      'completedBy'
+      'completedBy',
+      'completedByEmail',
+      'completedByUid',
+      'completedByName',
+      'issueReportedAt',
+      'issueImage',
+      'issueImagePublicId',
+      'issueDescription',
+      'issueType',
+      'reportedBy',
+      'reportedByEmail',
+      'reportedByUid',
+      'reportedByName'
     ]);
   }
   function isValidCompletionStatus() {

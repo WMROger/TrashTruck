@@ -114,28 +114,108 @@ export default function AdminDashboard() {
     // Feedback summary and latest feedback
     const feedbackRef = collection(db, 'feedback');
     const feedbackQuery = query(feedbackRef, orderBy('createdAt', 'desc'), limit(20));
-    const unsubFeedback = onSnapshot(feedbackQuery, (snap) => {
+    const unsubFeedback = onSnapshot(feedbackQuery, async (snap) => {
       const items = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-      if (items.length > 0) {
-        const lf = items[0];
-        setLatestFeedback({
-          userName: lf.userName || lf.userEmail?.split('@')[0] || 'User',
-          message: lf.description || lf.message || '',
-          rating: lf.rating || 'Good',
-          createdAt: lf.createdAt,
-          photoURL: lf.photoURL,
+      
+      // Process feedbacks and fetch user data
+      const processFeedbacks = async () => {
+        const userCacheById = new Map<string, any>();
+        const userCacheByEmail = new Map<string, any>();
+        
+        // Resolve storage path to download URL if needed
+        const resolvePhotoURL = async (maybePath?: string) => {
+          try {
+            if (!maybePath) return undefined;
+            const isHttp = /^https?:\/\//i.test(maybePath);
+            if (isHttp) return maybePath;
+            const { getDownloadURL, ref } = await import('firebase/storage');
+            const { storage } = await import('../../config/firebase');
+            if (!storage) return undefined;
+            const r = ref(storage, maybePath);
+            return await getDownloadURL(r);
+          } catch (e) {
+            console.warn('Dashboard: Failed to resolve photo URL:', e);
+            return undefined;
+          }
+        };
+        
+        if (items.length > 0) {
+          const lf = items[0];
+          let userName = 'User';
+          let userEmail = '';
+          let photoURL: string | undefined = undefined;
+          
+          // Fetch user data from users collection
+          try {
+            // 1) Try by userId
+            if (lf.userId) {
+              let userData = userCacheById.get(lf.userId);
+              if (!userData) {
+                const userDoc = await getDoc(doc(db, 'users', lf.userId));
+                if (userDoc.exists()) userData = userDoc.data();
+                if (userData) userCacheById.set(lf.userId, userData);
+              }
+              if (userData) {
+                userName = userData.displayName || userData.email?.split('@')[0] || 'User';
+                userEmail = userData.email || lf.userEmail || '';
+                photoURL = await resolvePhotoURL(userData.photoURL || userData.avatar || undefined);
+              }
+            }
+
+            // 2) If still missing, try by email
+            if (!userEmail) {
+              const emailKey = (lf.userEmail || '').toLowerCase();
+              if (emailKey) {
+                let userData = userCacheByEmail.get(emailKey);
+                if (!userData) {
+                  const usersRef = collection(db, 'users');
+                  const qUsers = query(usersRef, where('email', '==', lf.userEmail));
+                  const snapUsers = await getDocs(qUsers);
+                  if (!snapUsers.empty) userData = snapUsers.docs[0].data();
+                  if (userData) userCacheByEmail.set(emailKey, userData);
+                }
+                if (userData) {
+                  userName = userData.displayName || userData.email?.split('@')[0] || userName;
+                  userEmail = userData.email || lf.userEmail || userEmail;
+                  if (!photoURL) photoURL = await resolvePhotoURL(userData.photoURL || userData.avatar || undefined);
+                }
+              }
+            }
+
+            // 3) Fallbacks from feedback document itself
+            if (!userEmail) userEmail = lf.userEmail || '';
+            if (!userName) userName = userEmail?.split('@')[0] || 'User';
+            if (!photoURL && (lf.photoURL || lf.avatar)) {
+              photoURL = await resolvePhotoURL(lf.photoURL || lf.avatar);
+            }
+          } catch (error) {
+            console.error('Error enriching user data in dashboard:', error);
+            userName = lf.userEmail?.split('@')[0] || 'User';
+            userEmail = lf.userEmail || '';
+          }
+          
+          setLatestFeedback({
+            userName: userName,
+            message: lf.description || lf.message || '',
+            rating: lf.rating || 'Good',
+            createdAt: lf.createdAt,
+            photoURL: photoURL,
+          });
+        } else {
+          setLatestFeedback(null);
+        }
+        
+        const total = items.length || 1;
+        const count = (label: string) => items.filter((i) => (i.rating || '').toLowerCase() === label.toLowerCase()).length;
+        setFeedbackStats({
+          loved: Math.round((count('Loved it') / total) * 100),
+          good: Math.round((count('Good') / total) * 100),
+          bad: Math.round((count('Bad') / total) * 100),
+          terrible: Math.round((count('Terrible') / total) * 100),
         });
-      } else {
-        setLatestFeedback(null);
-      }
-      const total = items.length || 1;
-      const count = (label: string) => items.filter((i) => (i.rating || '').toLowerCase() === label.toLowerCase()).length;
-      setFeedbackStats({
-        loved: Math.round((count('Loved it') / total) * 100),
-        good: Math.round((count('Good') / total) * 100),
-        bad: Math.round((count('Bad') / total) * 100),
-        terrible: Math.round((count('Terrible') / total) * 100),
-      });
+      };
+      
+      processFeedbacks();
     });
 
     return () => {

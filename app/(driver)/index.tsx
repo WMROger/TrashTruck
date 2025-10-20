@@ -184,10 +184,10 @@ export default function DriverIndex() {
       setNextPickup(nextPickup);
     });
 
-    // Fetch recent history (completed status, limit to 2 most recent)
+  // Fetch recent history (completed and issue status, limit to 2 most recent)
     const historyQuery = query(
       collection(db, 'schedules'),
-      where('status', '==', 'completed')
+    where('status', 'in', ['completed', 'issue'])
     );
 
     const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
@@ -207,24 +207,29 @@ export default function DriverIndex() {
           data.driverName === currentUser.email;
           
         if (isDriverMatch) {
+          const isIssue = data.status === 'issue';
+          const combinedTimestamp = data.completedAt || data.issueReportedAt || data.updatedAt || data.createdAt || new Date();
           historyList.push({
             id: doc.id,
             street: data.street || 'Unknown Street',
             wasteCategory: data.wasteCategory || 'General',
-            completedAt: data.completedAt,
-            status: data.status || 'completed',
-            completionImage: data.completionImage || null
+            completedAt: combinedTimestamp,
+            status: isIssue ? 'issue' : (data.status || 'completed'),
+            completionImage: (isIssue ? data.issueImage : data.completionImage) || null
           });
         }
       });
       
-      // Sort by completion date and take only 2 most recent
-      historyList.sort((a, b) => {
-        if (a.completedAt && b.completedAt) {
-          return b.completedAt.toDate().getTime() - a.completedAt.toDate().getTime();
+      // Sort by completion/issue date (robust) and take only 2 most recent
+      const toMillis = (ts: any) => {
+        if (!ts) return 0;
+        try {
+          return ts.toMillis ? ts.toMillis() : (ts.toDate ? ts.toDate().getTime() : new Date(ts).getTime());
+        } catch {
+          return 0;
         }
-        return 0;
-      });
+      };
+      historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
       
       setHistoryItems(historyList.slice(0, 2));
       setLoading(false);
@@ -411,7 +416,12 @@ export default function DriverIndex() {
               </View>
               <Text style={[styles.historyStreet, { color: colors.textSecondary }]}>Street: {item.street}</Text>
               <Text style={[styles.historyType, { color: colors.textSecondary }]}>Type: {item.wasteCategory}</Text>
-              <Text style={[styles.completedLabel, { color: colors.success }]}>Completed</Text>
+              <Text style={[
+                styles.completedLabel,
+                { color: (item.status?.toLowerCase?.() === 'issue') ? colors.warning : colors.success }
+              ]}>
+                {(item.status?.toLowerCase?.() === 'issue') ? 'Issue' : 'Completed'}
+              </Text>
             </View>
           ))}
         </View>

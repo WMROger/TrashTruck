@@ -459,7 +459,7 @@ export default function ReportScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   container: { flex: 1, backgroundColor: '#ECF8ED' },
-  content: { padding: 26, paddingBottom: 120, paddingTop: 64 },
+  content: { padding: 26, paddingBottom: 10, paddingTop: 45 },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   backBtn: {
     width: 32,

@@ -31,6 +31,13 @@ interface Report {
   dateText?: string;
   assignedDriverId?: string;
   assignedDriverName?: string;
+  // Driver issue fields
+  isDriverIssue?: boolean;
+  issueType?: string;
+  issueDate?: string;
+  reportedBy?: string;
+  reportedByUid?: string;
+  reportedByName?: string;
 }
 
 const ReportsTab: React.FC = () => {
@@ -703,7 +710,7 @@ const ReportsTab: React.FC = () => {
           <View style={styles.cardListContainer}>
             {getFilteredReports().length === 0 ? (
               <View style={styles.emptyContainer}>
-                <MaterialIcons name="description" size={64} color="#9CA3AF" />
+                <Text style={styles.emptyIcon}>📄</Text>
                 <Text style={styles.emptyText}>
                   {searchQuery ? 'No reports found matching your search' : `No ${activeTab} reports found`}
                 </Text>
@@ -1118,6 +1125,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
+  },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
   },
   emptyText: {
     marginTop: 16,

@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../../config/firebase';
 
 type Row = {
@@ -13,6 +13,9 @@ type Row = {
   createdAt: any;
   userEmail?: string;
   userId?: string;
+  description?: string;
+  imageURL?: string;
+  landmark?: string;
 };
 
 const DEFAULT_BARANGAY = 'Sambag 2';
@@ -44,6 +47,10 @@ const ReportsHistoryTab: React.FC<Props> = ({
 }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<Row | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
 
   useEffect(() => {
     if (!db) return;
@@ -103,6 +110,9 @@ const ReportsHistoryTab: React.FC<Props> = ({
         createdAt: r.createdAt,
         userEmail: r.userEmail || r.createdBy || '',
         userId: r.userId || '',
+        description: r.description || '',
+        imageURL: r.imageURL || null,
+        landmark: r.landmark || '',
       }));
       const enriched = await resolveNames(mapped);
       setRows(enriched);
@@ -195,6 +205,37 @@ const ReportsHistoryTab: React.FC<Props> = ({
     return out;
   };
 
+  const handleViewReport = (report: Row) => {
+    console.log('[ReportsHistoryTab] Opening report modal for id:', report.id);
+    setSelectedReport(report);
+    setModalVisible(true);
+  };
+
+  const handleCloseModal = () => {
+    console.log('[ReportsHistoryTab] Closing report modal');
+    setModalVisible(false);
+    setSelectedReport(null);
+  };
+
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return 'Unknown date';
+    
+    try {
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
   return (
     <ScrollView style={styles.content}>
       {/* Export button for all filters */}
@@ -219,16 +260,134 @@ const ReportsHistoryTab: React.FC<Props> = ({
           <View style={{ padding: 16 }}><Text style={{ color: '#234033' }}>No data in this period.</Text></View>
         ) : (
           rows.map((r, idx) => (
-            <View key={r.id} style={[styles.historyTableRow, idx % 2 === 0 ? styles.rowEven : styles.rowOdd]}>
+            <TouchableOpacity 
+              key={r.id} 
+              style={[styles.historyTableRow, idx % 2 === 0 ? styles.rowEven : styles.rowOdd, styles.clickableRow]}
+              onPress={() => handleViewReport(r)}
+              activeOpacity={0.7}
+            >
               <Text style={[styles.historyTableCell, styles.colName]} numberOfLines={1}>{r.name}</Text>
               <Text style={[styles.historyTableCell, styles.colBarangay]} numberOfLines={1}>{r.barangay}</Text>
               <Text style={[styles.historyTableCell, styles.colStreet]} numberOfLines={1}>{r.street}</Text>
               <Text style={[styles.historyTableCell, styles.colDate]} numberOfLines={1}>{formatSimpleDate(r.createdAt)}</Text>
               <Text style={[styles.historyTableCell, styles.colTitle]} numberOfLines={1}>{r.title}</Text>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </View>
+
+      {/* Report Detail Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            {selectedReport && (
+              <>
+                {/* Modal Header */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Title: {selectedReport.title}</Text>
+                  <TouchableOpacity 
+                    style={styles.closeButton}
+                    onPress={handleCloseModal}
+                  >
+                    <Text style={styles.closeButtonText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Date Reported */}
+                <Text style={styles.modalDate}>
+                  Date Reported: {formatDate(selectedReport.createdAt)}
+                </Text>
+
+                {/* Image */}
+                {selectedReport.imageURL && (
+                  <TouchableOpacity
+                    style={styles.modalImageContainer}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      setImagePreviewUrl(selectedReport.imageURL!);
+                      setIsImagePreviewVisible(true);
+                    }}
+                  >
+                    <Image 
+                      source={{ uri: selectedReport.imageURL }} 
+                      style={styles.modalImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {/* Location */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Location:</Text>
+                  <Text style={styles.modalBulletPoint}>
+                    • Barangay: {selectedReport.barangay}
+                  </Text>
+                  <Text style={styles.modalBulletPoint}>
+                    • Street: {selectedReport.street}
+                  </Text>
+                  {selectedReport.landmark && (
+                    <Text style={styles.modalBulletPoint}>
+                      • Landmark: {selectedReport.landmark}
+                    </Text>
+                  )}
+                </View>
+
+                {/* Reported By */}
+                <Text style={styles.modalReportedBy}>
+                  Reported By: {selectedReport.name} ({selectedReport.userEmail})
+                </Text>
+
+                {/* Description */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Description:</Text>
+                  <Text style={styles.modalDescription}>
+                    {selectedReport.description || 'No description provided.'}
+                  </Text>
+                </View>
+
+                {/* Status */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Status:</Text>
+                  <Text style={[styles.modalStatus, { color: '#32CD32' }]}>
+                    {selectedReport.status.toUpperCase()}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Preview Modal */}
+      <Modal
+        visible={isImagePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsImagePreviewVisible(false)}
+      >
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewContainer}>
+            <ScrollView
+              contentContainerStyle={styles.previewScroll}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              centerContent
+            >
+              {imagePreviewUrl ? (
+                <Image source={{ uri: imagePreviewUrl }} style={styles.previewImage} resizeMode="contain" />
+              ) : null}
+            </ScrollView>
+            <TouchableOpacity style={styles.previewClose} onPress={() => setIsImagePreviewVisible(false)}>
+              <Text style={styles.previewCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Filter controls are managed by the parent HistoryTab */}
     </ScrollView>
@@ -247,6 +406,10 @@ const styles = StyleSheet.create({
   headerText: { fontWeight: 'bold', color: '#234033' },
   rowEven: { backgroundColor: '#ffffff' },
   rowOdd: { backgroundColor: '#F5FBF7' },
+  clickableRow: { 
+    borderLeftWidth: 3, 
+    borderLeftColor: 'transparent',
+  },
   historyTableCell: { flex: 1, fontSize: 12, color: '#234033' },
   colName: { flex: 1.2 },
   colBarangay: { flex: 1 },
@@ -257,6 +420,131 @@ const styles = StyleSheet.create({
   filterTabActive: { backgroundColor: '#234033' },
   filterTabText: { fontSize: 12, color: '#234033' },
   filterTabTextActive: { color: '#ffffff' },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 24,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    flex: 1,
+    marginRight: 16,
+  },
+  closeButton: {
+    padding: 4,
+  },
+  closeButtonText: {
+    fontSize: 18,
+    color: '#6B7280',
+    fontWeight: 'bold',
+  },
+  modalDate: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  modalImageContainer: {
+    marginBottom: 20,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  modalImage: {
+    width: '100%',
+    height: 200,
+  },
+  modalSection: {
+    marginBottom: 16,
+  },
+  modalSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  modalBulletPoint: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginLeft: 8,
+    marginBottom: 4,
+  },
+  modalReportedBy: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  modalStatus: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Image preview styles
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  previewContainer: {
+    width: '100%',
+    maxWidth: 900,
+    maxHeight: '90%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  previewScroll: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 300,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 6,
+  },
+  previewCloseText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
 });
 
 export default ReportsHistoryTab;

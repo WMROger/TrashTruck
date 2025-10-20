@@ -5,7 +5,7 @@ import { useTheme } from '@/hooks/useTheme';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams } from 'expo-router';
 import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
 import driverImageService from '../../../services/driverImageService';
@@ -38,11 +38,15 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
   
   // Complete pickup modal state
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showIssueModal, setShowIssueModal] = useState(false);
   const [selectedPickup, setSelectedPickup] = useState<Schedule | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [description, setDescription] = useState('');
+  const [issueDescription, setIssueDescription] = useState('');
+  const [issueType, setIssueType] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const processedParamsRef = useRef<string | null>(null);
   const [errorModal, setErrorModal] = useState({
     visible: false,
     title: 'Error',
@@ -201,19 +205,43 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
 
   const handleReportIssue = (pickup: Schedule) => {
     setSelectedPickup(pickup);
-    setShowCompleteModal(true);
+    setShowIssueModal(true);
     setSelectedImage(null);
     setSelectedImageUri(null);
-    setDescription('');
+    setIssueDescription('');
+    setIssueType('');
   };
+
+  // Cleanup modals when component unmounts
+  useEffect(() => {
+    return () => {
+      setShowCompleteModal(false);
+      setShowIssueModal(false);
+      setSelectedPickup(null);
+      setSelectedImage(null);
+      setSelectedImageUri(null);
+      setDescription('');
+      setIssueDescription('');
+      setIssueType('');
+    };
+  }, []);
 
   // If navigated with params from Home, auto-open the modal for that pickup
   useEffect(() => {
     if (!params || (!params.open && !params.pickupId)) return;
     if (!schedules || schedules.length === 0) return; // wait until schedules load
 
+    // Create a unique key for the current params
+    const paramsKey = `${params.open}_${params.pickupId}`;
+    
+    // Check if we've already processed these exact params
+    if (processedParamsRef.current === paramsKey) return;
+
     const target = schedules.find(s => s.id === params.pickupId);
     if (!target) return;
+
+    // Mark these params as processed
+    processedParamsRef.current = paramsKey;
 
     if (params.open === 'complete') {
       handleCompletePickup(target);
@@ -521,12 +549,125 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
     }
   };
 
+  const handleSubmitIssueReport = async () => {
+    if (!selectedPickup || !db) return;
+    
+    setSubmitting(true);
+    
+    try {
+      let cloudinaryImageUrl = null;
+      
+      // Upload image to Cloudinary if one was selected
+      if (selectedImageUri) {
+        const imageUriString = typeof selectedImageUri === 'string' ? selectedImageUri : String(selectedImageUri);
+        
+        if (!imageUriString || imageUriString.length < 50) {
+          console.error('Invalid image URI - too short:', imageUriString.length);
+          showError(
+            'Selected image data is invalid. Please try taking/selecting another image.',
+            'Invalid Image',
+            'error'
+          );
+          setSubmitting(false);
+          return;
+        }
+        
+        const uploadResult = await driverImageService.uploadCompletionImage(imageUriString);
+        
+        if (uploadResult.success && uploadResult.url) {
+          cloudinaryImageUrl = uploadResult.url;
+          console.log('Image uploaded successfully:', cloudinaryImageUrl);
+        } else {
+          console.error('Image upload failed:', uploadResult.error);
+          showError(
+            uploadResult.error || 'Failed to upload image. Please try taking/selecting another image.',
+            'Upload Error',
+            'error'
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Update the schedule status to 'issue'
+      await updateDoc(doc(db, 'schedules', selectedPickup.id), {
+        status: 'issue',
+        issueReportedAt: serverTimestamp(),
+        issueImage: cloudinaryImageUrl,
+        issueImagePublicId: cloudinaryImageUrl ? driverImageService.extractPublicId(cloudinaryImageUrl) : null,
+        issueDescription: issueDescription,
+        issueType: issueType,
+        reportedBy: auth.currentUser?.email || 'Unknown Driver',
+        reportedByEmail: auth.currentUser?.email || undefined,
+        reportedByUid: auth.currentUser?.uid || undefined,
+        reportedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+      });
+      
+      // Also save to driver_reports collection for admin viewing
+      const driverReportData = {
+        title: `Issue Reported - ${issueType || 'Unknown Issue'} - ${selectedPickup.wasteCategory || 'Waste Collection'}`,
+        description: issueDescription || 'Issue reported by driver',
+        barangay: selectedPickup.barangay || 'Unknown',
+        street: selectedPickup.street || 'Unknown Street',
+        userId: auth.currentUser?.uid || '',
+        userEmail: auth.currentUser?.email || 'Unknown Driver',
+        imageURL: cloudinaryImageUrl || null,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        // Driver issue specific fields
+        driverName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver',
+        wasteCategory: selectedPickup.wasteCategory || 'General',
+        issueDate: new Date().toISOString(),
+        isDriverIssue: true,
+        issueType: issueType,
+        originalScheduleId: selectedPickup.id,
+        reportedBy: auth.currentUser?.email || 'Unknown Driver',
+        reportedByUid: auth.currentUser?.uid || undefined,
+        reportedByName: auth.currentUser?.displayName || auth.currentUser?.email || 'Unknown Driver'
+      };
+      
+      await addDoc(collection(db, 'driver_reports'), driverReportData);
+      
+      console.log('Issue reported for schedule:', selectedPickup.id);
+      
+      // Close modal and reset state
+      setShowIssueModal(false);
+      setSelectedPickup(null);
+      setSelectedImage(null);
+      setSelectedImageUri(null);
+      setIssueDescription('');
+      setIssueType('');
+      
+      showError('Issue reported successfully!', 'Success', 'success');
+      
+    } catch (error) {
+      console.error('Error reporting issue:', error);
+      showError(
+        'Failed to report issue. Please try again.',
+        'Issue Report Error',
+        'error'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleCancelReport = () => {
     setShowCompleteModal(false);
     setSelectedPickup(null);
     setSelectedImage(null);
     setSelectedImageUri(null);
     setDescription('');
+  };
+
+  const handleCancelIssueReport = () => {
+    setShowIssueModal(false);
+    setSelectedPickup(null);
+    setSelectedImage(null);
+    setSelectedImageUri(null);
+    setIssueDescription('');
+    setIssueType('');
   };
 
   // Filter schedules by today and tomorrow
@@ -808,6 +949,122 @@ export default function DriverSchedulePage({}: DriverSchedulePageProps) {
         </View>
       </Modal>
 
+      {/* Issue Report Modal */}
+      <Modal
+        visible={showIssueModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCancelIssueReport}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Report Issue</Text>
+            
+            {/* Pickup Details */}
+            <View style={styles.pickupDetails}>
+              <Text style={[styles.detailLabel, { color: colors.textPrimary }]}>Location: {selectedPickup?.street}</Text>
+              <Text style={[styles.detailLabel, { color: colors.textPrimary }]}>Waste Type: {selectedPickup?.wasteCategory}</Text>
+            </View>
+
+            {/* Issue Type Selection */}
+            <View style={styles.issueTypeSection}>
+              <Text style={styles.sectionLabel}>Issue Type:</Text>
+              <View style={styles.issueTypeButtons}>
+                {['Access Problem', 'Equipment Issue', 'Safety Concern', 'Other'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.issueTypeButton,
+                      issueType === type && styles.issueTypeButtonSelected
+                    ]}
+                    onPress={() => setIssueType(type)}
+                  >
+                    <Text style={[
+                      styles.issueTypeButtonText,
+                      issueType === type && styles.issueTypeButtonTextSelected
+                    ]}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Add Photo Section */}
+            <View style={styles.photoSection}>
+              <Text style={styles.sectionLabel}>Add Photo (Optional)</Text>
+              <TouchableOpacity 
+                style={styles.photoContainer}
+                onPress={handleImagePicker}
+              >
+                {selectedImage ? (
+                  <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Text style={styles.photoIcon}>📷</Text>
+                    <Text style={styles.photoText}>Add photo</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              
+              <View style={styles.photoButtons}>
+                <TouchableOpacity 
+                  style={styles.photoButton}
+                  onPress={handleImagePicker}
+                >
+                  <IconSymbol name="photo.fill" size={16} color="#FFFFFF" />
+                  <Text style={styles.photoButtonText}>Gallery</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.photoButton}
+                  onPress={handleCameraCapture}
+                >
+                  <IconSymbol name="camera.fill" size={16} color="#FFFFFF" />
+                  <Text style={styles.photoButtonText}>Camera</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Issue Description Section */}
+            <View style={styles.descriptionSection}>
+              <Text style={styles.sectionLabel}>Issue Description:</Text>
+              <TextInput
+                style={styles.descriptionInput}
+                placeholder="Describe the issue in detail..."
+                value={issueDescription}
+                onChangeText={setIssueDescription}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={handleCancelIssueReport}
+                disabled={submitting}
+              >
+                <IconSymbol name="xmark.circle.fill" size={16} color="#FFFFFF" />
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.issueSubmitButton, submitting && styles.submitButtonDisabled]}
+                onPress={handleSubmitIssueReport}
+                disabled={submitting || !issueType || !issueDescription.trim()}
+              >
+                <IconSymbol name="exclamationmark.triangle.fill" size={16} color="#FFFFFF" />
+                <Text style={styles.submitButtonText}>
+                  {submitting ? 'Reporting...' : 'Report Issue'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Error Modal */}
       <ErrorModal
         visible={errorModal.visible}
@@ -1078,6 +1335,47 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Issue report specific styles
+  issueTypeSection: {
+    marginBottom: 16,
+  },
+  issueTypeButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  issueTypeButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  issueTypeButtonSelected: {
+    backgroundColor: '#FF9800',
+    borderColor: '#FF9800',
+  },
+  issueTypeButtonText: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: '500',
+  },
+  issueTypeButtonTextSelected: {
+    color: 'white',
+  },
+  issueSubmitButton: {
+    flex: 1,
+    backgroundColor: '#FF9800',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
   },
   // Future pickup styles
   futurePickupInfo: {
