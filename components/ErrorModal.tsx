@@ -1,5 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect } from "react";
 import {
   Animated,
   Dimensions,
@@ -10,15 +10,15 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from 'react-native';
+} from "react-native";
 
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get("window");
 
 interface ErrorModalProps {
   visible: boolean;
   title?: string;
   message: string;
-  type?: 'error' | 'warning' | 'info' | 'success';
+  type?: "error" | "warning" | "info" | "success";
   onClose: () => void;
   autoClose?: boolean;
   autoCloseDelay?: number;
@@ -31,9 +31,9 @@ interface ErrorModalProps {
 
 export default function ErrorModal({
   visible,
-  title = 'Error',
+  title = "Error",
   message,
-  type = 'error',
+  type = "error",
   onClose,
   autoClose = true,
   autoCloseDelay = 4000,
@@ -90,15 +90,15 @@ export default function ErrorModal({
     if (!visible) return;
 
     const handleKeyDown = (event: any) => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         handleClose();
       }
     };
 
-    if (Platform.OS === 'web') {
-      document.addEventListener('keydown', handleKeyDown);
+    if (Platform.OS === "web") {
+      document.addEventListener("keydown", handleKeyDown);
       return () => {
-        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown);
       };
     }
   }, [visible]);
@@ -122,16 +122,36 @@ export default function ErrorModal({
 
   const getIconAndColor = () => {
     switch (type) {
-      case 'error':
-        return { icon: 'alert-circle-outline', color: '#EF4444', bgColor: '#FEF2F2' };
-      case 'warning':
-        return { icon: 'warning-outline', color: '#F59E0B', bgColor: '#FFFBEB' };
-      case 'info':
-        return { icon: 'information-circle-outline', color: '#3B82F6', bgColor: '#EFF6FF' };
-      case 'success':
-        return { icon: 'checkmark-circle', color: '#10B981', bgColor: '#ECFDF5' };
+      case "error":
+        return {
+          icon: "alert-circle-outline",
+          color: "#EF4444",
+          bgColor: "#FEF2F2",
+        };
+      case "warning":
+        return {
+          icon: "warning-outline",
+          color: "#F59E0B",
+          bgColor: "#FFFBEB",
+        };
+      case "info":
+        return {
+          icon: "information-circle-outline",
+          color: "#3B82F6",
+          bgColor: "#EFF6FF",
+        };
+      case "success":
+        return {
+          icon: "checkmark-circle",
+          color: "#10B981",
+          bgColor: "#ECFDF5",
+        };
       default:
-        return { icon: 'alert-circle-outline', color: '#EF4444', bgColor: '#FEF2F2' };
+        return {
+          icon: "alert-circle-outline",
+          color: "#EF4444",
+          bgColor: "#FEF2F2",
+        };
     }
   };
 
@@ -159,29 +179,31 @@ export default function ErrorModal({
               ]}
             >
               <View style={[styles.modal, { backgroundColor: bgColor }]}>
-                {/* Header */}
-                <View style={styles.header}>
-                  <View style={[styles.iconContainer, { backgroundColor: color }]}>
-                    {type === 'success' ? (
+                {/* Close Button */}
+                {showCloseButton && (
+                  <TouchableOpacity
+                    style={styles.closeButton}
+                    onPress={handleClose}
+                  >
+                    <Text style={styles.closeButtonText}>×</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Content with Icon */}
+                <View style={styles.contentWithIcon}>
+                  <View
+                    style={[styles.iconContainer, { backgroundColor: color }]}
+                  >
+                    {type === "success" ? (
                       <Text style={styles.checkmarkText}>✓</Text>
                     ) : (
                       <Ionicons name={icon as any} size={24} color="white" />
                     )}
                   </View>
-                  {showCloseButton && (
-                    <TouchableOpacity
-                      style={styles.closeButton}
-                      onPress={handleClose}
-                    >
-                      <Text style={styles.closeButtonText}>×</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Content */}
-                <View style={styles.content}>
-                  <Text style={[styles.title, { color }]}>{title}</Text>
-                  <Text style={styles.message}>{message}</Text>
+                  <View style={styles.textContent}>
+                    <Text style={[styles.title, { color }]}>{title}</Text>
+                    <Text style={styles.message}>{message}</Text>
+                  </View>
                 </View>
 
                 {/* Action Button */}
@@ -209,19 +231,20 @@ export default function ErrorModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 20,
   },
   modalContainer: {
-    width: '100%',
+    width: "100%",
     maxWidth: 400,
   },
   modal: {
     borderRadius: 16,
-    padding: 0,
-    shadowColor: '#000',
+    padding: 24,
+    position: "relative",
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -230,67 +253,69 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    paddingBottom: 16,
+  closeButton: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  contentWithIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    columnGap: 16,
   },
   iconContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
+    alignSelf: "center",
   },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+  textContent: {
+    flex: 1,
+    paddingRight: 24,
+    justifyContent: "center",
   },
   title: {
     fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontWeight: "700",
+    marginBottom: 4,
   },
   message: {
-    fontSize: 16,
-    color: '#374151',
-    lineHeight: 22,
-    textAlign: 'center',
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 20,
   },
   actionContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    marginTop: 16,
   },
   actionButton: {
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    alignItems: 'center',
+    alignItems: "center",
   },
   actionButtonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   checkmarkText: {
-    color: 'white',
+    color: "white",
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   closeButtonText: {
-    color: '#666',
+    color: "#666",
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
 });

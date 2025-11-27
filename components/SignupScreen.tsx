@@ -7,15 +7,15 @@ import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from '
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import ErrorModal from './ErrorModal';
 
@@ -353,7 +353,7 @@ export default function SignupScreen() {
 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordInputContainer}>
+            <View style={[styles.input, styles.passwordInputContainer]}>
               <TextInput
                 style={styles.passwordInput}
                 placeholder="Enter your password"
@@ -424,7 +424,7 @@ export default function SignupScreen() {
 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Confirm Password</Text>
-            <View style={styles.passwordInputContainer}>
+            <View style={[styles.input, styles.passwordInputContainer]}>
               <TextInput
                 style={styles.passwordInput}
                 placeholder="Confirm your password"
@@ -611,19 +611,12 @@ const styles = StyleSheet.create({
     borderColor: '#dfe9df',
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 12,
     fontSize: 16,
     color: '#333',
   },
   passwordInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#dfe9df',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
   },
   passwordInput: {
     flex: 1,
@@ -712,9 +705,13 @@ const styles = StyleSheet.create({
   primaryButton: {
     backgroundColor: '#4f6b4f',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     alignItems: 'center',
     marginBottom: 18,
+    alignSelf: 'center',
+    minWidth: 300,
+    top: 10,
   },
   primaryButtonText: {
     color: 'white',
@@ -745,15 +742,17 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   socialButton: {
-    width: '100%',
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     paddingVertical: 12,
+    paddingHorizontal: 14,
     alignItems: 'center',
     borderWidth: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 12,
+    alignSelf: 'center',
+    minWidth: 300,
   },
   googleButton: {
     backgroundColor: '#DB4437',

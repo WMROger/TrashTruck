@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, endAt, getDocs, limit, orderBy, query, startAt, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db, functions } from '../../config/firebase';
 import ErrorModal from '../ErrorModal';
 
@@ -25,6 +25,15 @@ const ManageAccountsTab: React.FC = () => {
     message: '',
     type: 'error' as 'error' | 'warning' | 'info' | 'success',
   });
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(5);
+  
+  // Sorting and filtering state
+  const [sortBy, setSortBy] = useState<'name' | 'email' | 'role' | 'createdAt'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'driver'>('all');
   
   // Role change confirmation modal state
   const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
@@ -76,6 +85,73 @@ const ManageAccountsTab: React.FC = () => {
   };
 
   const normalizedQuery = useMemo(() => (search || '').trim().toLowerCase(), [search]);
+
+  // Filter and sort users
+  const filteredAndSortedUsers = useMemo(() => {
+    let filtered = users;
+
+    // Apply role filter
+    if (roleFilter !== 'all') {
+      filtered = filtered.filter(user => user.role === roleFilter);
+    }
+
+    // Apply search filter
+    if (normalizedQuery) {
+      filtered = filtered.filter(user => 
+        user.email.toLowerCase().includes(normalizedQuery) ||
+        (user.displayName && user.displayName.toLowerCase().includes(normalizedQuery))
+      );
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = (a.displayName || a.email || '').toLowerCase();
+          bValue = (b.displayName || b.email || '').toLowerCase();
+          break;
+        case 'email':
+          aValue = (a.email || '').toLowerCase();
+          bValue = (b.email || '').toLowerCase();
+          break;
+        case 'role':
+          aValue = (a.role || '').toLowerCase();
+          bValue = (b.role || '').toLowerCase();
+          break;
+        case 'createdAt':
+          aValue = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+          bValue = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+          break;
+        default:
+          return 0;
+      }
+
+      if (sortBy === 'createdAt') {
+        return sortOrder === 'asc' 
+          ? aValue.getTime() - bValue.getTime()
+          : bValue.getTime() - aValue.getTime();
+      } else {
+        if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      }
+    });
+
+    return filtered;
+  }, [users, roleFilter, normalizedQuery, sortBy, sortOrder]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredAndSortedUsers.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentUsers = filteredAndSortedUsers.slice(startIndex, endIndex);
+
+  // Reset to first page when search, filter, or sort changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, roleFilter, sortBy, sortOrder]);
 
   const fetchUsers = async () => {
     if (!db) return;
@@ -180,7 +256,8 @@ const ManageAccountsTab: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.container}>
       <Text style={styles.title}>Manage Accounts</Text>
       <View style={styles.searchRow}>
         <TextInput
@@ -195,13 +272,169 @@ const ManageAccountsTab: React.FC = () => {
           <Text style={styles.searchBtnText}>{loading ? 'Loading...' : 'Search'}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Sort and Filter Controls */}
+      <View style={styles.controlsContainer}>
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Sort by:</Text>
+          <View style={styles.sortControls}>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'name' && styles.sortButtonActive]}
+              onPress={() => setSortBy('name')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'name' && styles.sortButtonTextActive]}>
+                Name
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'email' && styles.sortButtonActive]}
+              onPress={() => setSortBy('email')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'email' && styles.sortButtonTextActive]}>
+                Email
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'role' && styles.sortButtonActive]}
+              onPress={() => setSortBy('role')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'role' && styles.sortButtonTextActive]}>
+                Role
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'createdAt' && styles.sortButtonActive]}
+              onPress={() => setSortBy('createdAt')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'createdAt' && styles.sortButtonTextActive]}>
+                Date
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Order:</Text>
+          <View style={styles.orderControls}>
+            <TouchableOpacity
+              style={[styles.orderButton, sortOrder === 'asc' && styles.orderButtonActive]}
+              onPress={() => setSortOrder('asc')}
+            >
+              <Text style={[styles.orderButtonText, sortOrder === 'asc' && styles.orderButtonTextActive]}>
+                A-Z
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.orderButton, sortOrder === 'desc' && styles.orderButtonActive]}
+              onPress={() => setSortOrder('desc')}
+            >
+              <Text style={[styles.orderButtonText, sortOrder === 'desc' && styles.orderButtonTextActive]}>
+                Z-A
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Filter:</Text>
+          <View style={styles.filterControls}>
+            <TouchableOpacity
+              style={[styles.filterButton, roleFilter === 'all' && styles.filterButtonActive]}
+              onPress={() => setRoleFilter('all')}
+            >
+              <Text style={[styles.filterButtonText, roleFilter === 'all' && styles.filterButtonTextActive]}>
+                All
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, roleFilter === 'user' && styles.filterButtonActive]}
+              onPress={() => setRoleFilter('user')}
+            >
+              <Text style={[styles.filterButtonText, roleFilter === 'user' && styles.filterButtonTextActive]}>
+                Users
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, roleFilter === 'driver' && styles.filterButtonActive]}
+              onPress={() => setRoleFilter('driver')}
+            >
+              <Text style={[styles.filterButtonText, roleFilter === 'driver' && styles.filterButtonTextActive]}>
+                Drivers
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
       <FlatList
-        data={users}
+        data={currentUsers}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         contentContainerStyle={{ paddingVertical: 8 }}
       />
+
+      {/* Pagination Controls */}
+      {users.length > 0 && (
+        <View style={styles.paginationContainer}>
+          <View style={styles.paginationInfo}>
+            <Text style={styles.paginationText}>
+              Showing {startIndex + 1}-{Math.min(endIndex, filteredAndSortedUsers.length)} of {filteredAndSortedUsers.length} accounts
+            </Text>
+          </View>
+          
+          <View style={styles.paginationControls}>
+            <TouchableOpacity
+              style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+              onPress={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+            >
+              <Text style={[styles.paginationButtonText, currentPage === 1 && styles.paginationButtonTextDisabled]}>
+                Previous
+              </Text>
+            </TouchableOpacity>
+
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.pageNumbersScrollView}
+              contentContainerStyle={styles.pageNumbersContainer}
+            >
+              {Array.from({ length: totalPages }, (_, i) => {
+                const pageNum = i + 1;
+                
+                return (
+                  <TouchableOpacity
+                    key={pageNum}
+                    style={[
+                      styles.pageNumberButton,
+                      currentPage === pageNum && styles.pageNumberButtonActive
+                    ]}
+                    onPress={() => setCurrentPage(pageNum)}
+                  >
+                    <Text style={[
+                      styles.pageNumberText,
+                      currentPage === pageNum && styles.pageNumberTextActive
+                    ]}>
+                      {pageNum}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+              onPress={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+            >
+              <Text style={[styles.paginationButtonText, currentPage === totalPages && styles.paginationButtonTextDisabled]}>
+                Next
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Role Change Confirmation Modal */}
       <Modal
@@ -272,11 +505,20 @@ const ManageAccountsTab: React.FC = () => {
         autoClose={true}
         autoCloseDelay={4000}
       />
-    </View>
+      </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 16,
+  },
   container: {
     backgroundColor: '#E3F0E3',
     borderRadius: 16,
@@ -481,6 +723,182 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  // Pagination styles
+  paginationContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#dfe9df',
+  },
+  paginationInfo: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  paginationText: {
+    fontSize: 14,
+    color: '#4A5A49',
+    fontWeight: '500',
+  },
+  paginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 40,
+  },
+  paginationButton: {
+    backgroundColor: '#2E8B57',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  paginationButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  paginationButtonTextDisabled: {
+    color: '#999',
+  },
+  pageNumbersScrollView: {
+    flex: 1,
+    maxHeight: 40,
+  },
+  pageNumbersContainer: {
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 4,
+  },
+  pageNumberButton: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  pageNumberButtonActive: {
+    backgroundColor: '#2E8B57',
+  },
+  pageNumberText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  pageNumberTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // Sort and Filter Controls styles
+  controlsContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  controlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  controlLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#495057',
+    minWidth: 60,
+    marginRight: 8,
+  },
+  sortControls: {
+    flexDirection: 'row',
+    gap: 6,
+    flex: 1,
+  },
+  sortButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    flex: 1,
+    alignItems: 'center',
+  },
+  sortButtonActive: {
+    backgroundColor: '#2E8B57',
+    borderColor: '#2E8B57',
+  },
+  sortButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6c757d',
+  },
+  sortButtonTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  orderControls: {
+    flexDirection: 'row',
+    gap: 6,
+    flex: 1,
+  },
+  orderButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    flex: 1,
+    alignItems: 'center',
+  },
+  orderButtonActive: {
+    backgroundColor: '#2E8B57',
+    borderColor: '#2E8B57',
+  },
+  orderButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6c757d',
+  },
+  orderButtonTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  filterControls: {
+    flexDirection: 'row',
+    gap: 6,
+    flex: 1,
+  },
+  filterButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    flex: 1,
+    alignItems: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: '#2E8B57',
+    borderColor: '#2E8B57',
+  },
+  filterButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6c757d',
+  },
+  filterButtonTextActive: {
+    color: '#fff',
     fontWeight: '600',
   },
 });

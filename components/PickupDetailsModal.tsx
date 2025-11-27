@@ -230,13 +230,14 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    height: '80%',
+    maxHeight: '100%',
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 15,
     elevation: 15,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
@@ -254,7 +255,6 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   content: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingBottom: 20,
   },

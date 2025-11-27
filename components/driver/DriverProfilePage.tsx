@@ -124,7 +124,7 @@ export default function DriverProfilePage() {
   // Navigation handlers
   const handleMyAccount = () => {
     try {
-      router.push('/profile');
+      router.push('/profile/edit-profile');
     } catch {
       Alert.alert('My Account', 'Unable to open Profile right now.');
     }
