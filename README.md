@@ -31,8 +31,60 @@ AI Response → Chat UI
 - Expo CLI
 - Firebase CLI
 - Groq API Key
+- Docker & Docker Compose (optional, for containerised development)
 
-## 🛠️ Setup Instructions
+## 🐳 Docker Development (Recommended)
+
+You can run the entire stack — Expo dev server **and** Firebase emulators — with a single command using Docker Compose.
+
+### Quick Start
+
+```bash
+# 1. Copy the example env file and fill in your values
+cp .env.example .env   # or create .env manually (see Environment Variables section)
+
+# 2. Build and start all services
+docker compose up --build
+
+# 3. Open the Expo dev tools in your browser
+#    http://localhost:19002
+#    Scan the QR code with Expo Go on your phone, or press "w" to open in the browser.
+
+# 4. Firebase Emulator Suite UI is available at
+#    http://localhost:4000
+```
+
+### Individual Services
+
+```bash
+# Start only the Expo dev server
+docker compose up app
+
+# Start only the Firebase emulators
+docker compose up firebase-emulators
+
+# Stop all services
+docker compose down
+```
+
+### Ports Used
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Expo DevTools | 19000 | Expo tunnel / QR code |
+| Metro bundler | 19001 | JavaScript bundler |
+| Expo web UI | 19002 | Browser dev tools |
+| Firebase Emulator UI | 4000 | Emulator dashboard |
+| Firebase Hosting | 5000 | Local hosting |
+| Cloud Functions | 5001 | Functions emulator |
+| Firestore | 8080 | Database emulator |
+| Authentication | 9099 | Auth emulator |
+
+> **Note**: The Firebase emulator uses the project alias `demo-trashtruck`. No real Firebase project credentials are needed for local development.
+
+---
+
+## 🛠️ Setup Instructions (without Docker)
 
 ### 1. Install Dependencies
 

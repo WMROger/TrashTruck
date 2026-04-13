@@ -31,6 +31,7 @@ yarn-error.*
 # local env files
 .env*.local
 .env
+serviceAccountKey.json
 
 # typescript
 *.tsbuildinfo
@@ -45,6 +46,9 @@ ui-debug.log
 functions/node_modules/
 functions/.env
 functions/.runtimeconfig.json
+
+# Google Cloud Service Account Key
+serviceAccountKey.json
 
 # IDE
 .vscode/

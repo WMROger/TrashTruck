@@ -5,15 +5,25 @@ interface AdminButtonProps {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary';
+  disabled?: boolean;
 }
 
-export default function AdminButton({ title, onPress, variant = 'primary' }: AdminButtonProps) {
+export default function AdminButton({ title, onPress, variant = 'primary', disabled = false }: AdminButtonProps) {
   return (
     <TouchableOpacity 
-      style={[styles.button, variant === 'primary' ? styles.primaryButton : styles.secondaryButton]} 
+      style={[
+        styles.button, 
+        variant === 'primary' ? styles.primaryButton : styles.secondaryButton,
+        disabled && styles.disabledButton
+      ]} 
       onPress={onPress}
+      disabled={disabled}
     >
-      <Text style={[styles.buttonText, variant === 'primary' ? styles.primaryButtonText : styles.secondaryButtonText]}>
+      <Text style={[
+        styles.buttonText, 
+        variant === 'primary' ? styles.primaryButtonText : styles.secondaryButtonText,
+        disabled && styles.disabledButtonText
+      ]}>
         {title}
       </Text>
     </TouchableOpacity>
@@ -44,5 +54,12 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#6B8E23',
+  },
+  disabledButton: {
+    opacity: 0.7,
+    backgroundColor: '#ccc',
+  },
+  disabledButtonText: {
+    color: '#999',
   },
 }); 

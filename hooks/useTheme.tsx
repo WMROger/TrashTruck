@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 type Theme = 'light' | 'dark';
 
@@ -19,15 +19,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize theme from localStorage on web, or default to light
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('theme');
-      if (savedTheme === 'light' || savedTheme === 'dark') {
-        setThemeState(savedTheme);
+    // Only try to access localStorage on web platform
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+          setThemeState(savedTheme);
+          setIsSystem(false);
+        } else if (systemColorScheme) {
+          setThemeState(systemColorScheme);
+          setIsSystem(true);
+        }
+      } catch (error) {
+        console.log('localStorage not available, using default theme');
+        setThemeState('light');
         setIsSystem(false);
-      } else if (systemColorScheme) {
-        setThemeState(systemColorScheme);
-        setIsSystem(true);
       }
+    } else {
+      // On mobile, default to light theme
+      setThemeState('light');
+      setIsSystem(false);
     }
   }, [systemColorScheme]);
 
@@ -36,9 +47,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(newTheme);
     setIsSystem(false);
     
-    // Save to localStorage on web
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('theme', newTheme);
+    // Save to localStorage only on web platform
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('theme', newTheme);
+      } catch (error) {
+        console.log('Could not save theme to localStorage:', error);
+      }
     }
   };
 

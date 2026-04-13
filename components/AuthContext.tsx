@@ -1,12 +1,15 @@
-import React, { createContext, useContext, ReactNode } from 'react';
-import { User } from 'firebase/auth';
+import { db } from '@/config/firebase';
 import { useAuth } from '@/hooks/useAuth';
+import { updateProfile as updateFirebaseProfile, User } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import React, { createContext, ReactNode, useContext } from 'react';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
+  updateProfile: (profileData: { displayName?: string; photoURL?: string | null }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -14,8 +17,83 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
 
+  const updateProfile = async (profileData: { displayName?: string; photoURL?: string | null }) => {
+    if (!auth.user || !auth || !db) {
+      throw new Error('User not authenticated or Firebase not available');
+    }
+
+    try {
+      // Check if photoURL is a valid Cloudinary/HTTP URL (never allow local file paths)
+      const isValidCloudinaryURL = profileData.photoURL && (
+        profileData.photoURL.includes('cloudinary.com') || 
+        profileData.photoURL.startsWith('https://') || 
+        profileData.photoURL.startsWith('http://') ||
+        profileData.photoURL.length > 2000
+      );
+
+      // Never allow local file paths to be saved
+      const isLocalFilePath = profileData.photoURL && (
+        profileData.photoURL.startsWith('file://') ||
+        profileData.photoURL.startsWith('content://') ||
+        profileData.photoURL.startsWith('asset://') ||
+        profileData.photoURL.startsWith('blob:')
+      );
+
+      if (isLocalFilePath) {
+        throw new Error('Cannot save local file path as profile URL. Please upload to Cloudinary first.');
+      }
+
+      // Update Firebase Auth profile (only displayName, skip photoURL for Cloudinary URLs)
+      const authUpdateData: { displayName?: string; photoURL?: string | null } = {
+        displayName: profileData.displayName,
+      };
+      
+      // Only update Firebase Auth photoURL if it's a valid HTTP URL but not Cloudinary
+      if (profileData.photoURL && !isValidCloudinaryURL && !isLocalFilePath) {
+        authUpdateData.photoURL = profileData.photoURL;
+      }
+
+      await updateFirebaseProfile(auth.user, authUpdateData);
+
+      // Get existing Firestore data to preserve Cloudinary URLs
+      const userRef = doc(db, 'users', auth.user.uid);
+      const existingDoc = await getDoc(userRef);
+      const existingData = existingDoc.exists() ? existingDoc.data() : {};
+
+      // Only update photoURL in Firestore if we have a valid Cloudinary URL
+      // Otherwise, preserve existing Cloudinary URL
+      let photoURLToSave = existingData.photoURL || '';
+      
+      if (isValidCloudinaryURL) {
+        photoURLToSave = profileData.photoURL;
+      } else if (!existingData.photoURL && profileData.photoURL && !isLocalFilePath) {
+        // Only set non-Cloudinary URL if there's no existing URL
+        photoURLToSave = profileData.photoURL;
+      }
+
+      await setDoc(
+        userRef,
+        {
+          displayName: profileData.displayName || auth.user.displayName || '',
+          photoURL: photoURLToSave,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (isValidCloudinaryURL) {
+        console.log('Profile updated: Cloudinary photo URL stored in Firestore');
+      } else {
+        console.log('Profile updated: Preserved existing Cloudinary URL in Firestore');
+      }
+    } catch (error) {
+      console.error('Failed to update profile:', error);
+      throw error;
+    }
+  };
+
   return (
-    <AuthContext.Provider value={auth}>
+    <AuthContext.Provider value={{ ...auth, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
