@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native build artifacts
+android/.gradle/
+android/build/
+ios/Pods/
+ios/build/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+serviceAccountKey.json
+*.key
+*.p8
+*.p12
+*.pem
+*.mobileprovision
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+functions/.env
+functions/.runtimeconfig.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Debug / log files
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Git
+.git/
+.gitignore
