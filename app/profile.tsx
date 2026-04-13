@@ -559,7 +559,7 @@ export default function ProfilePage() {
             style={[styles.menuItem, { backgroundColor: colors.surface }]} 
             onPress={handleChangePassword}
           >
-            <IconSymbol name="lock.rotation" size={24} color={colors.primary} />
+            <IconSymbol name="lock.fill" size={24} color={colors.primary} />
             <Text style={[styles.menuText, { color: colors.textPrimary }]}>
               Change Password
             </Text>

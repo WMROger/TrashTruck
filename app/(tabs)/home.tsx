@@ -271,6 +271,29 @@ export default function HomePage() {
     }
   };
 
+  const getCategoryColor = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'general':
+        return '#22C55E'; // Green
+      case 'schedule':
+        return '#3B82F6'; // Blue
+      case 'maintenance':
+        return '#F59E0B'; // Orange
+      case 'policy update':
+        return '#8B5CF6'; // Purple
+      case 'emergency':
+        return '#EF4444'; // Red
+      case 'service':
+        return '#06B6D4'; // Cyan
+      case 'weather':
+        return '#84CC16'; // Lime
+      case 'holiday':
+        return '#F97316'; // Orange
+      default:
+        return '#6B7280'; // Gray
+    }
+  };
+
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
       case 'Urgent':
@@ -283,6 +306,29 @@ export default function HomePage() {
         return 'checkmark.circle.fill';
       default:
         return 'circle.fill';
+    }
+  };
+
+  const getCategoryIcon = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'general':
+        return 'megaphone.fill';
+      case 'schedule':
+        return 'calendar';
+      case 'maintenance':
+        return 'wrench.and.screwdriver.fill';
+      case 'policy update':
+        return 'doc.text.fill';
+      case 'emergency':
+        return 'exclamationmark.triangle.fill';
+      case 'service':
+        return 'gearshape.fill';
+      case 'weather':
+        return 'cloud.fill';
+      case 'holiday':
+        return 'gift.fill';
+      default:
+        return 'info.circle.fill';
     }
   };
 
@@ -391,9 +437,9 @@ export default function HomePage() {
               >
                 <View style={styles.announcementLeft}>
                   <IconSymbol 
-                    name={getPriorityIcon(announcement.priority)} 
+                    name={getCategoryIcon(announcement.category)} 
                     size={24} 
-                    color={getPriorityColor(announcement.priority)} 
+                    color={getCategoryColor(announcement.category)} 
                   />
                   <View style={styles.announcementText}>
                     <Text style={[styles.announcementTitle, { color: colors.textPrimary }]}>
@@ -413,7 +459,7 @@ export default function HomePage() {
                   <Text style={[styles.nextPickupLabel, { color: colors.textSecondary }]}>
                     {announcement.priority}
                   </Text>
-                  <Text style={[styles.nextPickupDate, { color: getPriorityColor(announcement.priority) }]}>
+                  <Text style={[styles.nextPickupDate, { color: getCategoryColor(announcement.category) }]}>
                     {announcement.category}
                   </Text>
                 </View>
