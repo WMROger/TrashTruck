@@ -1,42 +1,51 @@
 {
   "expo": {
-    "name": "TrashTruck",
-    "slug": "TrashTruck",
+    "name": "TrashTrack",
+    "slug": "trashtrack",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "trashtruck",
+    "scheme": "myapp",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.trashtruck"
+      "bundleIdentifier": "com.yourcompany.trashtrack",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to attach photos to reports.",
+        "NSCameraUsageDescription": "We need access to your camera so you can take photos for reports.",
+        "NSMicrophoneUsageDescription": "Microphone is used when recording videos with sound (not required for photos)."
+      }
     },
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.yourcompany.trashtruck"
+      "package": "com.yourcompany.trashtrack",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "template": "./web/index.html"
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
-      "expo-web-browser"
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

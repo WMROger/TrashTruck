@@ -4,40 +4,59 @@ export const adminStyles = StyleSheet.create({
   // Container styles
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
   },
   mainCard: {
-    width: '90%',
-    height: '80%',
-    backgroundColor: '#E8F5E8',
-    borderRadius: 20,
+    width: '95%',
+    height: '90%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
     flexDirection: 'row',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   
   // Panel styles
   leftPanel: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
+    backgroundColor: '#f0f8f0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   rightPanel: {
     flex: 1,
-    backgroundColor: '#E8F5E8',
-    padding: 40,
+    backgroundColor: '#f0f8f0',
+    padding: 48,
     justifyContent: 'center',
   },
   
   // Form styles
   welcomeText: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 40,
-    textAlign: 'center',
+    color: '#4a7c59',
+    marginBottom: 48,
+    textAlign: 'left',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: '#666',
+    marginLeft: 8,
   },
   form: {
     width: '100%',
@@ -338,5 +357,11 @@ export const adminStyles = StyleSheet.create({
     height: 20,
     backgroundColor: '#FF0000',
     borderRadius: 10,
+  },
+  
+  // Background image for admin login
+  backgroundImage: {
+    width: '100%',
+    height: '100%',
   },
 }); 

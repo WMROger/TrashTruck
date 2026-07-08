@@ -1,114 +1,184 @@
-import { FacebookAuthProvider, getRedirectResult, GoogleAuthProvider, signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import * as AuthSession from 'expo-auth-session';
+import Constants from 'expo-constants';
+import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
+import {
+  FacebookAuthProvider,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInWithPopup,
+} from 'firebase/auth';
 import { Platform } from 'react-native';
 import { auth } from './firebase';
 
-// Configure authentication for web
-export const configureAuth = () => {
-  if (Platform.OS === 'web') {
-    // Handle redirect result for web
-    getRedirectResult(auth).catch((error) => {
-      console.error('Redirect result error:', error);
-    });
-  }
-};
+// Configure WebBrowser for auth
+WebBrowser.maybeCompleteAuthSession();
 
-// Google Sign-In
-export const signInWithGoogle = async () => {
+// Google OAuth configuration
+// Prefer platform-specific client IDs. For iOS implicit flow, use the iOS client ID.
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
+
+// Facebook OAuth configuration  
+const FACEBOOK_APP_ID = process.env.EXPO_PUBLIC_FACEBOOK_APP_ID;
+
+export const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
   try {
-    const provider = new GoogleAuthProvider();
+    console.log('Starting Google sign-in...');
     
     if (Platform.OS === 'web') {
-      // Web platform - use popup
-      const result = await signInWithPopup(auth, provider);
-      return {
-        success: true,
-        user: result.user,
-        error: null
-      };
+      // Web platform - use Firebase popup
+      console.log('Using Firebase popup for web');
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      return { success: true };
     } else {
-      // Mobile platforms - use Firebase Auth with Google provider
-      // For mobile, we need to use a different approach since signInWithRedirect doesn't work properly
-      try {
-        // Try to use signInWithPopup on mobile (some platforms support it)
-        const result = await signInWithPopup(auth, provider);
-        return {
-          success: true,
-          user: result.user,
-          error: null
-        };
-      } catch (popupError: any) {
-        // If popup fails, fall back to a different approach
-        console.log('Popup failed on mobile, trying alternative method:', popupError.message);
+      // Use PKCE flow for mobile (uncommented and improved)
+      const clientId = Platform.OS === 'ios'
+        ? GOOGLE_IOS_CLIENT_ID
+        : GOOGLE_ANDROID_CLIENT_ID; // Use Android client ID for Android
+      if (!clientId) {
+        throw new Error('Google Client ID not configured for mobile');
+      }
+      if (!GOOGLE_CLIENT_SECRET) {
+        throw new Error('Google Client Secret not configured');
+      }
+
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'myapp',
+        path: 'auth/callback'
+      });
+
+      // Use the correct endpoint and parameters
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        scopes: ['openid', 'profile', 'email'],
+        redirectUri,
+        responseType: AuthSession.ResponseType.Code,
+        codeChallenge: await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          Math.random().toString(36), // Use a proper code verifier
+          { encoding: Crypto.CryptoEncoding.HEX }
+        ),
+        codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
+      });
+
+      const result = await request.promptAsync({
+        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+      });
+
+      if (result.type === 'success' && result.params.code) {
+        const tokenResponse = await AuthSession.exchangeCodeAsync(
+          {
+            clientId,
+            clientSecret: GOOGLE_CLIENT_SECRET,
+            code: result.params.code,
+            redirectUri,
+            extraParams: {
+              code_verifier: request.codeVerifier || '', // Ensure codeVerifier is set
+            },
+          },
+          {
+            tokenEndpoint: 'https://oauth2.googleapis.com/token',
+          }
+        );
+
+        const credential = GoogleAuthProvider.credential(tokenResponse.idToken || tokenResponse.accessToken);
+        await signInWithCredential(auth, credential);
         
-        // For now, return an error suggesting to use web or implement native auth
-        return {
-          success: false,
-          user: null,
-          error: 'Google sign-in on mobile requires additional setup. Please use the web version or contact support.'
-        };
+        console.log('Google sign-in successful on mobile');
+        return { success: true };
+      } else {
+        throw new Error('Google authentication was cancelled or failed');
       }
     }
   } catch (error: any) {
-    console.error('Google Sign-In Error:', error);
+    console.error('Google sign-in error:', error);
     
-    // Handle specific error cases
     if (error.code === 'auth/popup-closed-by-user') {
-      return {
-        success: false,
-        user: null,
-        error: 'Sign-in was cancelled by user'
-      };
+      return { success: false, error: 'Sign-in was cancelled' };
     } else if (error.code === 'auth/popup-blocked') {
-      return {
-        success: false,
-        user: null,
-        error: 'Pop-up was blocked by browser. Please allow pop-ups for this site.'
-      };
+      return { success: false, error: 'Pop-up was blocked. Please allow pop-ups and try again.' };
     } else if (error.code === 'auth/network-request-failed') {
-      return {
-        success: false,
-        user: null,
-        error: 'Network error. Please check your internet connection.'
-      };
+      return { success: false, error: 'Network error. Please check your connection and try again.' };
+    } else {
+      return { success: false, error: error.message || 'Google sign-in failed' };
     }
-    
-    return {
-      success: false,
-      user: null,
-      error: error.message || 'Google sign-in failed'
-    };
   }
 };
 
-// Facebook Sign-In
-export const signInWithFacebook = async () => {
+export const signInWithFacebook = async (): Promise<{ success: boolean; error?: string }> => {
   try {
-    const provider = new FacebookAuthProvider();
+    console.log('Starting Facebook sign-in...');
     
     if (Platform.OS === 'web') {
-      // Web platform - use popup
-      const result = await signInWithPopup(auth, provider);
-      return {
-        success: true,
-        user: result.user,
-        error: null
-      };
+      // Web platform - use Firebase popup
+      console.log('Using Firebase popup for web');
+      const provider = new FacebookAuthProvider();
+      await signInWithPopup(auth, provider);
+      return { success: true };
     } else {
-      // Mobile platforms - use redirect (will be handled by native auth)
-      await signInWithRedirect(auth, provider);
-      return {
-        success: true,
-        user: null, // User will be available after redirect
-        error: null
-      };
+      // Mobile platform - Use implicit flow for an access token, then sign in with Firebase
+      if (!FACEBOOK_APP_ID) {
+        throw new Error('Facebook App ID not configured for mobile');
+      }
+
+      // Mirror Google logic to avoid exp:// redirects and ensure exact Expo proxy URL
+      const isExpoGo = Constants.appOwnership === 'expo';
+      const expoOwner = (Constants as any)?.expoConfig?.owner || (Constants as any)?.easConfig?.owner;
+      const expoSlug = (Constants as any)?.expoConfig?.slug || 'trashtrack';
+      const proxyBase = expoOwner && expoSlug
+        ? `https://auth.expo.dev/@${expoOwner}/${expoSlug}`
+        : `https://auth.expo.dev/@wmroger/trashtrack`;
+
+      const redirectUri = isExpoGo
+        ? proxyBase
+        : (AuthSession.makeRedirectUri as any)({ scheme: 'myapp', path: 'auth/callback' });
+      console.log('Redirect URI:', redirectUri);
+
+      const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${encodeURIComponent(
+        FACEBOOK_APP_ID
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
+        'public_profile,email'
+      )}`;
+      console.log('Facebook auth URL:', authUrl);
+
+      const wbResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (wbResult.type === 'success' && wbResult.url) {
+        const fragment = wbResult.url.split('#')[1] || '';
+        const params = new URLSearchParams(fragment);
+        const accessToken = params.get('access_token');
+
+        if (!accessToken) {
+          throw new Error('No access token returned from Facebook');
+        }
+
+        const credential = FacebookAuthProvider.credential(accessToken);
+        await signInWithCredential(auth, credential);
+
+        console.log('Facebook sign-in successful on mobile');
+        return { success: true };
+      }
+      if (wbResult.type === 'cancel' || wbResult.type === 'dismiss') {
+        throw new Error('Facebook authentication was cancelled');
+      }
+      throw new Error('Facebook authentication failed');
     }
   } catch (error: any) {
-    console.error('Facebook Sign-In Error:', error);
-    return {
-      success: false,
-      user: null,
-      error: error.message || 'Facebook sign-in failed'
-    };
+    console.error('Facebook sign-in error:', error);
+    
+    if (error.code === 'auth/popup-closed-by-user') {
+      return { success: false, error: 'Sign-in was cancelled' };
+    } else if (error.code === 'auth/popup-blocked') {
+      return { success: false, error: 'Pop-up was blocked. Please allow pop-ups and try again.' };
+    } else if (error.code === 'auth/network-request-failed') {
+      return { success: false, error: 'Network error. Please check your connection and try again.' };
+    } else {
+      return { success: false, error: error.message || 'Facebook sign-in failed' };
+    }
   }
 };
 

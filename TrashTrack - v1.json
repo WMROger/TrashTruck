@@ -1,0 +1,203 @@
+{
+  "name": "TrashTrack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "a8735df2-a775-4ac0-b57f-6182ba0fedff",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4d22faed-5c23-463a-a1db-0636111e0746",
+      "name": "Webhook",
+      "webhookId": "a8735df2-a775-4ac0-b57f-6182ba0fedff"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.messageInput }}",
+        "options": {
+          "systemMessage": "=You are TrashTrack’s AI assistant. STRICT SCOPE: only answer questions about Waste Management (trash, recycling, composting, disposal rules, pickup schedules), sustainability tips, and TrashTrack app features/support. If out-of-scope, reply briefly: \n\n\"I can help with TrashTrack and waste topics like recycling, composting, disposal rules, and pickup schedules. Please ask something in that area.\"\n\nGuardrails:\n1) Never provide advice about illegal, dangerous, or harmful disposal\n2) Always promote safe, legal, environmentally-friendly practices\n3) Focus on positive environmental impact and sustainability\n4) Redirect inappropriate/off-topic questions back to TrashTrack topics\n5) Encourage using TrashTrack features for better waste management"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        288,
+        0
+      ],
+      "id": "0dfaec9e-56fa-4321-9eeb-048a5b9a5d3b",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "functionCode": "const body = $json.body || {};\nconst q = (body.messageInput || '').toLowerCase();\nconst allowlist = [\n  'trash','waste','recycle','recycling','compost','garbage','bin','landfill','plastic','paper','glass','metal',\n  'e-waste','organic','hazardous','disposal','segregation','collection','pickup','schedule','litter','pollution',\n  'sustainability','environment','eco','composting','reuse','reduce','sorting','incineration','municipal',\n  'trashtrack','trash track','app','driver','route','dump','junk','debris','scrap','rubbish','refuse'\n];\nconst inDomain = allowlist.some(k => q.includes(k));\nif (!inDomain) {\n  return [[], [{ json: { reply: 'I can help with TrashTrack and waste topics like recycling, composting, disposal rules, and pickup schedules. Please ask something in that area.' } }]];\n}\nreturn [items, []];"
+      },
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        144,
+        0
+      ],
+      "id": "0b2f6b2e-8d8d-4c35-b9e4-2b2f0e7e7a11",
+      "name": "Domain Filter",
+      "notesInFlow": true,
+      "notes": "Output 0: in-domain -> AI Agent\nOutput 1: off-topic -> Respond"
+    },
+    {
+      "parameters": {
+        "functionCode": "let text = ($json.reply || $json.answer || $json.output || '').toString();\ntext = text.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').replace(/<[^>]*>/g, '').trim();\nconst bad = ['illegal','dangerous','harmful'];\nif (bad.some(b => text.toLowerCase().includes(b))) {\n  text = 'I can’t provide that. Please follow safe, legal, and eco-friendly waste practices. How can I help with recycling, composting, or TrashTrack features?';\n}\nreturn [{ reply: text }];"
+      },
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "7f4b54a2-07a6-4d8a-9df4-6f3f1f4dfc22",
+      "name": "Post Guard"
+    },
+    {
+      "parameters": {
+        "model": "gemma2-9b-it",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        288,
+        160
+      ],
+      "id": "3c4ebc76-7e9b-430f-983c-7e48746e6f06",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "v3W1gTX2mk70Hrwg",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        640,
+        0
+      ],
+      "id": "2d489ca3-f433-4aef-8c9a-590349c86dd7",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $workflow.id }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        160
+      ],
+      "id": "e189e272-f8a3-423a-8b15-30d176c05828",
+      "name": "Simple Memory"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Domain Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Domain Filter": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Post Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Guard": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6e0638ee-3d42-4d76-8cbe-a1a5f711c796",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1498570097c1ea3446ea974a0e66b2c6148aa25faf278e28a9ceef9a68293240"
+  },
+  "id": "6haNUrieuDb91xK4",
+  "tags": []
+}
