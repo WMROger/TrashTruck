@@ -1,15 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
 import {
-  Animated,
-  Dimensions,
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
+    Animated,
+    Dimensions,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 const { width, height } = Dimensions.get("window");
@@ -166,19 +166,18 @@ export default function ErrorModal({
       animationType="none"
       onRequestClose={handleClose}
     >
-      <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback onPress={() => {}}>
-            <Animated.View
-              style={[
-                styles.modalContainer,
-                {
-                  opacity: fadeAnim,
-                  transform: [{ scale: scaleAnim }],
-                },
-              ]}
-            >
-              <View style={[styles.modal, { backgroundColor: bgColor }]}>
+      <Pressable onPress={handleClose} style={styles.overlay}>
+        <Pressable onPress={(event) => event.stopPropagation()}>
+          <Animated.View
+            style={[
+              styles.modalContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
+              },
+            ]}
+          >
+            <View style={[styles.modal, { backgroundColor: bgColor }]}>
                 {/* Close Button */}
                 {showCloseButton && (
                   <TouchableOpacity
@@ -220,10 +219,9 @@ export default function ErrorModal({
                   </View>
                 )}
               </View>
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
+          </Animated.View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }

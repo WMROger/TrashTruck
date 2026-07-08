@@ -8,20 +8,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  LogBox,
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Keyboard,
+    KeyboardAvoidingView,
+    LogBox,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
 // Suppress expo-notifications warning in Expo Go (not needed for AI chat functionality)
@@ -785,10 +785,9 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
     >
       {Platform.OS === 'web' ? (
         // Web version with click-outside-to-close
-        <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.webOverlay}>
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.webContainer, { backgroundColor: colors.background }]}>
+        <Pressable onPress={onClose} style={styles.webOverlay}>
+          <Pressable onPress={(event) => event.stopPropagation()}>
+            <View style={[styles.webContainer, { backgroundColor: colors.background }]}>
                 <View style={[styles.container, { backgroundColor: colors.background }]}>
                   <View style={[styles.header, { borderBottomColor: colors.border }]}>
                     <Text style={[styles.title, { color: colors.textPrimary }]}>
@@ -848,10 +847,9 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
                     </View>
                   </KeyboardAvoidingView>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+            </View>
+          </Pressable>
+        </Pressable>
       ) : (
         // Native version
         <View style={[styles.container, { backgroundColor: colors.background }]}>

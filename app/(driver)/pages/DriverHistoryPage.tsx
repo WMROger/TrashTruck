@@ -4,7 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ErrorModal from '../../../components/ErrorModal';
 
 interface DriverHistoryPageProps {
@@ -319,10 +319,9 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
         animationType="fade"
         onRequestClose={() => setShowSortModal(false)}
       >
-        <TouchableWithoutFeedback onPress={() => setShowSortModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={[styles.sortModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>                
+        <Pressable onPress={() => setShowSortModal(false)} style={styles.modalOverlay}>
+          <Pressable onPress={(event) => event.stopPropagation()}>
+            <View style={[styles.sortModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>                
                 {sortOptions.map((option) => (
                   <TouchableOpacity
                     key={option}
@@ -346,10 +345,9 @@ export default function DriverHistoryPage({}: DriverHistoryPageProps) {
                     <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
                   </TouchableOpacity>
                 ))}
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* Error Modal */}

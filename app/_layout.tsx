@@ -109,8 +109,13 @@ function RootLayoutNav() {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const style = document.createElement('style');
       style.textContent = `
-        * {
-          font-family: ${targetFont} !important;
+        /* Apply font to text elements only — NOT to all elements,
+           as that would override icon fonts (Ionicons, MaterialIcons, etc.)
+           NOTE: no !important here — React Native Web's inline styles on
+           icon <Text> components will naturally override this CSS rule. */
+        body, button, input, select, textarea,
+        p, span, div, h1, h2, h3, h4, h5, h6, a, label, li, td, th {
+          font-family: ${targetFont};
         }
       `;
       document.head.appendChild(style);
@@ -221,24 +226,19 @@ export default function RootLayout() {
 
       const style = document.createElement('style');
       style.textContent = `
-        * {
-          font-family: ${defaultFont} !important;
+        /* Apply font to text elements only — NOT to all elements,
+           as that would override icon fonts (Ionicons, MaterialIcons, etc.)
+           NOTE: no !important here — React Native Web's inline styles on
+           icon <Text> components will naturally override this CSS rule. */
+        body, button, input, select, textarea,
+        p, span, div, h1, h2, h3, h4, h5, h6, a, label, li, td, th {
+          font-family: ${defaultFont};
         }
-        /* Desktop web: force Material Icons font ONLY for actual icon elements */
-        [style*="font-family: material"][style*="font-size: 24px"],
-        [style*="font-family: material"][style*="font-size: 20px"],
-        [style*="font-family: material"][style*="font-size: 18px"],
-        [style*="font-family: material"][style*="font-size: 16px"] {
+        /* Ensure Material Icons ligature font renders correctly */
+        .material-icons {
           font-family: 'Material Icons' !important;
-          font-style: normal !important;
-          font-weight: normal !important;
-          font-variant: normal !important;
-          text-transform: none !important;
-          line-height: 1 !important;
-          letter-spacing: normal !important;
-          direction: ltr !important;
+          font-feature-settings: 'liga';
           -webkit-font-feature-settings: 'liga';
-          -webkit-font-smoothing: antialiased;
         }
       `;
       document.head.appendChild(style);
