@@ -84,7 +84,8 @@ export default function TabLayout() {
           headerShown: false,
           tabBarButton: (props) => {
             const isFocused = navigation.getState().routes[navigation.getState().index].name === route.name;
-            return <CustomTabBar {...props} isFocused={isFocused} />;
+            const isProtruding = route.name === 'report';
+            return <CustomTabBar {...props} isFocused={isFocused} isProtruding={isProtruding} />;
           },
           tabBarBackground: TabBarBackground,
           tabBarStyle: Platform.select({
@@ -133,9 +134,22 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="report"
+          options={{
+            title: 'Report',
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="camera-alt" 
+                size={32} 
+                color="#FFFFFF"
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="announcements"
           options={{
-            title: 'Announcements',
+            title: 'Alerts',
             tabBarIcon: ({ focused, color, size }) => (
               <MaterialIcons 
                 name="campaign" 
@@ -146,12 +160,12 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="report"
+          name="profile"
           options={{
-            title: 'Report',
+            title: 'Profile',
             tabBarIcon: ({ focused, color, size }) => (
               <MaterialIcons 
-                name="description" 
+                name="person" 
                 size={28} 
                 color="#FFFFFF"
               />

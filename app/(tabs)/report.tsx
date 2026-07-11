@@ -9,6 +9,7 @@ import * as ImagePicker from "expo-image-picker";
 import { addDoc, collection } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import React, { useMemo, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActionSheetIOS,
   Alert,
@@ -23,6 +24,7 @@ import {
 } from "react-native";
 
 export default function ReportScreen() {
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
   const [barangay, setBarangay] = useState("");
   const [street, setStreet] = useState("");
@@ -432,7 +434,7 @@ export default function ReportScreen() {
     <View style={styles.root}>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 45), paddingBottom: Math.max(insets.bottom + 20, 100) }]}
       >
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Report a Trash Pile</Text>

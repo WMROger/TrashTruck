@@ -7,11 +7,15 @@ import { useTheme } from '@/hooks/useTheme';
 import { ScheduleData, ScheduleNotificationService } from '@/services/scheduleNotificationService';
 import { collection, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function ScheduleScreen() {
   const { theme } = useTheme();
   const colors = Colors[theme ?? 'light'];
+  const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
 
   type RawSchedule = ScheduleData;
@@ -23,6 +27,7 @@ export default function ScheduleScreen() {
   const [showLegend, setShowLegend] = useState(false);
   const [showPickupModal, setShowPickupModal] = useState(false);
   const [selectedPickup, setSelectedPickup] = useState<RawSchedule | null>(null);
+  const [showMapZoom, setShowMapZoom] = useState(false);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -231,17 +236,43 @@ export default function ScheduleScreen() {
       contentContainerStyle={styles.contentContainer}
     >
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.primary }]}> 
+      <View style={[
+        styles.header, 
+        { 
+          backgroundColor: colors.primary, 
+          paddingTop: Math.max(insets.top, 20),
+          height: undefined, // remove fixed height
+          minHeight: 90
+        }
+      ]}> 
         <Text style={styles.headerTitle}>Schedule Pickups</Text>
       </View>
 
-      {/* Hero image */}
-      <View style={styles.heroCard}>
-        <Image
-          source={require('../../assets/images/Schedule_trashtrack.png')}
-          style={styles.heroImage}
-          resizeMode="cover"
-        />
+      {/* Map Tracker (Moved to Top) */}
+      <View style={[styles.mapCard, { backgroundColor: colors.surface }]}>
+        <View style={styles.mapHeader}>
+          <IconSymbol name="map" size={20} color={colors.primary} />
+          <Text style={[styles.mapTitle, { color: colors.textPrimary }]}>Live Tracker (Mockup)</Text>
+        </View>
+        <Text style={[styles.mapSubtitle, { color: colors.textSecondary }]}>
+          Track the current location of the trash collector in real-time.
+        </Text>
+        <TouchableOpacity style={styles.mapImageContainer} activeOpacity={0.8} onPress={() => setShowMapZoom(true)}>
+          <Image
+            source={require('../../assets/images/live_tracker_mockup.jpg')}
+            style={styles.mapImage}
+            resizeMode="cover"
+          />
+          <View style={styles.mapOverlay}>
+            <View style={styles.liveIndicator}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+            <View style={styles.etaContainer}>
+              <Text style={styles.mapEtaText}>Arriving in ~15 mins</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* API-backed calendar */}
@@ -361,9 +392,32 @@ export default function ScheduleScreen() {
       {/* Pickup Details Modal */}
       <PickupDetailsModal
         visible={showPickupModal}
-        onClose={handleCloseModal}
+        onClose={() => setShowPickupModal(false)}
         pickupData={selectedPickup}
       />
+
+      {/* Zoomable Map Modal */}
+      <Modal visible={showMapZoom} transparent animationType="fade" onRequestClose={() => setShowMapZoom(false)}>
+        <View style={styles.zoomModalContainer}>
+          <TouchableOpacity style={styles.zoomModalClose} onPress={() => setShowMapZoom(false)}>
+            <IconSymbol name="xmark.circle.fill" size={36} color="white" />
+          </TouchableOpacity>
+          <ScrollView
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.zoomScrollContent}
+            centerContent
+          >
+            <Image
+              source={require('../../assets/images/live_tracker_mockup.jpg')}
+              style={styles.zoomMapImage}
+              resizeMode="contain"
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -504,6 +558,116 @@ const styles = StyleSheet.create({
   },
   infoText: {
     flex: 1,
+  },
+  mapCard: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  mapHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  mapTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  mapSubtitle: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  mapImageContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#E2E8F0', // fallback color
+  },
+  mapImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mapOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.9)', // Red background
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'white',
+  },
+  liveText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  etaContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  mapEtaText: {
+    color: '#333',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  zoomModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomModalClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  zoomScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomMapImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.8,
   },
 });
 

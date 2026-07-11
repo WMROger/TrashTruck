@@ -11,9 +11,11 @@ import { signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
 import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function ProfilePage() {
+  const insets = useSafeAreaInsets();
   const { theme, setTheme, toggleSystem } = useTheme();
   const colors = Colors[theme ?? 'light'];
   const { user, logout, updateProfile } = useAuthContext();
@@ -456,7 +458,7 @@ export default function ProfilePage() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Modal Header */}
-      <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: Math.max(insets.top, 20) }]}>
         <TouchableOpacity 
           style={styles.closeButton}
           onPress={() => router.back()}
@@ -467,7 +469,7 @@ export default function ProfilePage() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView style={styles.scrollContent}>
+      <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 100 }}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>
             Profile

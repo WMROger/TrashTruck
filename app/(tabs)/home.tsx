@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, ref } from "firebase/storage";
 import React, { useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Image,
   Modal,
@@ -38,6 +39,7 @@ export default function HomePage() {
   const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[theme ?? "light"];
+  const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
@@ -401,7 +403,7 @@ export default function HomePage() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header Section */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 30) }]}>
         <View style={styles.profileSection}>
           <View
             style={[styles.profileIcon, { backgroundColor: colors.primary }]}
@@ -486,7 +488,11 @@ export default function HomePage() {
       </View>
 
       {/* Main Content */}
-      <View style={styles.content}>
+      <ScrollView 
+        style={{ flex: 1 }} 
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 120) }]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Featured Image */}
         <View style={styles.featuredImageContainer}>
           <View
@@ -652,7 +658,7 @@ export default function HomePage() {
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
 
       {/* Notifications Modal */}
       <Modal
