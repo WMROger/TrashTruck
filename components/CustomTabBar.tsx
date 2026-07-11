@@ -27,10 +27,7 @@ export function CustomTabBar(props: CustomTabBarProps) {
 
   return (
     <View style={styles.container}>
-      {/* White line indicator above selected tab */}
-      {isFocused && <View style={styles.indicator} />}
-      
-      {/* Selected background */}
+      {/* Selected pill background */}
       {isFocused && <View style={styles.selectedBackground} />}
       
       <PlatformPressable
@@ -50,47 +47,17 @@ const styles = StyleSheet.create({
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  protrudingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  protrudingButton: {
-    top: -20,
-    width: 65,
-    height: 65,
-    borderRadius: 32.5,
-    backgroundColor: '#73946B', // green primary
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 8,
-    borderWidth: 4,
-    borderColor: '#FFFFFF', 
-    zIndex: 10,
-  },
-  indicator: {
-    position: 'absolute',
-    top: 0,
-    left: '15%',
-    right: '15%',
-    height: 4,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 2,
-    zIndex: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   selectedBackground: {
     position: 'absolute',
-    top: 4,
-    left: 4,
-    right: 4,
-    bottom: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 8,
+    top: 6,
+    left: 8,
+    right: 8,
+    bottom: 6,
+    backgroundColor: '#C8E6C9', // light green pill
+    borderRadius: 16,
     zIndex: 1,
   },
   tabButton: {
@@ -99,7 +66,28 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 8,
-    zIndex: 3,
+    zIndex: 2,
+  },
+  protrudingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  protrudingButton: {
+    top: -20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF', // White matching the tab bar
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0', 
+    zIndex: 10,
   },
 });

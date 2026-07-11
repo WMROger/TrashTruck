@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
 import { AdminSidebar, AnnouncementsTab, FeedbackTab, HistoryTab, ManageAccountsTab, ReportsTab, ScheduleTab } from '../../components/admin';
 import { auth, db } from '../../config/firebase';
+import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
 
 export default function AdminDashboard() {
   const { user, isAuthenticated } = useAuthContext();
@@ -34,6 +35,7 @@ export default function AdminDashboard() {
   const [historyReports, setHistoryReports] = useState<Report[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [currentNotificationType, setCurrentNotificationType] = useState(0);
   type Report = {
     id: string;
     title: string;
@@ -268,6 +270,11 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     console.log('Admin logout: Button pressed, showing confirmation modal');
     setShowLogoutModal(true);
+  };
+
+  const sendTestNotification = async () => {
+    const next = await sendTestNotificationHelper(db, user, currentNotificationType);
+    setCurrentNotificationType(next);
   };
 
   const confirmLogout = async () => {
@@ -664,15 +671,26 @@ export default function AdminDashboard() {
             <Text style={styles.subtitle}>Barangay Sambag 2, Cebu City</Text>
             <Text style={styles.userInfo}>Logged in as: {user?.email}</Text>
           </View>
-          <TouchableOpacity 
-            style={styles.logoutButton} 
-            onPress={handleLogout}
-            activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <MaterialIcons name="logout" size={24} color="white" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity 
+              style={[styles.logoutButton, { backgroundColor: '#3B82F6', marginRight: 0 }]} 
+              onPress={sendTestNotification}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="notifications-active" size={24} color="white" />
+              <Text style={styles.logoutText}>Test Alert</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.logoutButton} 
+              onPress={handleLogout}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="logout" size={24} color="white" />
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       

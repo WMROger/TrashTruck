@@ -79,33 +79,22 @@ export default function TabLayout() {
         initialRouteName="home"
         screenOptions={({ route, navigation }) => ({
           lazy: true,
-          tabBarActiveTintColor: '#FFFFFF',
-          tabBarInactiveTintColor: 'rgba(255,255,255,0.6)',
+          tabBarActiveTintColor: '#2E7D32',
+          tabBarInactiveTintColor: '#757575',
           headerShown: false,
           tabBarButton: (props) => {
             const isFocused = navigation.getState().routes[navigation.getState().index].name === route.name;
             const isProtruding = route.name === 'report';
             return <CustomTabBar {...props} isFocused={isFocused} isProtruding={isProtruding} />;
           },
-          tabBarBackground: TabBarBackground,
-          tabBarStyle: Platform.select({
-            ios: {
-              // Use a transparent background on iOS to show the blur effect
-              position: 'absolute',
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-            default: {
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-          }),
+          tabBarStyle: {
+            backgroundColor: '#FFFFFF',
+            borderTopWidth: 1,
+            borderTopColor: '#E0E0E0',
+            height: 80,
+            paddingTop: 8,
+            paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          },
         })}>
         <Tabs.Screen
           name="home"
@@ -115,7 +104,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="home" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -128,7 +117,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="event" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -141,7 +130,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="camera-alt" 
                 size={32} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -154,7 +143,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="campaign" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -167,7 +156,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="person" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}

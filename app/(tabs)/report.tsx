@@ -1,3 +1,4 @@
+import { IconSymbol } from "@/components/ui/IconSymbol";
 import { UPLOAD_PRESETS } from "@/config/cloudinary";
 import { auth, db, storage } from "@/config/firebase";
 import {
@@ -429,208 +430,103 @@ export default function ReportScreen() {
       );
     }
   };
-
   return (
     <View style={styles.root}>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 45), paddingBottom: Math.max(insets.bottom + 20, 100) }]}
+        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 30), paddingBottom: Math.max(insets.bottom + 20, 100) }]}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Report a Trash Pile</Text>
-        </View>
-
-        <Text style={styles.helperText}>
-          Help us keep our barangay clean, healthy, and safe! Use this form to
-          report any uncollected trash or illegal dumping in your area.
-        </Text>
-
-        {/* Title */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>
-            Title <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={styles.sublabel}>What you're reporting?</Text>
-          <View style={styles.inputField}>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Title"
-              placeholderTextColor="#7C8E80"
-              style={styles.inputText}
-            />
-          </View>
-        </View>
-
-        {/* Location */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.sectionTitle}>Location of the Trash Pile</Text>
-
-          {/* Barangay dropdown */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              Barangay <Text style={styles.required}>*</Text>
-            </Text>
-            <TouchableOpacity
-              style={styles.inputField}
-              onPress={() => {
-                setShowBarangay(!showBarangay);
-                if (!showBarangay) {
-                  setShowLandmark(false); // Close landmark dropdown when opening barangay
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.inputText,
-                  barangay ? undefined : styles.placeholder,
-                ]}
-              >
-                {barangay || "Barangay"}
-              </Text>
-              <Ionicons
-                name={showBarangay ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#4B5F4F"
-              />
-            </TouchableOpacity>
-            {showBarangay && BARANGAYS && BARANGAYS.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.dropdownBackdrop}
-                  onPress={() => setShowBarangay(false)}
-                  activeOpacity={1}
-                />
-                <View style={styles.dropdownPanelBarangay}>
-                  {BARANGAYS.map((b, index) => (
-                    <TouchableOpacity
-                      key={`barangay-${index}-${b}`}
-                      style={[
-                        styles.dropdownItem,
-                        index === BARANGAYS.length - 1 &&
-                          styles.dropdownItemLast,
-                      ]}
-                      onPress={() => {
-                        setBarangay(b);
-                        setShowBarangay(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{b}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* Street input */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              Street <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.inputField}>
-              <TextInput
-                value={street}
-                onChangeText={setStreet}
-                placeholder="Street name or purok/sitio"
-                placeholderTextColor="#7C8E80"
-                style={styles.inputText}
-              />
-            </View>
-          </View>
-
-          {/* Landmark dropdown */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Landmark</Text>
-            <TouchableOpacity
-              style={styles.inputField}
-              onPress={() => {
-                setShowLandmark(!showLandmark);
-                if (!showLandmark) {
-                  setShowBarangay(false); // Close barangay dropdown when opening landmark
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.inputText,
-                  landmark ? undefined : styles.placeholder,
-                ]}
-              >
-                {landmark || "Nearby landmarks"}
-              </Text>
-              <Ionicons
-                name={showLandmark ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#4B5F4F"
-              />
-            </TouchableOpacity>
-            {showLandmark && LANDMARKS && LANDMARKS.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.dropdownBackdrop}
-                  onPress={() => setShowLandmark(false)}
-                  activeOpacity={1}
-                />
-                <View style={styles.dropdownPanelLandmark}>
-                  {LANDMARKS.map((l, index) => (
-                    <TouchableOpacity
-                      key={`landmark-${index}-${l}`}
-                      style={[
-                        styles.dropdownItem,
-                        index === LANDMARKS.length - 1 &&
-                          styles.dropdownItemLast,
-                      ]}
-                      onPress={() => {
-                        setLandmark(l);
-                        setShowLandmark(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-
-        {/* Description */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>
-            Description of Trash <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={styles.sublabel}>
-            What do you see? Please describe the type and amount of trash.
-          </Text>
-          <View style={styles.textArea}>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder=""
-              placeholderTextColor="#7C8E80"
-              style={styles.textAreaInput}
-              multiline
-            />
-          </View>
-        </View>
+        <Text style={styles.headerTitle}>Report a Trash Pile</Text>
 
         {/* Photo upload placeholder */}
         <TouchableOpacity style={styles.photoCard} onPress={pickImage}>
           {imageUri ? (
             <Image
               source={{ uri: imageUri }}
-              style={{ width: 100, height: 100, borderRadius: 12 }}
+              style={{ width: "100%", height: "100%", borderRadius: 12 }}
             />
           ) : (
-            <>
-              <Ionicons name="camera" size={28} color="#234033" />
-              <Text style={styles.photoText}>Add photo</Text>
-            </>
+            <View style={styles.photoPlaceholder}>
+              <IconSymbol name="camera.fill" size={36} color="#4A6741" />
+              <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
+              <Text style={styles.photoTextSub}>Tap to take a photo or upload</Text>
+            </View>
           )}
         </TouchableOpacity>
+
+        {/* AI Suggestions (Mocked) */}
+        <View style={styles.aiSectionHeader}>
+          <IconSymbol name="sparkles" size={16} color="#4A6741" />
+          <Text style={styles.aiSectionTitle}>AI SUGGESTIONS</Text>
+        </View>
+
+        <View style={styles.aiRow}>
+          <View style={styles.aiCard}>
+            <Text style={styles.aiCardLabel}>Waste Type</Text>
+            <View style={styles.aiCardValueRow}>
+              <IconSymbol name="leaf.fill" size={18} color="#4A6741" />
+              <Text style={styles.aiCardValue}>Biodegradable</Text>
+            </View>
+          </View>
+          <View style={styles.aiCard}>
+            <Text style={styles.aiCardLabel}>Estimated Weight</Text>
+            <View style={styles.aiCardValueRow}>
+              <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
+              <Text style={styles.aiCardValue}>12.5 <Text style={{fontWeight: '400', fontSize: 14}}>kg</Text></Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Title */}
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Report Title</Text>
+          <View style={styles.inputField}>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="What are you reporting?"
+              placeholderTextColor="#7C8E80"
+              style={styles.inputText}
+            />
+          </View>
+          <View style={styles.tagsRow}>
+            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Illegal Dumping")}>
+              <Text style={styles.tagText}>Illegal Dumping</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Missed Pickup")}>
+              <Text style={styles.tagText}>Missed Pickup</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Location Map */}
+        <View style={styles.mapContainer}>
+          <View style={styles.mockMapBg}>
+            <View style={styles.mockMapPinContainer}>
+               <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
+            </View>
+            <View style={styles.mapAddressBadge}>
+              <IconSymbol name="location.fill" size={14} color="#4A6741" />
+              <Text style={styles.mapAddressText}>Oak Street, near Market Center</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Description */}
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Additional Notes</Text>
+          <View style={styles.textArea}>
+            <TextInput
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Any specific instructions for the pickup crew?"
+              placeholderTextColor="#7C8E80"
+              style={styles.textAreaInput}
+              multiline
+            />
+          </View>
+        </View>
 
         {/* Upload Progress */}
         {isUploading && (
@@ -650,215 +546,232 @@ export default function ReportScreen() {
           </View>
         )}
 
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.submitBtn, isUploading && styles.submitBtnDisabled]}
-          activeOpacity={0.8}
-          onPress={handleSendReport}
-          disabled={isUploading}
-        >
-          <Text style={styles.submitText}>
-            {isUploading ? "Submitting..." : "Send report"}
+        {/* Points Badge & Submit */}
+        <View style={styles.submitSection}>
+          <View style={styles.pointsBadgeSubmit}>
+             <IconSymbol name="star.circle.fill" size={16} color="#4A6741" />
+             <Text style={styles.pointsBadgeText}>+50 POINTS FOR THIS REPORT</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.submitBtn, isUploading && styles.submitBtnDisabled]}
+            activeOpacity={0.8}
+            onPress={handleSendReport}
+            disabled={isUploading}
+          >
+            <Text style={styles.submitText}>
+              {isUploading ? "Submitting..." : "Submit Report"}
+            </Text>
+            <IconSymbol name="paperplane.fill" size={16} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.submitFooterText}>
+            By submitting, you&apos;ll earn 50 Community Points and help reach the &quot;Cleanest Quarter&quot; goal!
           </Text>
-        </TouchableOpacity>
+        </View>
+
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#ECF8ED" },
-  content: { padding: 26, paddingBottom: 10, paddingTop: 45 },
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  backBtn: {
-    width: 32,
-    height: 32,
+  root: { flex: 1, backgroundColor: "#E8F5E9" },
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40, paddingTop: 60 },
+  headerTitle: { fontSize: 24, fontWeight: "700", color: "#234033", marginBottom: 20 },
+  
+  photoCard: {
+    height: 180,
     borderRadius: 16,
+    backgroundColor: "#F0F6F0",
+    borderWidth: 2,
+    borderColor: "#C8D8CA",
+    borderStyle: 'dashed',
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#DDEEDB",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    marginRight: 8,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  headerTitle: { fontSize: 16, fontWeight: "700", color: "#234033" },
-  helperText: { fontSize: 12, color: "#4B5F4F", marginBottom: 12 },
-
-  fieldGroup: { marginBottom: 14, position: "relative" },
-  sectionTitle: {
-    fontSize: 12,
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoTextMain: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#4A6741",
     fontWeight: "700",
-    color: "#234033",
-    marginBottom: 6,
   },
-  label: { fontSize: 12, fontWeight: "700", color: "#234033" },
-  sublabel: { fontSize: 10, color: "#4B5F4F", marginBottom: 6 },
-  required: { color: "#FF4444", fontWeight: "700" },
+  photoTextSub: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#7C8E80",
+  },
 
+  aiSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  aiSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4A6741',
+    letterSpacing: 1,
+  },
+  aiRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  aiCard: {
+    flex: 1,
+    backgroundColor: '#E2EFE3',
+    borderRadius: 12,
+    padding: 16,
+  },
+  aiCardLabel: {
+    fontSize: 12,
+    color: '#4A6741',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  aiCardValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiCardValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#234033',
+  },
+
+  fieldGroup: { marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: "700", color: "#4A6741", marginBottom: 8 },
+  
   inputField: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F7FBF7",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderWidth: 1,
     borderColor: "#C8D8CA",
-    marginTop: 6,
   },
-  inputText: { flex: 1, fontSize: 12, color: "#234033" },
-  placeholder: { color: "#7C8E80" },
+  inputText: { fontSize: 15, color: "#234033" },
+  
+  tagsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  tagBadge: {
+    backgroundColor: '#C8E6C9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  tagText: {
+    color: '#2E7D32',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
-  dropdownPanel: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 1000,
-    elevation: 100,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mapContainer: {
+    marginBottom: 20,
   },
-  dropdownPanelBarangay: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 10000,
-    elevation: 10000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mockMapBg: {
+    backgroundColor: '#7C8E80',
+    height: 140,
+    borderRadius: 16,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  dropdownPanelLandmark: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 10000,
-    elevation: 10000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mockMapPinContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
-  dropdownPanelPortal: {
-    position: "fixed",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 2147483647,
-    boxShadow: "0 6px 12px rgba(0,0,0,0.15)",
-  } as any,
-  dropdownPanelPortalNative: {
-    position: "absolute",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 2147483647,
-    elevation: 100,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-  },
-  dropdownItem: {
-    paddingHorizontal: 12,
+  mapAddressBadge: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: 'white',
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF3EE",
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  dropdownItemLast: {
-    borderBottomWidth: 0,
-  },
-  dropdownText: { fontSize: 12, color: "#234033" },
-  dropdownBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: -1000,
-    right: -1000,
-    bottom: -1000,
-    zIndex: 9999,
-    elevation: 9999,
+  mapAddressText: {
+    fontSize: 13,
+    color: '#234033',
+    fontWeight: '500',
   },
 
   textArea: {
-    backgroundColor: "#F7FBF7",
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 88,
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    marginTop: 6,
-    position: "relative",
-    zIndex: 0,
-  },
-  textAreaInput: { fontSize: 12, color: "#234033" },
-
-  photoCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 120,
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    backgroundColor: "#F0F6F0",
+    padding: 16,
+    minHeight: 100,
     borderWidth: 1,
     borderColor: "#C8D8CA",
-    marginBottom: 14,
-    position: "relative",
-    zIndex: 0,
   },
-  photoText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#234033",
-    fontWeight: "600",
-  },
+  textAreaInput: { fontSize: 15, color: "#234033", textAlignVertical: 'top' },
 
+  submitSection: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  pointsBadgeSubmit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#C8E6C9',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 16,
+  },
+  pointsBadgeText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   submitBtn: {
-    alignSelf: "center",
-    backgroundColor: "#4E6E58",
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: "#4A6741",
+    paddingVertical: 16,
+    width: '100%',
+    borderRadius: 12,
+    marginBottom: 16,
   },
   submitBtnDisabled: {
     backgroundColor: "#A0A0A0",
-    opacity: 0.6,
   },
-  submitText: { color: "white", fontWeight: "700" },
+  submitText: { color: "white", fontWeight: "700", fontSize: 16 },
+  submitFooterText: {
+    textAlign: 'center',
+    color: '#4B5F4F',
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 20,
+  },
 
   progressContainer: {
     marginBottom: 16,
-    paddingHorizontal: 20,
   },
   progressText: {
     fontSize: 12,

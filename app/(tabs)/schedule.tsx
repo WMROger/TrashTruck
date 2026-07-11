@@ -9,6 +9,8 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker } from '@/components/MapView';
+import { Calendar } from 'react-native-calendars';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -231,6 +233,72 @@ export default function ScheduleScreen() {
     setMonthScheduleDates(mapping);
   }, [currentMonth, rawSchedules]);
 
+  const markedDates = useMemo(() => {
+    const dates: any = {};
+    
+    // Add schedule markers
+    Object.keys(monthScheduleDates).forEach(key => {
+      const items = monthScheduleDates[key];
+      if (items.length > 0) {
+        const allCompleted = items.every((it: any) => (it.status || '').toLowerCase() === 'completed');
+        const color = CATEGORY_COLORS[items[0].wasteCategory] || colors.primary;
+        
+        dates[key] = {
+          customStyles: {
+            container: {
+              backgroundColor: allCompleted ? '#F1F5F9' : color,
+              borderWidth: allCompleted ? 1 : 0,
+              borderColor: '#E2E8F0',
+              borderRadius: 8,
+            },
+            text: {
+              color: allCompleted ? '#94A3B8' : 'white',
+              fontWeight: '700'
+            }
+          }
+        };
+      }
+    });
+
+    // Add selected date marker
+    if (selectedDate) {
+      const selKey = `${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`;
+      
+      if (dates[selKey]) {
+        // preserve the schedule color but add a border for selection
+        dates[selKey] = {
+          ...dates[selKey],
+          customStyles: {
+            ...dates[selKey].customStyles,
+            container: {
+              ...dates[selKey].customStyles.container,
+              borderWidth: 2,
+              borderColor: colors.primary,
+            }
+          }
+        };
+      } else {
+        // empty day selected
+        dates[selKey] = {
+          customStyles: {
+            container: {
+              borderWidth: 2,
+              borderColor: colors.primary,
+              backgroundColor: 'transparent',
+              borderRadius: 8,
+            },
+            text: {
+              color: colors.textPrimary,
+              fontWeight: '700'
+            }
+          }
+        };
+      }
+    }
+
+    return dates;
+  }, [monthScheduleDates, selectedDate, CATEGORY_COLORS, colors]);
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.contentContainer}
@@ -252,18 +320,36 @@ export default function ScheduleScreen() {
       <View style={[styles.mapCard, { backgroundColor: colors.surface }]}>
         <View style={styles.mapHeader}>
           <IconSymbol name="map" size={20} color={colors.primary} />
-          <Text style={[styles.mapTitle, { color: colors.textPrimary }]}>Live Tracker (Mockup)</Text>
+          <Text style={[styles.mapTitle, { color: colors.textPrimary }]}>Live Tracker (API)</Text>
         </View>
         <Text style={[styles.mapSubtitle, { color: colors.textSecondary }]}>
           Track the current location of the trash collector in real-time.
         </Text>
-        <TouchableOpacity style={styles.mapImageContainer} activeOpacity={0.8} onPress={() => setShowMapZoom(true)}>
-          <Image
-            source={require('../../assets/images/live_tracker_mockup.jpg')}
+        <TouchableOpacity style={styles.mapImageContainer} activeOpacity={0.9} onPress={() => setShowMapZoom(true)}>
+          <MapView
             style={styles.mapImage}
-            resizeMode="cover"
-          />
-          <View style={styles.mapOverlay}>
+            initialRegion={{
+              latitude: 10.5217,
+              longitude: 124.0253, // Danao, Cebu
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+            pitchEnabled={false}
+            rotateEnabled={false}
+            scrollEnabled={false}
+            zoomEnabled={false}
+          >
+            <Marker
+              coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
+              title="Trash Truck"
+              description="Currently collecting in Danao..."
+            >
+              <View style={{ backgroundColor: colors.primary, padding: 6, borderRadius: 20 }}>
+                <IconSymbol name="car.fill" size={24} color="white" />
+              </View>
+            </Marker>
+          </MapView>
+          <View style={styles.mapOverlay} pointerEvents="none">
             <View style={styles.liveIndicator}>
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>LIVE</Text>
@@ -276,51 +362,35 @@ export default function ScheduleScreen() {
       </View>
 
       {/* API-backed calendar */}
-      <View style={[styles.calendarCard, { backgroundColor: colors.surface }]}> 
-        <View style={styles.calendarHeader}> 
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <TouchableOpacity onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}>
-              <Text style={{ color: colors.primary }}>{'<'} Prev</Text>
-            </TouchableOpacity>
-            <Text style={styles.calendarMonth}>{formatMonthYear(currentMonth)}</Text>
-            <TouchableOpacity onPress={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}>
-              <Text style={{ color: colors.primary }}>Next {'>'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.calendarGrid}>
-          {buildMonthDays(currentMonth).map((cell, index) => {
-            if (!cell) return <View key={`e-${index}`} style={styles.calendarCell} />;
-            const key = `${cell.getFullYear()}-${(cell.getMonth()+1).toString().padStart(2,'0')}-${cell.getDate().toString().padStart(2,'0')}`;
-            const items = monthScheduleDates[key] || [];
-            const hasItems = items.length > 0;
-            const allCompleted = hasItems && items.every((it: any) => (it.status || '').toLowerCase() === 'completed');
-            const color = hasItems ? (CATEGORY_COLORS[items[0].wasteCategory] || colors.primary) : undefined;
-            const isSelected = selectedDate && isSameDate(cell, selectedDate);
-            return (
-              <TouchableOpacity
-                key={cell.toISOString()}
-                style={[
-                  styles.calendarCell,
-                  hasItems && !allCompleted ? { backgroundColor: color, borderRadius: 8 } : null,
-                  allCompleted ? { backgroundColor: '#F1F5F9', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' } : null,
-                  isSelected ? { borderWidth: 1, borderColor: colors.primary } : null
-                ]}
-                onPress={() => setSelectedDate(cell)}
-              >
-                <Text
-                  style={[
-                    styles.calendarDay,
-                    hasItems && !allCompleted ? { color: 'white', fontWeight: '700' } : null,
-                    allCompleted ? { color: '#94A3B8', fontWeight: '700' } : null,
-                  ]}
-                >
-                  {cell.getDate()}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+      <View style={[styles.calendarCard, { backgroundColor: colors.surface, padding: 0, overflow: 'hidden' }]}> 
+        <Calendar
+          markingType={'custom'}
+          markedDates={markedDates}
+          onDayPress={(day: any) => {
+            const parts = day.dateString.split('-');
+            setSelectedDate(new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+          }}
+          onMonthChange={(month: any) => {
+            setCurrentMonth(new Date(month.year, month.month - 1, 1));
+          }}
+          theme={{
+            backgroundColor: colors.surface,
+            calendarBackground: colors.surface,
+            textSectionTitleColor: colors.textSecondary,
+            todayTextColor: colors.primary,
+            dayTextColor: colors.textPrimary,
+            textDisabledColor: '#d9e1e8',
+            arrowColor: colors.primary,
+            monthTextColor: colors.textPrimary,
+            indicatorColor: colors.primary,
+            textDayFontWeight: '500',
+            textMonthFontWeight: 'bold',
+            textDayHeaderFontWeight: '600',
+            textDayFontSize: 14,
+            textMonthFontSize: 16,
+            textDayHeaderFontSize: 12
+          }}
+        />
       </View>
 
       {/* Legend Dropdown */}
@@ -392,30 +462,47 @@ export default function ScheduleScreen() {
       {/* Pickup Details Modal */}
       <PickupDetailsModal
         visible={showPickupModal}
-        onClose={() => setShowPickupModal(false)}
+        onClose={handleCloseModal}
         pickupData={selectedPickup}
       />
 
-      {/* Zoomable Map Modal */}
-      <Modal visible={showMapZoom} transparent animationType="fade" onRequestClose={() => setShowMapZoom(false)}>
-        <View style={styles.zoomModalContainer}>
-          <TouchableOpacity style={styles.zoomModalClose} onPress={() => setShowMapZoom(false)}>
-            <IconSymbol name="xmark.circle.fill" size={36} color="white" />
-          </TouchableOpacity>
-          <ScrollView
-            maximumZoomScale={4}
-            minimumZoomScale={1}
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.zoomScrollContent}
-            centerContent
+      {/* Fullscreen Map Modal */}
+      <Modal visible={showMapZoom} transparent animationType="slide" onRequestClose={() => setShowMapZoom(false)}>
+        <View style={styles.fullscreenMapContainer}>
+          <MapView
+            style={styles.fullscreenMapImage}
+            initialRegion={{
+              latitude: 10.5217,
+              longitude: 124.0253, // Danao, Cebu
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+            showsUserLocation
           >
-            <Image
-              source={require('../../assets/images/live_tracker_mockup.jpg')}
-              style={styles.zoomMapImage}
-              resizeMode="contain"
-            />
-          </ScrollView>
+            <Marker
+              coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
+              title="Trash Truck"
+              description="Currently collecting in Danao..."
+            >
+              <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 20 }}>
+                <IconSymbol name="car.fill" size={28} color="white" />
+              </View>
+            </Marker>
+          </MapView>
+          
+          <TouchableOpacity style={styles.fullscreenMapClose} onPress={() => setShowMapZoom(false)}>
+            <IconSymbol name="xmark.circle.fill" size={36} color="#333" />
+          </TouchableOpacity>
+          
+          <View style={styles.fullscreenMapOverlay} pointerEvents="none">
+            <View style={styles.liveIndicator}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+            <View style={styles.etaContainer}>
+              <Text style={styles.mapEtaText}>Arriving in ~15 mins</Text>
+            </View>
+          </View>
         </View>
       </Modal>
     </ScrollView>
@@ -469,6 +556,19 @@ const styles = StyleSheet.create({
   },
   calendarMonth: {
     fontWeight: '600',
+  },
+  weekdaysRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekdayCell: {
+    width: `${100 / 7}%`,
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  weekdayText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   calendarGrid: {
     flexDirection: 'row',
@@ -668,6 +768,36 @@ const styles = StyleSheet.create({
   zoomMapImage: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT * 0.8,
+  },
+  fullscreenMapContainer: {
+    flex: 1,
+    backgroundColor: 'white',
+    position: 'relative',
+  },
+  fullscreenMapImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  fullscreenMapClose: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 20,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  fullscreenMapOverlay: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });
 

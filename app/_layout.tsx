@@ -185,7 +185,7 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
-        name="profile" 
+        name="settings" 
         options={{ 
           headerShown: false, 
           ...getTransitionConfig('slideFromRight'),
