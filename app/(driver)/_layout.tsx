@@ -4,20 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
 
 import { useAuthContext } from '@/components/AuthContext';
-import { CustomTabBar } from '@/components/CustomTabBar';
-import TabBarBackground from '@/components/ui/TabBarBackground';
 import { db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
-import { useTheme } from '@/hooks/useTheme';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
 
 export default function DriverLayout() {
-  const { theme } = useTheme();
   const { user } = useAuthContext();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null);
-  const [showAIChat, setShowAIChat] = useState(false);
 
   // Check if user has driver role
   useEffect(() => {
@@ -38,7 +31,6 @@ export default function DriverLayout() {
             router.replace('/');
             return;
           }
-          setRole(userData.role || null);
         }
       } catch (error) {
         // Error checking driver role
@@ -55,116 +47,79 @@ export default function DriverLayout() {
     return null; // Will redirect if needed
   }
 
-  const colors = Colors[theme ?? 'light'];
+  const activeColor = '#4E6C50'; // Dark green
+  const inactiveColor = '#9CA3AF'; // Gray
 
   return (
-    <>
-      <Tabs
-        initialRouteName="index"
-        screenOptions={({ route, navigation }) => ({
-          lazy: true,
-          tabBarActiveTintColor: colors.surface,
-          tabBarInactiveTintColor: 'rgba(255,255,255,0.6)',
-          headerShown: false,
-          tabBarButton: (props) => {
-            const isFocused = navigation.getState().routes[navigation.getState().index].name === route.name;
-            return <CustomTabBar {...props} isFocused={isFocused} />;
-          },
-          tabBarBackground: TabBarBackground,
-          tabBarStyle: Platform.select({
-            ios: {
-              // Use a transparent background on iOS to show the blur effect
-              position: 'absolute',
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-            default: {
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-          }),
-        })}>
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: 'Home',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialIcons 
-                name="home" 
-                size={28} 
-                color={colors.surface}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="pages/DriverSchedulePage"
-          options={{
-            title: 'Schedule',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialIcons 
-                name="event" 
-                size={28} 
-                color={colors.surface}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="pages/DriverHistoryPage"
-          options={{
-            title: 'History',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialIcons 
-                name="history" 
-                size={28} 
-                color={colors.surface}
-              />
-            ),
-          }}
-        />
-      </Tabs>
-
-      
-    </>
+    <Tabs
+      initialRouteName="index"
+      screenOptions={{
+        lazy: true,
+        headerShown: false,
+        tabBarActiveTintColor: activeColor,
+        tabBarInactiveTintColor: inactiveColor,
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#F3F4F6',
+          height: Platform.OS === 'ios' ? 85 : 65,
+          paddingBottom: Platform.OS === 'ios' ? 25 : 10,
+          paddingTop: 10,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '600',
+          marginTop: 2,
+        },
+      }}>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="home" size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="pages/DriverSchedulePage"
+        options={{
+          title: 'Schedule',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="calendar" size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="pages/DriverHistoryPage"
+        options={{
+          title: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="history" size={26} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: 'Inbox',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="bell" size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="edit-profile"
+        options={{
+          href: null,
+        }}
+      />
+    </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  fabContainer: {
-    position: 'absolute',
-    bottom: 100,
-    right: 20,
-    zIndex: 1000,
-  },
-  fab: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-  },
-  fabGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  aiIcon: {
-    width: 32,
-    height: 32,
-  },
-});

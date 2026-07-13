@@ -9,19 +9,19 @@ interface AdminSidebarProps {
 
 const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) => {
   const navigationItems = [
-    { id: 'home', label: 'Home', icon: 'home', activeIcon: 'home' },
-    { id: 'schedule', label: 'Schedule', icon: 'event', activeIcon: 'event' },
-    { id: 'announcements', label: 'Announcements', icon: 'campaign', activeIcon: 'campaign' },
-    { id: 'reports', label: 'Reports', icon: 'description', activeIcon: 'description' },
-    { id: 'history', label: 'History', icon: 'history', activeIcon: 'history' },
-    { id: 'feedbacks', label: 'Feedbacks', icon: 'chat', activeIcon: 'chat' },
-    { id: 'accounts', label: 'Accounts', icon: 'people', activeIcon: 'people' },
+    { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
+    { id: 'driver-onboarding', label: 'DRIVER ACCOUNTS', icon: 'person-search', activeIcon: 'person-search' },
+    { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note', activeIcon: 'event-note' },
+    { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people', activeIcon: 'people' },
+    { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem', activeIcon: 'report-problem' },
+    { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart', activeIcon: 'bar-chart' },
   ];
 
   return (
     <View style={styles.sidebar}>
       <View style={styles.header}>
-        <Text style={styles.headerText}>Welcome, Admin!</Text>
+        <Text style={styles.headerTitle}>CENRO</Text>
+        <Text style={styles.headerSubtitle}>CITY GOVT PORTAL</Text>
       </View>
       
       <View style={styles.navigation}>
@@ -38,9 +38,9 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
               activeOpacity={0.7}
             >
               <MaterialIcons
-                name={isActive ? item.activeIcon : item.icon}
-                size={24}
-                color={isActive ? '#FFFFFF' : '#E5E7EB'}
+                name={(isActive ? item.activeIcon : item.icon) as any}
+                size={20}
+                color={isActive ? '#FFFFFF' : '#4B5563'}
               />
               <Text style={[
                 styles.navText,
@@ -52,6 +52,26 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
           );
         })}
       </View>
+
+      <View style={styles.bottomSection}>
+        <View style={styles.statusBlock}>
+          <Text style={styles.statusLabel}>SYSTEM STATUS</Text>
+          <View style={styles.statusRow}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusText}>Optimal Performance</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.bottomNavBtn}>
+          <MaterialIcons name="help-outline" size={20} color="#4B5563" />
+          <Text style={styles.bottomNavText}>SUPPORT</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.bottomNavBtn}>
+          <MaterialIcons name="history" size={20} color="#4B5563" />
+          <Text style={styles.bottomNavText}>LOGS</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -59,52 +79,99 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
 const styles = StyleSheet.create({
   sidebar: {
     width: 256,
-    backgroundColor: '#2E8B57',
+    backgroundColor: '#F3F4F6',
     borderRightWidth: 1,
-    borderRightColor: '#1B5E20',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10,
+    borderRightColor: '#E5E7EB',
+    justifyContent: 'space-between',
   },
   header: {
-    padding: 20,
+    padding: 24,
     paddingTop: 40,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1B5E20',
-    backgroundColor: '#1B5E20',
+    marginBottom: 8,
   },
-  headerText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'white',
-    textAlign: 'center',
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#2E8B57',
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  headerSubtitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B7280',
+    letterSpacing: 1,
   },
   navigation: {
-    paddingTop: 20,
+    flex: 1,
+    paddingHorizontal: 16,
   },
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   activeNavItem: {
-    backgroundColor: '#1B5E20',
+    backgroundColor: '#4b6354',
   },
   navText: {
-    fontSize: 16,
+    fontSize: 12,
     marginLeft: 16,
-    fontWeight: '500',
-    color: 'white',
+    fontWeight: '700',
+    color: '#4B5563',
+    letterSpacing: 0.5,
   },
   activeNavText: {
     color: '#FFFFFF',
-    fontWeight: 'bold',
+  },
+  
+  bottomSection: {
+    padding: 24,
+    paddingBottom: 40,
+  },
+  statusBlock: {
+    backgroundColor: '#E5E7EB',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 24,
+  },
+  statusLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4b6354',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#2E8B57',
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  bottomNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  bottomNavText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+    letterSpacing: 0.5,
   },
 });
 

@@ -1,544 +1,229 @@
-import { IconSymbol } from '@/components/ui/IconSymbol';
 import { auth, db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
-import { useTheme } from '@/hooks/useTheme';
+import { Feather } from '@expo/vector-icons';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import ErrorModal from '../../../components/ErrorModal';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
-interface DriverHistoryPageProps {
-  // Add any props you might need
-}
-
-interface HistoryData {
+interface HistoryItem {
   id: string;
   street: string;
-  type: string;
-  status: string;
-  date: string;
-  time: string;
-  image: any;
-  completedAt: any;
+  wasteCategory: string;
+  month: string;
+  completionImage: string;
 }
 
-export default function DriverHistoryPage({}: DriverHistoryPageProps) {
-  const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
-  const [showSortModal, setShowSortModal] = useState(false);
-  const [selectedSort, setSelectedSort] = useState('Date (Newest First)');
-  const [historyData, setHistoryData] = useState<HistoryData[]>([]);
+export default function DriverHistoryPage() {
   const [loading, setLoading] = useState(true);
-  const [errorModal, setErrorModal] = useState({
-    visible: false,
-    title: 'Error',
-    message: '',
-    type: 'error' as 'error' | 'warning' | 'info' | 'success',
-  });
+  const [historyData, setHistoryData] = useState<Record<string, HistoryItem[]>>({});
 
-  // Add escape key support for web
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          if (showSortModal) {
-            setShowSortModal(false);
-          }
-        }
-      };
-
-      document.addEventListener('keydown', handleKeyDown);
-      return () => {
-        document.removeEventListener('keydown', handleKeyDown);
-      };
-    }
-  }, [showSortModal]);
-
-  // Fetch completed and issue history data
   useEffect(() => {
     if (!db || !auth?.currentUser) {
-      console.log('No db or user available for history');
       setLoading(false);
       return;
     }
 
     const currentUser = auth.currentUser;
     const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
-    console.log('Fetching history for driver:', driverName);
-    console.log('Current user info:', {
-      uid: currentUser.uid,
-      email: currentUser.email,
-      displayName: currentUser.displayName
-    });
-
-    // Try different driver field variations
+    
     const historyQuery = query(
       collection(db, 'schedules'),
       where('status', 'in', ['completed', 'issue'])
     );
 
     const unsubscribe = onSnapshot(historyQuery, (snapshot) => {
-      console.log('History query result:', snapshot.docs.length, 'completed documents');
-      
-      const historyList: HistoryData[] = [];
-      let matchingDriverCount = 0;
+      const groupedData: Record<string, HistoryItem[]> = {};
       
       snapshot.forEach((doc) => {
         const data = doc.data();
-        console.log('Checking document:', {
-          id: doc.id,
-          driver: data.driver,
-          status: data.status,
-          street: data.street,
-          assignedDriverId: data.assignedDriverId,
-          assignedDriverName: data.assignedDriverName
-        });
         
-        // Check multiple driver field possibilities including email matching
         const isDriverMatch = 
           data.driver === driverName ||
           data.driver === currentUser.email ||
           data.assignedDriverName === driverName ||
-          data.assignedDriverName === currentUser.email ||
-          data.assignedDriverId === currentUser.uid ||
-          data.driverName === driverName ||
-          data.driverName === currentUser.email;
+          data.assignedDriverId === currentUser.uid;
           
-        if (!isDriverMatch) {
-          console.log('Skipping - driver mismatch. Expected:', driverName, 'Found driver fields:', {
-            driver: data.driver,
-            assignedDriverName: data.assignedDriverName,
-            assignedDriverId: data.assignedDriverId,
-            driverName: data.driverName
+        if (isDriverMatch) {
+          const timestamp = data.completedAt || data.issueReportedAt || new Date();
+          const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+          const monthKey = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          
+          if (!groupedData[monthKey]) {
+            groupedData[monthKey] = [];
+          }
+          
+          groupedData[monthKey].push({
+            id: doc.id,
+            street: data.street || 'Unknown Street',
+            wasteCategory: data.wasteCategory || 'General',
+            month: monthKey,
+            completionImage: (data.status === 'issue' ? data.issueImage : data.completionImage) || 'https://via.placeholder.com/150'
           });
-          return;
         }
-        
-        matchingDriverCount++;
-        console.log('Found matching driver document:', data);
-        // Determine image source (completion or issue)
-        const rawImage = data.status === 'issue' ? data.issueImage : data.completionImage;
-        let imageSource;
-        if (rawImage) {
-          imageSource = { uri: rawImage };
-        } else {
-          imageSource = require('../../../assets/images/icon.png');
-        }
-
-        // Normalize timestamp for sorting/display
-        const finalTimestamp = data.completedAt || data.issueReportedAt;
-        const finalStatusText = data.status === 'issue' ? 'Issue' : 'Completed';
-
-        historyList.push({
-          id: doc.id,
-          street: data.street,
-          type: data.wasteCategory,
-          status: finalStatusText,
-          date: data.dateText,
-          time: data.timeText,
-          image: imageSource,
-          completedAt: finalTimestamp,
-        });
       });
       
-      console.log(`Found ${matchingDriverCount} matching driver documents out of ${snapshot.docs.length} total completed documents`);
-      console.log('Final processed history items:', historyList.length);
-      // Store raw list; sorting is applied by UI selection
-      setHistoryData(historyList);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching history:', error);
+      setHistoryData(groupedData);
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Derived, sorted history based on selectedSort
-  const sortedHistoryData = useMemo(() => {
-    const copy = [...historyData];
-    const toMillis = (ts: any) => {
-      if (!ts) return 0;
-      try {
-        return ts.toMillis ? ts.toMillis() : new Date(ts).getTime();
-      } catch {
-        return 0;
-      }
-    };
-
-    if (selectedSort === 'Date (Newest First)') {
-      return copy.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
-    }
-    if (selectedSort === 'Date (Oldest First)') {
-      return copy.sort((a, b) => toMillis(a.completedAt) - toMillis(b.completedAt));
-    }
-    if (selectedSort === 'Status') {
-      // Order: Issue first, then Completed; tie-breaker by newest first
-      const statusRank = (s: string) => (s?.toLowerCase() === 'issue' ? 0 : 1);
-      return copy.sort((a, b) => {
-        const diff = statusRank(a.status) - statusRank(b.status);
-        if (diff !== 0) return diff;
-        return toMillis(b.completedAt) - toMillis(a.completedAt);
-      });
-    }
-    return copy;
-  }, [historyData, selectedSort]);
-
-  // Show error modal
-  const showError = (message: string, title = 'Error', type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
-    setErrorModal({
-      visible: true,
-      title,
-      message,
-      type,
-    });
-  };
-
-  // Close error modal
-  const closeErrorModal = () => {
-    setErrorModal(prev => ({ ...prev, visible: false }));
-  };
-
-  const sortOptions = [
-    'Date (Newest First)',
-    'Date (Oldest First)',
-    'Status'
-  ];
-
-  const HistoryCard = ({ item }: { item: any }) => {
-    // Determine image source - use Cloudinary URL if available, otherwise fallback
-    const getImageSource = () => {
-      if (item.image && typeof item.image === 'object' && item.image.uri) {
-        // If it's already a Cloudinary URL or valid URI, use it
-        return item.image;
-      } else if (item.image && typeof item.image === 'string') {
-        // If it's a string URL (Cloudinary or local), use it
-        return { uri: item.image };
-      } else {
-        // Fallback to default icon
-        return require('../../../assets/images/icon.png');
-      }
-    };
-
-    return (
-      <View style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Image 
-          source={getImageSource()} 
-          style={styles.cardImage}
-          onError={(error) => {
-            console.log('Image failed to load:', item.image);
-          }}
-          defaultSource={require('../../../assets/images/icon.png')}
-        />
-        <View style={styles.cardContent}>
-          <View style={styles.infoRow}>
-            <IconSymbol name="mappin.and.ellipse" size={12} color={colors.textTertiary} />
-            <Text style={[styles.streetText, { color: colors.textPrimary }]}>Street Name: "{item.street}"</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <IconSymbol name="trash.fill" size={12} color={colors.textTertiary} />
-            <Text style={[styles.typeText, { color: colors.textSecondary }]}>Type: {item.type}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <IconSymbol name="clock.fill" size={12} color={colors.textTertiary} />
-            <Text style={[styles.dateText, { color: colors.textSecondary }]}>Date & Time: {item.date} - {item.time}</Text>
-          </View>
-          <View style={styles.statusRow}>
-            <IconSymbol 
-              name={item.status === 'Issue' ? 'exclamationmark.triangle.fill' : 'checkmark.circle.fill'} 
-              size={12} 
-              color={item.status === 'Issue' ? colors.warning : colors.success} 
-            />
-            <Text style={[styles.statusText, { color: item.status === 'Issue' ? colors.warning : colors.success }]}>
-              {item.status}
-            </Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>History</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Loading your history...</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading history...</Text>
-        </View>
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#4E6C50" />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
+      
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>History</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Track your past garbage collection records.</Text>
-        
-        <TouchableOpacity 
-          style={[styles.sortButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={() => setShowSortModal(true)}
-        >
-          <IconSymbol name="slider.horizontal.3" size={16} color={colors.textTertiary} />
-          <Text style={[styles.sortText, { color: colors.textPrimary }]}>Sort by</Text>
-          <IconSymbol name="chevron.down" size={14} color={colors.textTertiary} />
-        </TouchableOpacity>
+        <Text style={styles.title}>History</Text>
+        <Text style={styles.subtitle}>Track your past garbage collection records.</Text>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.gridContainer}>
-          {sortedHistoryData.length > 0 ? (
-            sortedHistoryData.map((item) => (
-              <HistoryCard key={item.id} item={item} />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <IconSymbol name="clock.fill" size={48} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No history found</Text>
-              <Text style={[styles.emptySubText, { color: colors.textTertiary }]}>
-                Your completed and issue records will appear here
-              </Text>
-              <TouchableOpacity 
-                style={[styles.debugButton, { backgroundColor: colors.secondary }]}
-                onPress={() => console.log('Debug: Current user and query info')}
-              >
-                <Text style={[styles.debugButtonText, { color: colors.primary }]}>Check Console for Debug Info</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Sort Modal */}
-      <Modal
-        transparent={true}
-        visible={showSortModal}
-        animationType="fade"
-        onRequestClose={() => setShowSortModal(false)}
-      >
-        <Pressable onPress={() => setShowSortModal(false)} style={styles.modalOverlay}>
-          <Pressable onPress={(event) => event.stopPropagation()}>
-            <View style={[styles.sortModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>                
-                {sortOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={styles.sortOption}
-                    onPress={() => {
-                      setSelectedSort(option);
-                      setShowSortModal(false);
-                    }}
-                  >
-                    <View style={styles.radioContainer}>
-                      <View
-                        style={[
-                          styles.radioButton,
-                          { borderColor: colors.border },
-                          selectedSort === option && { borderColor: colors.primary }
-                        ]}
-                      >
-                        {selectedSort === option && <View style={[styles.radioInner, { backgroundColor: colors.primary }]} />}
-                      </View>
+      {/* History List Grouped by Month */}
+      {Object.keys(historyData).length > 0 ? (
+        Object.entries(historyData).map(([month, items]) => (
+          <View key={month} style={styles.monthSection}>
+            <Text style={styles.monthTitle}>{month}</Text>
+            
+            <View style={styles.cardsContainer}>
+              {items.map((item) => (
+                <View key={item.id} style={styles.historyCard}>
+                  <Image 
+                    source={{ uri: item.completionImage }} 
+                    style={styles.historyImage}
+                  />
+                  <View style={styles.historyContent}>
+                    <View style={styles.historyTextContainer}>
+                      <Text style={styles.historyStreet}>Street Name: {item.street}</Text>
+                      <Text style={styles.historyType}>Type: {item.wasteCategory}</Text>
                     </View>
-                    <Text style={[styles.optionText, { color: colors.textPrimary }]}>{option}</Text>
-                  </TouchableOpacity>
-                ))}
+                    <View style={styles.completedBadge}>
+                      <Text style={styles.completedBadgeText}>Completed</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Error Modal */}
-      <ErrorModal
-        visible={errorModal.visible}
-        title={errorModal.title}
-        message={errorModal.message}
-        type={errorModal.type}
-        onClose={closeErrorModal}
-        autoClose={true}
-        autoCloseDelay={4000}
-      />
-    </View>
+          </View>
+        ))
+      ) : (
+        <View style={styles.emptyCard}>
+          <Feather name="clock" size={48} color="#9CA3AF" />
+          <Text style={styles.emptyText}>No history found</Text>
+          <Text style={styles.emptySubtext}>Your completed pickups will appear here.</Text>
+        </View>
+      )}
+      
+      <View style={{ height: 100 }} />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F4FBF1',
+    paddingHorizontal: 20,
+  },
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 16,
+    marginTop: 60,
+    marginBottom: 30,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
+    color: '#3B5241',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    fontWeight: '400',
+    fontSize: 14,
+    color: '#4B5563',
+  },
+  monthSection: {
+    marginBottom: 24,
+  },
+  monthTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
     marginBottom: 16,
   },
-  sortButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  sortText: {
-    fontSize: 14,
-    marginHorizontal: 8,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    justifyContent: 'space-between',
+  cardsContainer: {
+    gap: 16,
   },
   historyCard: {
-    borderRadius: 12,
-    marginBottom: 16,
-    width: '48%',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     overflow: 'hidden',
-  },
-  cardImage: {
-    width: '100%',
-    height: 120,
-  },
-  cardContent: {
-    padding: 12,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-    gap: 6,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    gap: 6,
-  },
-  streetText: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  typeText: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  dateText: {
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  // Sort Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sortModal: {
-    borderRadius: 12,
-    padding: 12,
-    minWidth: 220,
-    maxWidth: 300,
-    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  sortOption: {
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
   },
-  radioContainer: {
-    marginRight: 12,
+  historyImage: {
+    width: 120,
+    height: 120,
   },
-  radioButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioButtonSelected: {
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  optionText: {
-    fontSize: 14,
-  },
-  loadingContainer: {
+  historyContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
+    padding: 16,
+    justifyContent: 'space-between',
   },
-  loadingText: {
-    fontSize: 16,
-    textAlign: 'center',
+  historyTextContainer: {
+    gap: 4,
   },
-  emptyState: {
-    borderRadius: 8,
-    padding: 20,
+  historyStreet: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  historyType: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  completedBadge: {
+    alignSelf: 'flex-end',
+  },
+  completedBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
     alignItems: 'center',
     borderWidth: 1,
-    width: '100%',
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    marginTop: 40,
   },
   emptyText: {
     fontSize: 16,
-    textAlign: 'center',
-    marginTop: 12,
-    fontWeight: '500',
-  },
-  emptySubText: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
-  },
-  debugButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    marginTop: 16,
-  },
-  debugButtonText: {
-    fontSize: 12,
     fontWeight: '600',
+    color: '#4B5563',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+    textAlign: 'center',
   },
 });

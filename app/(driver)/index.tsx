@@ -1,13 +1,13 @@
 import { useAuthContext } from '@/components/AuthContext';
-import DriverProfilePage from '@/components/driver/DriverProfilePage';
 import { auth, db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
-import { useTheme } from '@/hooks/useTheme';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import CompletePickupModal from '@/components/driver/CompletePickupModal';
+import ReportIssueModal from '@/components/driver/ReportIssueModal';
 
 interface NextPickup {
   id: string;
@@ -30,15 +30,16 @@ interface HistoryItem {
 export default function DriverIndex() {
   const router = useRouter();
   const { user } = useAuthContext();
-  const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
   const [nextPickup, setNextPickup] = useState<NextPickup | null>(null);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  
+  // Modal states
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
 
-  // Fetch driver data
   useEffect(() => {
     if (!db || !auth?.currentUser) {
       setLoading(false);
@@ -48,119 +49,23 @@ export default function DriverIndex() {
     const currentUser = auth.currentUser;
     const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
     
-    // Fetch next pickup (pending status for today) - use same approach as schedule page
-    const today = new Date();
-    const todayString = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-    
-    // Get all schedules first, then filter manually (same as schedule page)
+    // Fetch Next Pickup
     const nextPickupQuery = query(collection(db, 'schedules'));
-
     const unsubscribeNextPickup = onSnapshot(nextPickupQuery, (snapshot) => {
-      console.log('=== HOME PAGE DEBUG ===');
-      console.log('Total schedules in database:', snapshot.docs.length);
-      console.log('Current driver:', driverName);
-      console.log('Current user email:', currentUser.email);
-      console.log('Current user UID:', currentUser.uid);
-      console.log('Today string:', todayString);
-      console.log('Today date:', today.toLocaleDateString());
       let todayPickups: NextPickup[] = [];
+      const todayString = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
       
       snapshot.forEach((doc) => {
         const data = doc.data();
-        console.log('--- Checking Schedule ---');
-        console.log('Schedule ID:', doc.id);
-        console.log('Street:', data.street);
-        console.log('Status:', data.status);
-        console.log('Date Text:', data.dateText);
-        console.log('Driver fields:', {
-          driver: data.driver,
-          assignedDriverName: data.assignedDriverName,
-          assignedDriverId: data.assignedDriverId,
-          driverName: data.driverName
-        });
         
-        // Check if this schedule is assigned to current driver
         const isDriverMatch = 
           data.driver === driverName ||
           data.driver === currentUser.email ||
           data.assignedDriverName === driverName ||
-          data.assignedDriverName === currentUser.email ||
-          data.assignedDriverId === currentUser.uid ||
-          data.driverName === driverName ||
-          data.driverName === currentUser.email;
+          data.assignedDriverId === currentUser.uid;
           
-        console.log('Driver match result:', isDriverMatch);
-        console.log('Driver match details:', {
-          'data.driver === driverName': data.driver === driverName,
-          'data.driver === currentUser.email': data.driver === currentUser.email,
-          'data.assignedDriverName === driverName': data.assignedDriverName === driverName,
-          'data.assignedDriverName === currentUser.email': data.assignedDriverName === currentUser.email,
-          'data.assignedDriverId === currentUser.uid': data.assignedDriverId === currentUser.uid,
-          'data.driverName === driverName': data.driverName === driverName,
-          'data.driverName === currentUser.email': data.driverName === currentUser.email
-        });
-          
-        if (isDriverMatch && (data.status === 'pending' || data.status === undefined || data.status === '')) {
-          // Check if this is today's schedule - use more flexible date matching
-          const scheduleDate = data.dateText || data.date;
-          
-          // More flexible date matching - check if it's today
-          const isToday = scheduleDate && (
-            scheduleDate.includes(todayString) ||
-            scheduleDate.includes(today.toLocaleDateString()) ||
-            scheduleDate.includes(today.toDateString()) ||
-            scheduleDate.includes(`${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`) ||
-            scheduleDate.includes(`${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`) ||
-            // Handle "October 19, 2025" format
-            scheduleDate.includes(`October ${today.getDate()}, ${today.getFullYear()}`) ||
-            scheduleDate.includes(`Oct ${today.getDate()}, ${today.getFullYear()}`) ||
-            // Also check if the date is close to today (within 1 day)
-            (() => {
-              try {
-                const scheduleDateObj = new Date(scheduleDate);
-                const todayObj = new Date();
-                const diffTime = Math.abs(scheduleDateObj.getTime() - todayObj.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays <= 1;
-              } catch {
-                return false;
-              }
-            })()
-          );
-          
-          console.log('Date check details:', {
-            scheduleDate,
-            todayString,
-            'today.toLocaleDateString()': today.toLocaleDateString(),
-            'today.toDateString()': today.toDateString(),
-            isToday,
-            status: data.status
-          });
-          console.log('Date matching results:', {
-            'scheduleDate.includes(todayString)': scheduleDate && scheduleDate.includes(todayString),
-            'scheduleDate.includes(today.toLocaleDateString())': scheduleDate && scheduleDate.includes(today.toLocaleDateString()),
-            'scheduleDate.includes(today.toDateString())': scheduleDate && scheduleDate.includes(today.toDateString()),
-            'scheduleDate.includes(October format)': scheduleDate && scheduleDate.includes(`October ${today.getDate()}, ${today.getFullYear()}`),
-            'Date object comparison': (() => {
-              try {
-                const scheduleDateObj = new Date(scheduleDate);
-                const todayObj = new Date();
-                const diffTime = Math.abs(scheduleDateObj.getTime() - todayObj.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays <= 1;
-              } catch {
-                return false;
-              }
-            })()
-          });
-          
-          if (isToday) {
-            console.log('🎉 FOUND TODAY\'S PICKUP!', {
-              street: data.street,
-              date: data.dateText,
-              status: data.status,
-              driver: data.driver
-            });
+        if (isDriverMatch && (data.status === 'pending' || !data.status)) {
+          if (data.dateText === todayString || data.dateText === 'Today') {
             todayPickups.push({
               id: doc.id,
               street: data.street || 'Unknown Street',
@@ -173,21 +78,14 @@ export default function DriverIndex() {
         }
       });
       
-      // Sort by time and get the next one
-      todayPickups.sort((a, b) => {
-        // Simple time comparison (you might want to improve this)
-        return a.timeText.localeCompare(b.timeText);
-      });
-      
-      const nextPickup = todayPickups.length > 0 ? todayPickups[0] : null;
-      console.log('Today\'s pickups found:', todayPickups.length, 'Next pickup:', nextPickup);
-      setNextPickup(nextPickup);
+      todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
+      setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
     });
 
-  // Fetch recent history (completed and issue status, limit to 2 most recent)
+    // Fetch History
     const historyQuery = query(
       collection(db, 'schedules'),
-    where('status', 'in', ['completed', 'issue'])
+      where('status', 'in', ['completed', 'issue'])
     );
 
     const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
@@ -196,42 +94,30 @@ export default function DriverIndex() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        // Check if this schedule is assigned to current driver
         const isDriverMatch = 
           data.driver === driverName ||
           data.driver === currentUser.email ||
           data.assignedDriverName === driverName ||
-          data.assignedDriverName === currentUser.email ||
-          data.assignedDriverId === currentUser.uid ||
-          data.driverName === driverName ||
-          data.driverName === currentUser.email;
+          data.assignedDriverId === currentUser.uid;
           
         if (isDriverMatch) {
           const isIssue = data.status === 'issue';
-          const combinedTimestamp = data.completedAt || data.issueReportedAt || data.updatedAt || data.createdAt || new Date();
+          const combinedTimestamp = data.completedAt || data.issueReportedAt || new Date();
           historyList.push({
             id: doc.id,
             street: data.street || 'Unknown Street',
             wasteCategory: data.wasteCategory || 'General',
             completedAt: combinedTimestamp,
-            status: isIssue ? 'issue' : (data.status || 'completed'),
+            status: isIssue ? 'issue' : 'completed',
             completionImage: (isIssue ? data.issueImage : data.completionImage) || null
           });
         }
       });
       
-      // Sort by completion/issue date (robust) and take only 2 most recent
-      const toMillis = (ts: any) => {
-        if (!ts) return 0;
-        try {
-          return ts.toMillis ? ts.toMillis() : (ts.toDate ? ts.toDate().getTime() : new Date(ts).getTime());
-        } catch {
-          return 0;
-        }
-      };
+      const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
       historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
       
-      setHistoryItems(historyList.slice(0, 2));
+      setHistoryItems(historyList.slice(0, 5)); // Keep latest 5 for the horizontal scroll
       setLoading(false);
     });
 
@@ -241,236 +127,237 @@ export default function DriverIndex() {
     };
   }, [user]);
 
-  // Handle complete/issue from Home by opening the same modal on Schedule page
-  const handleCompletePickup = async () => {
-    if (!nextPickup) return;
-    setProcessing(true);
-    try {
-      // Navigate to Schedule page and auto-open the Complete modal for this pickup
-      router.push({ pathname: '/(driver)/pages/DriverSchedulePage', params: { open: 'complete', pickupId: nextPickup.id } });
-    } finally {
-      setProcessing(false);
-    }
+  const handleCompletePickup = () => {
+    setShowCompleteModal(true);
   };
 
-  const handleIssuePickup = async () => {
-    if (!nextPickup) return;
-    setProcessing(true);
-    try {
-      // Navigate to Schedule page and auto-open the Issue modal for this pickup
-      router.push({ pathname: '/(driver)/pages/DriverSchedulePage', params: { open: 'issue', pickupId: nextPickup.id } });
-    } finally {
-      setProcessing(false);
-    }
+  const handleIssuePickup = () => {
+    setShowIssueModal(true);
   };
 
-  // Navigate to schedule page
   const handleSeeAllSchedule = () => {
     router.push('/(driver)/pages/DriverSchedulePage');
   };
 
-  // Navigate to history page
   const handleSeeAllHistory = () => {
     router.push('/(driver)/pages/DriverHistoryPage');
   };
 
-  // Navigate to driver settings/profile
-  const handleDriverSettings = () => {
-    setShowProfile(true);
+  const handleProfileSettings = () => {
+    router.push('/(driver)/profile');
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading driver data...</Text>
-      </View>
-    );
-  }
-
-  if (showProfile) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.profileHeader, { backgroundColor: colors.background }]}>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => setShowProfile(false)}
-          >
-            <MaterialIcons name="arrow-back" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={[styles.profileHeaderTitle, { color: colors.textPrimary }]}>Driver Profile</Text>
-          <View style={styles.profileHeaderSpacer} />
-        </View>
-        <DriverProfilePage />
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#4E6C50" />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
       
-      {/* Header with TrashTrack Logo */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../../assets/images/trashtrack_logo_driver.png')} 
-            style={styles.logoImage}
+            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/802/802251.png' }} // Placeholder logo
+            style={styles.logoIcon}
             resizeMode="contain"
           />
+          <Text style={styles.logoText}>TrashTrack</Text>
         </View>
         
-        <TouchableOpacity style={[styles.profileButton, { backgroundColor: colors.surfaceVariant }]} onPress={handleDriverSettings}>
-          <MaterialIcons name="person" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleProfileSettings} style={styles.iconButton}>
+            <Feather name="hexagon" size={20} color="#4E6C50" />
+            <View style={styles.innerDot} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleProfileSettings}>
+            <Image source={{ uri: 'https://i.pravatar.cc/100?img=33' }} style={styles.avatar} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Welcome Message */}
       <View style={styles.welcomeSection}>
-        <Text style={[styles.welcomeText, { color: colors.textSecondary }]}>Good day and welcome back, {user?.displayName || 'Driver'}</Text>
-        <Text style={[styles.statusText, { color: colors.textPrimary }]}>Ready to Work!</Text>
+        <Text style={styles.welcomeText}>Good day and welcome back, {user?.displayName || 'Kalix'}</Text>
+        <Text style={styles.statusText}>Ready to Work!</Text>
       </View>
 
-      {/* Next Pickup Section */}
+      {/* Next Pickup */}
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Next Pickup</Text>
+        <Text style={styles.sectionTitle}>Next Pickup</Text>
         <TouchableOpacity onPress={handleSeeAllSchedule}>
-          <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
+          <Text style={styles.seeAllText}>See all</Text>
         </TouchableOpacity>
       </View>
 
       {nextPickup ? (
-        <View style={[styles.nextPickupCard, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.pickupLocation, { color: colors.surface }]}>{nextPickup.street}</Text>
+        <View style={styles.pickupCard}>
+          <Text style={styles.pickupBarangay}>Barangay Poblacion</Text>
           <View style={styles.pickupDetails}>
             <View style={styles.detailRow}>
-              <MaterialIcons name="location-on" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Street: {nextPickup.street}</Text>
+              <View style={styles.dotRed} />
+              <Text style={styles.detailText}>Street Name: {nextPickup.street}</Text>
             </View>
             <View style={styles.detailRow}>
-              <MaterialIcons name="access-time" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Time: {nextPickup.timeText}</Text>
+              <Feather name="clock" size={12} color="#E5E7EB" style={styles.detailIcon} />
+              <Text style={styles.detailText}>Time: {nextPickup.timeText}</Text>
             </View>
             <View style={styles.detailRow}>
-              <MaterialIcons name="recycling" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Type: {nextPickup.wasteCategory}</Text>
+              <Text style={styles.detailTextType}>Type: {nextPickup.wasteCategory}</Text>
             </View>
           </View>
           
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.completeButton, processing && styles.disabledButton, { backgroundColor: colors.surface }]} 
-              onPress={handleCompletePickup}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={[styles.completeButtonText, { color: colors.primary }]}>Complete</Text>
-              )}
+            <TouchableOpacity style={styles.completeBtn} onPress={handleCompletePickup}>
+              <Text style={styles.completeBtnText}>Complete</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.issueButton, processing && styles.disabledButton, { backgroundColor: colors.warning }]} 
-              onPress={handleIssuePickup}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator size="small" color={colors.surface} />
-              ) : (
-                <Text style={[styles.issueButtonText, { color: colors.surface }]}>Issue</Text>
-              )}
+            <TouchableOpacity style={styles.issueBtn} onPress={handleIssuePickup}>
+              <Text style={styles.issueBtnText}>Issue</Text>
             </TouchableOpacity>
           </View>
         </View>
       ) : (
-        <View style={[styles.noPickupCard, { backgroundColor: colors.surfaceVariant }]}>
-          <MaterialIcons name="check-circle" size={48} color={colors.primary} />
-          <Text style={[styles.noPickupText, { color: colors.primary }]}>No pending pickups</Text>
-          <Text style={[styles.noPickupSubtext, { color: colors.textSecondary }]}>You're all caught up!</Text>
-          <Text style={[styles.debugText, { color: colors.textTertiary }]}>Debug: Loading={loading.toString()}, NextPickup={nextPickup ? 'Found' : 'None'}, Today={new Date().toLocaleDateString()}</Text>
+        <View style={styles.emptyCard}>
+          <Feather name="check-circle" size={48} color="#9CA3AF" />
+          <Text style={styles.emptyText}>No pending pickups</Text>
+          <Text style={styles.emptySubtext}>You're all caught up for today!</Text>
         </View>
       )}
 
-      {/* Your History Section */}
+      {/* Your History */}
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Your History</Text>
+        <Text style={styles.sectionTitle}>Your History</Text>
         <TouchableOpacity onPress={handleSeeAllHistory}>
-          <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
+          <Text style={styles.seeAllText}>See all</Text>
         </TouchableOpacity>
       </View>
 
-      {historyItems.length > 0 ? (
-        <View style={styles.historyCards}>
-          {historyItems.map((item, index) => (
-            <View key={item.id} style={[styles.historyCard, { backgroundColor: colors.surface }]}>
-              <View style={[styles.historyImage, { backgroundColor: colors.surfaceVariant }]}>
-                {item.completionImage ? (
-                  <Image 
-                    source={{ uri: item.completionImage }} 
-                    style={styles.historyImageContent}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <MaterialIcons name="recycling" size={40} color={colors.primary} />
-                )}
+      <View style={styles.historyContainer}>
+        {historyItems.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyScroll}>
+            {historyItems.map((item, index) => (
+              <View key={item.id} style={styles.historyCard}>
+                <Image 
+                  source={{ uri: item.completionImage || 'https://via.placeholder.com/150' }} 
+                  style={styles.historyImage}
+                />
+                <View style={styles.historyContent}>
+                  <Text style={styles.historyStreet} numberOfLines={1}>Street Name: {item.street}</Text>
+                  <Text style={styles.historyType}>Type: {item.wasteCategory}</Text>
+                  <View style={styles.completedBadge}>
+                    <Text style={styles.completedBadgeText}>
+                      {item.status === 'issue' ? 'Issue' : 'Completed'}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[styles.historyStreet, { color: colors.textSecondary }]}>Street: {item.street}</Text>
-              <Text style={[styles.historyType, { color: colors.textSecondary }]}>Type: {item.wasteCategory}</Text>
-              <Text style={[
-                styles.completedLabel,
-                { color: (item.status?.toLowerCase?.() === 'issue') ? colors.warning : colors.success }
-              ]}>
-                {(item.status?.toLowerCase?.() === 'issue') ? 'Issue' : 'Completed'}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={[styles.noHistoryCard, { backgroundColor: colors.surfaceVariant }]}>
-          <MaterialIcons name="history" size={48} color={colors.textTertiary} />
-          <Text style={[styles.noHistoryText, { color: colors.textSecondary }]}>No completed pickups yet</Text>
-          <Text style={[styles.noHistorySubtext, { color: colors.textTertiary }]}>Your completed pickups will appear here</Text>
-        </View>
-      )}
-    </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyHistoryCard}>
+            <Feather name="clock" size={32} color="#9CA3AF" />
+            <Text style={styles.emptyText}>No history yet</Text>
+          </View>
+        )}
+      </View>
+      
+      <View style={{ height: 100 }} />
+
+      <CompletePickupModal 
+        visible={showCompleteModal} 
+        onClose={() => setShowCompleteModal(false)}
+        onComplete={() => {
+          setShowCompleteModal(false);
+          console.log('Complete action');
+        }}
+      />
+      
+      <ReportIssueModal 
+        visible={showIssueModal} 
+        onClose={() => setShowIssueModal(false)}
+        onSubmit={() => {
+          setShowIssueModal(false);
+          console.log('Submit issue action');
+        }}
+      />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 40,
+    backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
+  },
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginTop: 60,
+    marginBottom: 30,
   },
   logoContainer: {
-    flex: 1,
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  logoImage: {
-    width: 120,
-    height: 60,
-    left:-30,
+  logoIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 6,
   },
-  profileButton: {
-    padding: 8,
-    borderRadius: 20,
+  logoText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4E6C50',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  innerDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    backgroundColor: '#4E6C50',
+    borderRadius: 3,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#4E6C50',
   },
   welcomeSection: {
     marginBottom: 30,
   },
   welcomeText: {
-    fontSize: 16,
+    fontSize: 14,
+    color: '#4B5563',
     marginBottom: 4,
   },
   statusText: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
+    color: '#3B5241',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -479,168 +366,162 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
+    color: '#1F2937',
   },
   seeAllText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#4E6C50',
   },
-  nextPickupCard: {
-    borderRadius: 12,
+  pickupCard: {
+    backgroundColor: '#58715B',
+    borderRadius: 20,
     padding: 20,
     marginBottom: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  pickupLocation: {
+  pickupBarangay: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 16,
   },
   pickupDetails: {
     marginBottom: 20,
+    gap: 6,
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+  },
+  dotRed: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444',
+    marginRight: 8,
+    marginLeft: 3,
+  },
+  detailIcon: {
+    marginRight: 8,
   },
   detailText: {
-    fontSize: 14,
-    marginLeft: 8,
+    fontSize: 13,
+    color: '#E5E7EB',
+  },
+  detailTextType: {
+    fontSize: 13,
+    color: '#E5E7EB',
+    marginLeft: 14,
   },
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
   },
-  completeButton: {
-    paddingHorizontal: 20,
+  completeBtn: {
+    backgroundColor: '#95C596',
+    borderRadius: 20,
     paddingVertical: 10,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  completeButtonText: {
-    fontWeight: '600',
-    fontSize: 14,
+  completeBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
-  issueButton: {
-    paddingHorizontal: 20,
+  issueBtn: {
+    backgroundColor: '#F59E0B',
+    borderRadius: 20,
     paddingVertical: 10,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  issueButtonText: {
-    fontWeight: '600',
-    fontSize: 14,
+  issueBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
-  historyCards: {
-    flexDirection: 'row',
-    gap: 12,
+  historyContainer: {
+    marginHorizontal: -20,
+  },
+  historyScroll: {
+    paddingHorizontal: 20,
+    gap: 16,
   },
   historyCard: {
-    borderRadius: 12,
-    padding: 16,
-    flex: 1,
+    width: 240,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   historyImage: {
-    height: 80,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  historyImageContent: {
     width: '100%',
-    height: '100%',
+    height: 120,
+  },
+  historyContent: {
+    padding: 16,
   },
   historyStreet: {
     fontSize: 12,
+    fontWeight: '600',
+    color: '#1F2937',
     marginBottom: 4,
   },
   historyType: {
-    fontSize: 12,
-    marginBottom: 8,
+    fontSize: 11,
+    color: '#6B7280',
+    marginBottom: 12,
   },
-  completedLabel: {
+  completedBadge: {
+    alignSelf: 'flex-end',
+  },
+  completedBadgeText: {
     fontSize: 10,
-    fontWeight: '600',
-    textAlign: 'right',
+    fontWeight: '700',
+    color: '#9CA3AF',
   },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  noPickupCard: {
-    borderRadius: 12,
-    padding: 40,
-    alignItems: 'center',
+  emptyCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 20,
+    padding: 32,
     marginBottom: 30,
-  },
-  noPickupText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  noPickupSubtext: {
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  noHistoryCard: {
-    borderRadius: 12,
-    padding: 40,
     alignItems: 'center',
-    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
   },
-  noHistoryText: {
+  emptyHistoryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    marginHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
+    color: '#4B5563',
+    marginTop: 12,
   },
-  noHistorySubtext: {
+  emptySubtext: {
     fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
     textAlign: 'center',
-  },
-  profileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  backButton: {
-    padding: 8,
-  },
-  profileHeaderTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  profileHeaderSpacer: {
-    width: 40,
-  },
-  debugText: {
-    fontSize: 10,
-    textAlign: 'center',
-    marginTop: 8,
   },
 });
