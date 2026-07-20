@@ -7,6 +7,8 @@ import { useAuthContext } from '@/components/AuthContext';
 import { db } from '@/config/firebase';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 
+import { locationService } from '@/services/locationService';
+
 export default function DriverLayout() {
   const { user } = useAuthContext();
   const router = useRouter();
@@ -41,6 +43,18 @@ export default function DriverLayout() {
 
     checkDriverRole();
   }, [user, router]);
+
+  // Start GPS Tracking
+  useEffect(() => {
+    if (user && !isLoading) {
+      locationService.startTracking(user.uid, 'truck-1');
+    }
+    return () => {
+      if (user) {
+        locationService.stopTracking(user.uid);
+      }
+    };
+  }, [user, isLoading]);
 
   // Show loading while checking driver role
   if (isLoading) {

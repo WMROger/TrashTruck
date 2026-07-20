@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import DropDownPicker from 'react-native-dropdown-picker';
 import ErrorModal from './ErrorModal';
 
 export default function SignupScreen() {
@@ -24,6 +25,33 @@ export default function SignupScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedBarangay, setSelectedBarangay] = useState('');
+  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  
+  React.useEffect(() => {
+    const fetchBarangays = async () => {
+      try {
+        const { collection, getDocs } = require('firebase/firestore');
+        const snap = await getDocs(collection(db, 'barangay_schedules'));
+        const barangayNames = new Set<string>();
+        snap.forEach((doc: any) => {
+          const data = doc.data();
+          if (data.barangayName) {
+            barangayNames.add(data.barangayName);
+          }
+        });
+        const sorted = Array.from(barangayNames).sort();
+        setAvailableBarangays(sorted);
+        if (sorted.length > 0) {
+          setSelectedBarangay(sorted[0]);
+        }
+      } catch (err) {
+        console.error('Error fetching available barangays:', err);
+      }
+    };
+    fetchBarangays();
+  }, []);
   const [consent, setConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -121,6 +149,7 @@ export default function SignupScreen() {
             verified: currentUser.emailVerified === true,
             role: 'user',
             provider,
+            barangay: selectedBarangay,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -134,6 +163,7 @@ export default function SignupScreen() {
               photoURL: currentUser.photoURL || '',
               verified: currentUser.emailVerified === true,
               provider,
+              barangay: selectedBarangay,
               updatedAt: serverTimestamp(),
             },
             { merge: true }
@@ -344,6 +374,47 @@ export default function SignupScreen() {
                   onChangeText={setName}
                   autoCapitalize="words"
                 />
+              </View>
+            </View>
+
+            {/* Barangay */}
+            <View style={[styles.inputContainer, { zIndex: 1000 }]}>
+              <Text style={styles.inputLabel}>Barangay (Danao City)</Text>
+              <View style={[styles.inputWrapper, { padding: 0, borderWidth: 0 }]}>
+                <DropDownPicker
+                  open={barangayOpen}
+                  value={selectedBarangay}
+                  items={availableBarangays.map(b => ({ label: b, value: b }))}
+                  setOpen={setBarangayOpen}
+                  setValue={setSelectedBarangay}
+                  placeholder="Select a barangay"
+                  placeholderStyle={{ color: '#999' }}
+                  style={{
+                    backgroundColor: '#F9FAFB',
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                    minHeight: 50,
+                    borderRadius: 12,
+                    paddingLeft: 44,
+                  }}
+                  dropDownContainerStyle={{
+                    backgroundColor: '#F9FAFB',
+                    borderColor: '#E5E7EB',
+                    borderRadius: 12,
+                  }}
+                  textStyle={{
+                    fontSize: 15,
+                    color: '#333'
+                  }}
+                  zIndex={1000}
+                  listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
+                  scrollViewProps={{
+                    nestedScrollEnabled: true,
+                  }}
+                />
+                <View style={{ position: 'absolute', left: 16, top: 15, zIndex: 1001 }}>
+                  <Ionicons name="location-outline" size={20} color="#999" />
+                </View>
               </View>
             </View>
 

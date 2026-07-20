@@ -332,6 +332,9 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                 />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color="#666" />
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -487,11 +490,17 @@ const styles = StyleSheet.create({
     borderColor: '#D4E8D4',
     borderRadius: 8,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 50,
   },
   passwordInput: {
+    flex: 1,
     fontSize: 16,
     color: '#333',
+    paddingRight: 8,
+    paddingVertical: 14,
   },
   rememberForgotContainer: {
     flexDirection: 'row',

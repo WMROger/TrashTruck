@@ -30,6 +30,7 @@ export default function ScheduleScreen() {
   const [showPickupModal, setShowPickupModal] = useState(false);
   const [selectedPickup, setSelectedPickup] = useState<RawSchedule | null>(null);
   const [showMapZoom, setShowMapZoom] = useState(false);
+  const [truckLocations, setTruckLocations] = useState<any[]>([]);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -154,80 +155,120 @@ export default function ScheduleScreen() {
     }
   };
 
-  // Subscribe to schedules from backend (Firestore)
+  const [userBarangay, setUserBarangay] = useState<string>('');
+
+  // Subscribe to user profile to get realtime barangay updates
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const { doc, onSnapshot } = require('firebase/firestore');
+    
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap: any) => {
+      if (docSnap.exists()) {
+        setUserBarangay(docSnap.data().barangay || '');
+      }
+    }, (error: any) => {
+      console.error('Error listening to user profile:', error);
+    });
+    
+    return () => unsubUser();
+  }, [user]);
+
+  // Subscribe to schedules based on user's current barangay
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(collection(db, 'schedules'), async (snap) => {
-      const rows: RawSchedule[] = [];
+
+    const unsub = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
+      const rows: any[] = [];
       snap.forEach((doc) => {
-        const d: any = doc.data();
-        rows.push({ id: doc.id, ...d });
+        const data = doc.data();
+        // Filter only the schedules for the user's selected barangay
+        if (userBarangay && data.barangayName === userBarangay) {
+          rows.push({ id: doc.id, ...data });
+        }
       });
       setRawSchedules(rows);
-      
-      // Upsert notifications only for this user's schedules
-      try {
-        if (user?.uid) {
-          const myRows = rows.filter((r: any) => r.userId === user.uid);
-          for (const r of myRows) {
-            await ScheduleNotificationService.upsertScheduleNotifications({
-              ...r,
-              userId: user.uid,
-            } as any);
-          }
-        }
-      } catch (error) {
-        console.error('Error upserting pickup notifications:', error);
-      }
     });
-    return () => unsub();
-  }, [user?.uid]);
+
+    // Subscribe to live truck locations
+    const unsubTrucks = onSnapshot(collection(db, 'truck_locations'), (snap) => {
+      const trucks: any[] = [];
+      snap.forEach(doc => {
+        const data = doc.data();
+        if (data.location) {
+           trucks.push({ id: doc.id, ...data });
+        }
+      });
+      setTruckLocations(trucks);
+    });
+
+    return () => {
+      unsub();
+      unsubTrucks();
+    };
+  }, [userBarangay]);
 
   // Expand recurring schedules for current month
   useEffect(() => {
-    const mapping: Record<string, RawSchedule[]> = {};
+    const mapping: Record<string, any[]> = {};
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const daysIn = (new Date(year, month + 1, 0)).getDate();
+    
+    const DOW_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-    const push = (d: Date, sched: RawSchedule) => {
-      const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`;
-      if (!mapping[key]) mapping[key] = [];
-      mapping[key].push(sched);
-    };
+    for (let d = 1; d <= daysIn; d++) {
+      const date = new Date(year, month, d);
+      const dowStr = DOW_MAP[date.getDay()];
+      const key = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2,'0')}-${date.getDate().toString().padStart(2,'0')}`;
+      
+      const daySchedules: any[] = [];
 
-    for (const s of rawSchedules) {
-      const baseParsed = parseUSLongDate(s.dateText) || new Date(s.dateText);
-      if (!(baseParsed instanceof Date) || isNaN(baseParsed.getTime())) {
-        continue; // skip unparseable dates on iOS
-      }
-      const [monthStr, dayStr, yearStr] = baseParsed
-        .toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-        .split('/');
-      const base = new Date(parseInt(yearStr,10), parseInt(monthStr,10)-1, parseInt(dayStr,10));
+      rawSchedules.forEach(s => {
+        // 1. Check if recurring day matches
+        let isMatch = s.days && s.days.includes(dowStr);
+        let category = s.wasteCategory;
+        let time = 'Regular Hours';
 
-      switch ((s.frequency || 'One-time').toLowerCase()) {
-        case 'daily': {
-          for (let d = 1; d <= daysIn; d++) push(new Date(year, month, d), s);
-          break;
+        // 2. Check if a specific schedule was added for this date
+        const specificMatch = (s.specificSchedules || []).find((ss: any) => {
+          if (!ss.date) return false;
+          // Simplistic match: if ss.date is YYYY-MM-DD or MM/DD matching this date
+          const mmdd = `${(date.getMonth()+1).toString().padStart(2,'0')}/${date.getDate().toString().padStart(2,'0')}`;
+          const yyyymmdd = key;
+          
+          // Also try to match "Month DD" e.g., "July 20"
+          const monthNames = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"];
+          const monthName = monthNames[date.getMonth()];
+          const shortMonthName = monthName.substring(0, 3);
+          const monthDD = `${monthName} ${date.getDate()}`;
+          const shortMonthDD = `${shortMonthName} ${date.getDate()}`;
+
+          const dText = ss.date.trim().toLowerCase();
+          
+          return dText === mmdd.toLowerCase() || 
+                 dText === yyyymmdd.toLowerCase() || 
+                 dText === monthDD.toLowerCase() || 
+                 dText === shortMonthDD.toLowerCase();
+        });
+
+        if (specificMatch) {
+          isMatch = true;
+          category = specificMatch.category || category;
+          time = specificMatch.time || time;
         }
-        case 'weekly': {
-          const targetDow = base.getDay();
-          for (let d = 1; d <= daysIn; d++) {
-            const date = new Date(year, month, d);
-            if (date.getDay() === targetDow) push(date, s);
-          }
-          break;
+
+        if (isMatch) {
+          daySchedules.push({
+            ...s,
+            wasteCategory: category,
+            timeText: time
+          });
         }
-        case 'monthly': {
-          const targetDom = base.getDate();
-          const date = new Date(year, month, Math.min(targetDom, daysIn));
-          push(date, s);
-          break;
-        }
-        default: {
-          if (base.getFullYear() === year && base.getMonth() === month) push(base, s);
-        }
+      });
+
+      if (daySchedules.length > 0) {
+        mapping[key] = daySchedules;
       }
     }
     setMonthScheduleDates(mapping);
@@ -339,24 +380,50 @@ export default function ScheduleScreen() {
             scrollEnabled={false}
             zoomEnabled={false}
           >
-            <Marker
-              coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
-              title="Trash Truck"
-              description="Currently collecting in Danao..."
-            >
-              <View style={{ backgroundColor: colors.primary, padding: 6, borderRadius: 20 }}>
-                <IconSymbol name="car.fill" size={24} color="white" />
-              </View>
-            </Marker>
+            {truckLocations.length > 0 ? (
+              truckLocations.map(truck => (
+                <Marker
+                  key={truck.id}
+                  coordinate={{ 
+                    latitude: truck.location?.latitude || 10.5217, 
+                    longitude: truck.location?.longitude || 124.0253 
+                  }}
+                  title={truck.driverName || "Trash Truck"}
+                  description={`Last updated: ${truck.timestamp ? new Date(truck.timestamp.toDate()).toLocaleTimeString() : 'Recently'}`}
+                >
+                  <View style={{ backgroundColor: colors.primary, padding: 6, borderRadius: 20 }}>
+                    <IconSymbol name="car.fill" size={24} color="white" />
+                  </View>
+                </Marker>
+              ))
+            ) : (
+              <Marker
+                coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
+                title="Danao City Hub"
+                description="Waiting for active trucks..."
+              >
+                <View style={{ backgroundColor: '#6B7280', padding: 6, borderRadius: 20 }}>
+                  <IconSymbol name="building.2.fill" size={24} color="white" />
+                </View>
+              </Marker>
+            )}
           </MapView>
           <View style={styles.mapOverlay} pointerEvents="none">
-            <View style={styles.liveIndicator}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-            <View style={styles.etaContainer}>
-              <Text style={styles.mapEtaText}>Arriving in ~15 mins</Text>
-            </View>
+            {truckLocations.length > 0 ? (
+              <>
+                <View style={styles.liveIndicator}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
+                <View style={styles.etaContainer}>
+                  <Text style={styles.mapEtaText}>{truckLocations.length} Truck(s) Active</Text>
+                </View>
+              </>
+            ) : (
+              <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>No trucks active right now</Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       </View>
@@ -439,7 +506,7 @@ export default function ScheduleScreen() {
                 > 
                   <IconSymbol name="calendar" size={18} color={colors.primary} />
                   <Text style={styles.infoText}>
-                    {s.dateText} • {s.timeText} • {s.wasteCategory} • {s.street}
+                    {s.timeText} • {s.barangayName || 'Barangay'} • {s.wasteCategory || 'General'} • {s.truck || 'Pending Truck'}
                   </Text>
                   <IconSymbol name="chevron.right" size={16} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -479,15 +546,33 @@ export default function ScheduleScreen() {
             }}
             showsUserLocation
           >
-            <Marker
-              coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
-              title="Trash Truck"
-              description="Currently collecting in Danao..."
-            >
-              <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 20 }}>
-                <IconSymbol name="car.fill" size={28} color="white" />
-              </View>
-            </Marker>
+            {truckLocations.length > 0 ? (
+              truckLocations.map(truck => (
+                <Marker
+                  key={truck.id}
+                  coordinate={{ 
+                    latitude: truck.location?.latitude || 10.5217, 
+                    longitude: truck.location?.longitude || 124.0253 
+                  }}
+                  title={truck.driverName || "Trash Truck"}
+                  description={`Last updated: ${truck.timestamp ? new Date(truck.timestamp.toDate()).toLocaleTimeString() : 'Recently'}`}
+                >
+                  <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 20 }}>
+                    <IconSymbol name="car.fill" size={28} color="white" />
+                  </View>
+                </Marker>
+              ))
+            ) : (
+              <Marker
+                coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
+                title="Danao City Hub"
+                description="Waiting for active trucks..."
+              >
+                <View style={{ backgroundColor: '#6B7280', padding: 8, borderRadius: 20 }}>
+                  <IconSymbol name="building.2.fill" size={28} color="white" />
+                </View>
+              </Marker>
+            )}
           </MapView>
           
           <TouchableOpacity style={styles.fullscreenMapClose} onPress={() => setShowMapZoom(false)}>
@@ -495,13 +580,21 @@ export default function ScheduleScreen() {
           </TouchableOpacity>
           
           <View style={styles.fullscreenMapOverlay} pointerEvents="none">
-            <View style={styles.liveIndicator}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-            <View style={styles.etaContainer}>
-              <Text style={styles.mapEtaText}>Arriving in ~15 mins</Text>
-            </View>
+            {truckLocations.length > 0 ? (
+              <>
+                <View style={styles.liveIndicator}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
+                <View style={styles.etaContainer}>
+                  <Text style={styles.mapEtaText}>{truckLocations.length} Truck(s) Active</Text>
+                </View>
+              </>
+            ) : (
+              <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>No active trucks</Text>
+              </View>
+            )}
           </View>
         </View>
       </Modal>

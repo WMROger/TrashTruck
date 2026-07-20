@@ -31,12 +31,12 @@ let auth: any = null;
 let storage: any = null;
 
   const firebaseConfig = {
-    apiKey: apiKey || 'AIzaSyCI_dZWMCn1QbwAaZe9qkPi_lB5KG0iLks',
-    authDomain: authDomain || 'trashtruck-swu-98ce9.firebaseapp.com',
-    projectId: projectId || 'trashtruck-swu-98ce9',
-    storageBucket: storageBucket || 'trashtruck-swu-98ce9.firebasestorage.app',
-    messagingSenderId: messagingSenderId || '634173704158',
-    appId: appId || '1:634173704158:web:d7a0efc4fd1bd026283f4f',
+    apiKey: apiKey as string,
+    authDomain: authDomain as string,
+    projectId: projectId as string,
+    storageBucket: storageBucket as string,
+    messagingSenderId: messagingSenderId as string,
+    appId: appId as string,
   };
 
   // ─── 2. App ───────────────────────────────────────────────────────────────

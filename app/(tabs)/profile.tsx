@@ -13,6 +13,7 @@ export default function ProfilePage() {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<{ rank: number, points: number, pointsToNext: number }>({ rank: 0, points: 0, pointsToNext: 0 });
   const [recentActivity, setRecentActivity] = useState<any>(null);
+  const [userBarangay, setUserBarangay] = useState<string>("");
   
   useEffect(() => {
     const fetchLeaderboardData = async () => {
@@ -37,8 +38,12 @@ export default function ProfilePage() {
         // Fetch all users to construct leaderboard
         const usersSnap = await getDocs(collection(db, "users"));
         const usersList: any[] = [];
+        let myBarangay = "";
         usersSnap.forEach(doc => {
            const data = doc.data();
+           if (doc.id === user.uid && data.barangay) {
+              myBarangay = data.barangay;
+           }
            usersList.push({
              id: doc.id,
              displayName: data.displayName || "Unknown Resident",
@@ -46,6 +51,8 @@ export default function ProfilePage() {
            });
         });
         
+        setUserBarangay(myBarangay);
+
         // Sort and rank
         usersList.sort((a, b) => b.points - a.points);
         setLeaderboard(usersList.slice(0, 3));
@@ -84,7 +91,7 @@ export default function ProfilePage() {
   const userLevel = `LEVEL ${Math.floor(userRank.points / 500) + 1}`;
   const tagline = "Eco-Conscious Resident";
   const wasteDiverted = `${(userRank.points / 50 * 2.5).toFixed(1)}kg Waste Diverted`;
-  const userLocation = "Local Community";
+  const userLocation = userBarangay ? `Barangay ${userBarangay}` : "Local Community";
   const impactGoal = userRank.pointsToNext > 0 ? Math.floor(100 - (userRank.pointsToNext / 500) * 100) : 100;
 
   return (

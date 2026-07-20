@@ -5,14 +5,17 @@ import {
   cloudinaryService,
   UPLOAD_FOLDERS,
 } from "@/services/cloudinaryService";
+import { analyzeWasteImage, WasteAnalysisResult } from "@/services/wasteAIService";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { addDoc, collection } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActionSheetIOS,
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -23,6 +26,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import MapView, { Marker } from "@/components/MapView";
 
 export default function ReportScreen() {
   const insets = useSafeAreaInsets();
@@ -38,6 +42,10 @@ export default function ReportScreen() {
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [locationAddress, setLocationAddress] = useState<string>("Locating...");
+  const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
+  const [aiResult, setAiResult] = useState<WasteAnalysisResult | null>(null);
   const MAX_FIRESTORE_FIELD_BYTES = 1000000; // ~1MB safe cap
 
   // Debug function to check Firebase configuration
@@ -243,10 +251,17 @@ export default function ReportScreen() {
         landmark,
         description,
         imageURL: imageURL || null, // Always include imageURL field, even if null
+        location: geoCoords,
         userId: auth.currentUser.uid,
         userEmail: auth.currentUser.email || "",
         createdAt: new Date().toISOString(),
         status: "pending", // Add status for admin management
+        aiAnalysis: aiResult ? {
+          wasteType: aiResult.wasteType,
+          estimatedWeight: aiResult.estimatedWeight,
+          confidence: aiResult.confidence,
+          details: aiResult.details,
+        } : null,
       };
 
       console.log("Report data to be saved:", reportData);
@@ -280,6 +295,8 @@ export default function ReportScreen() {
       setDescription("");
       setImageUri(null);
       setImageDataUrl(null);
+      setGeoCoords(null);
+      setAiResult(null);
     } catch (err) {
       console.error("Report submission error:", err);
       Alert.alert(
@@ -305,6 +322,7 @@ export default function ReportScreen() {
           landmark,
           description,
           imageURL: null,
+          location: geoCoords,
           userId: auth.currentUser?.uid,
           userEmail: auth.currentUser?.email || "",
           createdAt: new Date().toISOString(),
@@ -321,6 +339,7 @@ export default function ReportScreen() {
       setLandmark("");
       setDescription("");
       setImageUri(null);
+      setGeoCoords(null);
     } catch (err) {
       console.error("Report submission error:", err);
       handleFirestoreError(err, "submit report");
@@ -330,106 +349,139 @@ export default function ReportScreen() {
     }
   };
 
-  const handleImageSelection = async (useCamera: boolean) => {
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleTakePhoto = async () => {
     try {
-      // Request permissions
-      if (useCamera) {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission Denied",
-            "Camera permission is required to take photos."
-          );
-          return;
-        }
-      } else {
-        const { status } =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission Denied",
-            "Gallery permission is required to select photos."
-          );
-          return;
-        }
+      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      if (cameraStatus !== 'granted') {
+        Alert.alert(
+          "Permission Denied",
+          "Camera permission is required to capture the trash pile."
+        );
+        return;
       }
 
-      const mediaTypes = (ImagePicker as any).MediaType
-        ? [(ImagePicker as any).MediaType.image]
-        : (ImagePicker as any).MediaTypeOptions?.Images ??
-          ImagePicker.MediaTypeOptions.Images;
-
-      const result = useCamera
-        ? await ImagePicker.launchCameraAsync({
-            mediaTypes: mediaTypes as any,
-            allowsEditing: true,
-            quality: 0.5,
-            aspect: [4, 3],
-            base64: Platform.OS === "web",
-          } as any)
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: mediaTypes as any,
-            allowsEditing: true,
-            quality: 0.5,
-            aspect: [4, 3],
-            base64: Platform.OS === "web",
-          } as any);
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0] as any;
-        setImageUri(asset.uri);
-        const mime = (asset as any).mimeType || "image/jpeg";
-        setImageMimeType(mime);
-        if (asset.base64) {
-          setImageDataUrl(`data:${mime};base64,${asset.base64}`);
-        } else {
-          setImageDataUrl(null);
-        }
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus !== 'granted') {
+        Alert.alert(
+          "Permission Denied",
+          "Location permission is required to geotag your report."
+        );
+        return;
       }
-    } catch (error) {
-      console.error("Error selecting image:", error);
-      Alert.alert("Error", "Failed to select image. Please try again.");
-    }
-  };
 
-  const pickImage = () => {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ["Cancel", "Take Photo", "Choose from Gallery"],
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) {
-            handleImageSelection(true); // Camera
-          } else if (buttonIndex === 2) {
-            handleImageSelection(false); // Gallery
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const capturedUri = result.assets[0].uri;
+        const capturedBase64 = result.assets[0].base64;
+        setImageUri(capturedUri);
+
+        // Trigger AI analysis in parallel with location fetching
+        setIsAnalyzingAI(true);
+        setAiResult(null);
+        analyzeWasteImage(capturedUri, capturedBase64)
+          .then((analysis) => {
+            setAiResult(analysis);
+            console.log('🤖 AI analysis result:', analysis);
+          })
+          .catch((err) => {
+            console.error('🤖 AI analysis error:', err);
+            setAiResult({
+              wasteType: 'Analysis failed',
+              estimatedWeight: '—',
+              confidence: 'none',
+              details: 'Could not analyze the image.',
+            });
+          })
+          .finally(() => setIsAnalyzingAI(false));
+        setIsFetchingLocation(true);
+        
+        try {
+          let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+          setGeoCoords({
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+          });
+          const geocode = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          if (geocode && geocode.length > 0) {
+            const place = geocode[0];
+            const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
+            setLocationAddress(addressStr || "Unknown Location");
+          } else {
+            setLocationAddress("Unknown Location");
           }
+        } catch (locErr) {
+          console.warn("Failed to get current location, trying last known:", locErr);
+          try {
+            let loc = await Location.getLastKnownPositionAsync();
+            if (loc) {
+              setGeoCoords({
+                lat: loc.coords.latitude,
+                lng: loc.coords.longitude,
+              });
+              const geocode = await Location.reverseGeocodeAsync({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              });
+              if (geocode && geocode.length > 0) {
+                const place = geocode[0];
+                const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
+                setLocationAddress(addressStr || "Unknown Location");
+              } else {
+                setLocationAddress("Unknown Location");
+              }
+            } else {
+              throw new Error("No last known location");
+            }
+          } catch (fallbackErr) {
+            console.warn("Failed to get fallback location:", fallbackErr);
+            Alert.alert("Location Error", "Could not get your exact location. Are you on an emulator? Please set a mock location in the emulator settings.");
+          }
+        } finally {
+          setIsFetchingLocation(false);
         }
-      );
-    } else {
-      // For Android and Web, show Alert dialog
-      Alert.alert(
-        "Add Photo",
-        "Choose an option",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-          {
-            text: "Take Photo",
-            onPress: () => handleImageSelection(true),
-          },
-          {
-            text: "Choose from Gallery",
-            onPress: () => handleImageSelection(false),
-          },
-        ],
-        { cancelable: true }
-      );
+      }
+    } catch (err) {
+      console.error("Error capturing photo or location:", err);
+      Alert.alert("Error", "Failed to capture photo.");
+      setIsFetchingLocation(false);
     }
   };
+
+  // Helper functions for AI waste type display
+  const getWasteTypeIcon = (wasteType: string): string => {
+    if (wasteType.includes('Biodegradable')) return 'leaf.fill';
+    if (wasteType.includes('Non-Biodegradable')) return 'trash.fill';
+    if (wasteType.includes('Recyclable')) return 'arrow.triangle.2.circlepath';
+    if (wasteType.includes('Residual')) return 'trash.fill';
+    if (wasteType.includes('Hazardous')) return 'exclamationmark.triangle.fill';
+    if (wasteType.includes('Special') || wasteType.includes('Bulk')) return 'shippingbox.fill';
+    if (wasteType.includes('Cannot determine')) return 'questionmark.circle.fill';
+    if (wasteType.includes('Not waste')) return 'xmark.circle.fill';
+    return 'sparkles';
+  };
+
+  const getWasteTypeColor = (wasteType: string): string => {
+    if (wasteType.includes('Biodegradable') && !wasteType.includes('Non')) return '#059669';
+    if (wasteType.includes('Non-Biodegradable')) return '#2563EB';
+    if (wasteType.includes('Recyclable')) return '#D97706';
+    if (wasteType.includes('Residual')) return '#6B7280';
+    if (wasteType.includes('Hazardous')) return '#DC2626';
+    if (wasteType.includes('Special') || wasteType.includes('Bulk')) return '#7C3AED';
+    if (wasteType.includes('Cannot determine')) return '#9CA3AF';
+    if (wasteType.includes('Not waste')) return '#EF4444';
+    return '#4A6741';
+  };
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -440,43 +492,97 @@ export default function ReportScreen() {
         <Text style={styles.headerTitle}>Report a Trash Pile</Text>
 
         {/* Photo upload placeholder */}
-        <TouchableOpacity style={styles.photoCard} onPress={pickImage}>
+        <TouchableOpacity style={styles.photoCard} onPress={handleTakePhoto} disabled={isFetchingLocation}>
           {imageUri ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={{ width: "100%", height: "100%", borderRadius: 12 }}
-            />
+            <View style={{ width: "100%", height: "100%", position: 'relative' }}>
+              <Image
+                source={{ uri: imageUri }}
+                style={{ width: "100%", height: "100%", borderRadius: 12 }}
+              />
+              {isFetchingLocation && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}>
+                  <ActivityIndicator size="large" color="#4A6741" />
+                  <Text style={{ marginTop: 8, color: '#4A6741', fontWeight: 'bold' }}>Acquiring GPS...</Text>
+                </View>
+              )}
+              {geoCoords && !isFetchingLocation && (
+                <View style={{ position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                    {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
+                  </Text>
+                </View>
+              )}
+            </View>
           ) : (
             <View style={styles.photoPlaceholder}>
               <IconSymbol name="camera.fill" size={36} color="#4A6741" />
               <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
-              <Text style={styles.photoTextSub}>Tap to take a photo or upload</Text>
+              <Text style={styles.photoTextSub}>Tap to take a Geo-Photo</Text>
             </View>
           )}
         </TouchableOpacity>
 
-        {/* AI Suggestions (Mocked) */}
+        {/* AI Suggestions */}
         <View style={styles.aiSectionHeader}>
           <IconSymbol name="sparkles" size={16} color="#4A6741" />
           <Text style={styles.aiSectionTitle}>AI SUGGESTIONS</Text>
+          {aiResult?.confidence && aiResult.confidence !== 'none' && (
+            <View style={[
+              styles.confidenceBadge,
+              { backgroundColor: aiResult.confidence === 'high' ? '#D1FAE5' : aiResult.confidence === 'medium' ? '#FEF3C7' : '#FEE2E2' }
+            ]}>
+              <Text style={[
+                styles.confidenceText,
+                { color: aiResult.confidence === 'high' ? '#065F46' : aiResult.confidence === 'medium' ? '#92400E' : '#991B1B' }
+              ]}>
+                {aiResult.confidence.toUpperCase()} CONFIDENCE
+              </Text>
+            </View>
+          )}
         </View>
 
-        <View style={styles.aiRow}>
-          <View style={styles.aiCard}>
-            <Text style={styles.aiCardLabel}>Waste Type</Text>
-            <View style={styles.aiCardValueRow}>
-              <IconSymbol name="leaf.fill" size={18} color="#4A6741" />
-              <Text style={styles.aiCardValue}>Biodegradable</Text>
-            </View>
+        {isAnalyzingAI ? (
+          <View style={styles.aiLoadingContainer}>
+            <ActivityIndicator size="small" color="#4A6741" />
+            <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
           </View>
-          <View style={styles.aiCard}>
-            <Text style={styles.aiCardLabel}>Estimated Weight</Text>
-            <View style={styles.aiCardValueRow}>
-              <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
-              <Text style={styles.aiCardValue}>12.5 <Text style={{fontWeight: '400', fontSize: 14}}>kg</Text></Text>
+        ) : aiResult ? (
+          <>
+            <View style={styles.aiRow}>
+              <View style={styles.aiCard}>
+                <Text style={styles.aiCardLabel}>Waste Type</Text>
+                <View style={styles.aiCardValueRow}>
+                  <IconSymbol
+                    name={getWasteTypeIcon(aiResult.wasteType)}
+                    size={18}
+                    color={getWasteTypeColor(aiResult.wasteType)}
+                  />
+                  <Text style={[styles.aiCardValue, { color: getWasteTypeColor(aiResult.wasteType) }]}>
+                    {aiResult.wasteType}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.aiCard}>
+                <Text style={styles.aiCardLabel}>Estimated Weight</Text>
+                <View style={styles.aiCardValueRow}>
+                  <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
+                  <Text style={styles.aiCardValue}>{aiResult.estimatedWeight}</Text>
+                </View>
+              </View>
             </View>
+            {aiResult.details && (
+              <View style={styles.aiDetailsCard}>
+                <IconSymbol name="info.circle.fill" size={14} color="#6B7280" />
+                <Text style={styles.aiDetailsText}>{aiResult.details}</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.aiEmptyContainer}>
+            <IconSymbol name="camera.fill" size={20} color="#9CA3AF" />
+            <Text style={styles.aiEmptyText}>Take a photo to get AI analysis</Text>
           </View>
-        </View>
+        )}
 
         {/* Title */}
         <View style={styles.fieldGroup}>
@@ -502,15 +608,41 @@ export default function ReportScreen() {
 
         {/* Location Map */}
         <View style={styles.mapContainer}>
-          <View style={styles.mockMapBg}>
-            <View style={styles.mockMapPinContainer}>
-               <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
+          {geoCoords ? (
+            <View style={{ height: 180, borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
+              <MapView
+                style={{ width: '100%', height: '100%' }}
+                initialRegion={{
+                  latitude: geoCoords.lat,
+                  longitude: geoCoords.lng,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                }}
+                region={{
+                  latitude: geoCoords.lat,
+                  longitude: geoCoords.lng,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                }}
+              >
+                <Marker coordinate={{ latitude: geoCoords.lat, longitude: geoCoords.lng }} />
+              </MapView>
+              <View style={styles.mapAddressBadge}>
+                <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                <Text style={styles.mapAddressText} numberOfLines={1}>{locationAddress}</Text>
+              </View>
             </View>
-            <View style={styles.mapAddressBadge}>
-              <IconSymbol name="location.fill" size={14} color="#4A6741" />
-              <Text style={styles.mapAddressText}>Oak Street, near Market Center</Text>
+          ) : (
+            <View style={styles.mockMapBg}>
+              <View style={styles.mockMapPinContainer}>
+                 <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
+              </View>
+              <View style={styles.mapAddressBadge}>
+                <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                <Text style={styles.mapAddressText}>Location will appear here</Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
         {/* Description */}
@@ -622,30 +754,35 @@ const styles = StyleSheet.create({
   },
   aiRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 12,
   },
   aiCard: {
     flex: 1,
     backgroundColor: '#E2EFE3',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   aiCardLabel: {
-    fontSize: 12,
-    color: '#4A6741',
+    fontSize: 11,
+    color: '#6B8C72',
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   aiCardValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+    flexWrap: 'wrap',
   },
   aiCardValue: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#234033',
+    flexShrink: 1,
   },
 
   fieldGroup: { marginBottom: 20 },
@@ -789,5 +926,65 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "#4E6E58",
     borderRadius: 2,
+  },
+
+  // AI Analysis styles
+  aiLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0F7F2',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  aiLoadingText: {
+    color: '#4A6741',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  aiEmptyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  aiEmptyText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+  },
+  aiDetailsCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    gap: 8,
+  },
+  aiDetailsText: {
+    color: '#6B7280',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  confidenceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

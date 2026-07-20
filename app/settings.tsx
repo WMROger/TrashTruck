@@ -4,6 +4,7 @@ import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { auth, db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
+import DropDownPicker from 'react-native-dropdown-picker';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -38,11 +39,16 @@ export default function SettingsPage() {
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
     photoURL?: string;
+    barangay?: string;
   } | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showBarangayModal, setShowBarangayModal] = useState(false);
+  const [editBarangay, setEditBarangay] = useState('');
+  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
   const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [pushEnabled, setPushEnabled] = useState(true);
@@ -142,6 +148,7 @@ export default function SettingsPage() {
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
             photoURL: resolved,
+            barangay: userData.barangay || '',
           });
         } else {
           console.log('❌ No Firestore document found, checking auth data');
@@ -183,7 +190,25 @@ export default function SettingsPage() {
       }
     };
 
+    const fetchBarangays = async () => {
+      try {
+        const { collection, getDocs } = require('firebase/firestore');
+        const snap = await getDocs(collection(db, 'barangay_schedules'));
+        const barangayNames = new Set<string>();
+        snap.forEach((doc: any) => {
+          const data = doc.data();
+          if (data.barangayName) {
+            barangayNames.add(data.barangayName);
+          }
+        });
+        setAvailableBarangays(Array.from(barangayNames).sort());
+      } catch (err) {
+        console.error('Error fetching available barangays:', err);
+      }
+    };
+
     fetchUserProfile();
+    fetchBarangays();
   }, [user]);
 
   const handleLogout = () => {
@@ -425,6 +450,27 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveBarangay = async () => {
+    if (!auth || !user?.uid) return;
+    setIsSaving(true);
+    try {
+      const { updateDoc } = require('firebase/firestore');
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        barangay: editBarangay,
+        updatedAt: new Date()
+      });
+      setUserProfile(prev => prev ? { ...prev, barangay: editBarangay } : null);
+      setShowBarangayModal(false);
+      Alert.alert('Success', 'Barangay preference updated successfully');
+    } catch (error) {
+      console.error('Failed to update barangay:', error);
+      Alert.alert('Error', 'Failed to update barangay preference');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Feedback handling
   const sentiments = [
     { label: 'Terrible', emoji: '😣' },
@@ -557,13 +603,19 @@ export default function SettingsPage() {
         {/* Location & Service */}
         <Text style={[styles.sectionTitleSmall, { marginTop: 16, marginHorizontal: 20 }]}>Location & Service</Text>
         <View style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingsRow}>
+          <TouchableOpacity 
+            style={styles.settingsRow} 
+            onPress={() => {
+              setEditBarangay(userProfile?.barangay || '');
+              setShowBarangayModal(true);
+            }}
+          >
             <View style={styles.settingsIconBg}>
               <IconSymbol name="mappin.circle.fill" size={20} color="#2E7D32" />
             </View>
             <View style={styles.settingsTextContainer}>
               <Text style={styles.settingsRowTitle}>Barangay Preference</Text>
-              <Text style={styles.settingsRowSubtitle}>Barangay Green Valley</Text>
+              <Text style={styles.settingsRowSubtitle}>{userProfile?.barangay || "Tap to set barangay"}</Text>
             </View>
             <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
           </TouchableOpacity>
@@ -917,41 +969,50 @@ export default function SettingsPage() {
         {/* Feedback Modal */}
         <Modal
           visible={showFeedbackModal}
-          transparent
-          animationType="slide"
+          transparent={true}
+          animationType="fade"
           onRequestClose={() => setShowFeedbackModal(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={[styles.feedbackModalContainer, { backgroundColor: colors.surface }]}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Send us your feedback</Text>
-              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
-                Do you have a suggestion or experienced any problem? Let us know below.
-              </Text>
-              
-              <Text style={[styles.feedbackQuestion, { color: colors.textPrimary }]}>How was your experience?</Text>
+            <View style={[styles.feedbackModalContainer, { backgroundColor: colors.background }]}>
+              <View style={styles.passwordHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Send Feedback</Text>
+                <TouchableOpacity onPress={() => setShowFeedbackModal(false)} style={styles.closeButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.icon} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.feedbackQuestion, { color: colors.text }]}>How was your experience today?</Text>
               
               <View style={styles.feedbackRow}>
-                {sentiments.map((s, idx) => {
-                  const active = feedbackSelected === idx;
-                  return (
-                    <TouchableOpacity
-                      key={s.label}
-                      style={[
-                        styles.feedbackReaction, 
-                        { backgroundColor: colors.background, borderColor: colors.border },
-                        active && { backgroundColor: colors.primary + '20', borderColor: colors.primary }
-                      ]}
-                      onPress={() => setFeedbackSelected(idx)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.feedbackReactionEmoji}>{s.emoji}</Text>
-                      <Text style={[styles.feedbackReactionLabel, { color: colors.textSecondary }]}>{s.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {[
+                  { id: 1, icon: 'hand.thumbsdown.fill', label: 'Poor', color: '#EF5350' },
+                  { id: 2, icon: 'minus.circle.fill', label: 'Average', color: '#FFB300' },
+                  { id: 3, icon: 'hand.thumbsup.fill', label: 'Great', color: '#66BB6A' },
+                ].map((reaction) => (
+                  <TouchableOpacity
+                    key={reaction.id}
+                    style={[
+                      styles.feedbackReaction,
+                      { borderColor: feedbackSelected === reaction.id ? reaction.color : '#E0E0E0' },
+                      feedbackSelected === reaction.id && { backgroundColor: `${reaction.color}15` }
+                    ]}
+                    onPress={() => setFeedbackSelected(reaction.id)}
+                  >
+                    <IconSymbol name={reaction.icon as any} size={28} color={reaction.color} />
+                    <Text style={[styles.feedbackReactionText, { color: feedbackSelected === reaction.id ? reaction.color : '#757575' }]}>
+                      {reaction.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
 
               <TextInput
+                style={[styles.feedbackInput, { color: colors.text, backgroundColor: colors.surface }]}
+                placeholder="Tell us what you liked or how we can improve..."
+                placeholderTextColor={colors.icon}
+                multiline
+                numberOfLines={4}
                 value={feedbackText}
                 onChangeText={setFeedbackText}
                 multiline
@@ -989,6 +1050,74 @@ export default function SettingsPage() {
             </View>
           </View>
         </Modal>
+
+        {/* Barangay Modal */}
+        <Modal
+          visible={showBarangayModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowBarangayModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.background }]}>
+              <View style={styles.passwordHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Select Barangay</Text>
+                <TouchableOpacity onPress={() => setShowBarangayModal(false)} style={styles.closeButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.icon} />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={[styles.passwordInputContainer, { zIndex: 1000 }]}>
+                <Text style={[styles.passwordLabel, { color: colors.text }]}>Barangay (Danao City)</Text>
+                <View style={[styles.passwordInputWrapper, { borderColor: 'transparent', padding: 0, height: 50 }]}>
+                  <DropDownPicker
+                    open={barangayOpen}
+                    value={editBarangay}
+                    items={availableBarangays.map(b => ({ label: b, value: b }))}
+                    setOpen={setBarangayOpen}
+                    setValue={setEditBarangay}
+                    placeholder="Select a barangay"
+                    placeholderStyle={{ color: colors.icon }}
+                    style={{
+                      backgroundColor: colors.background,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      minHeight: 50,
+                      borderRadius: 8,
+                    }}
+                    dropDownContainerStyle={{
+                      backgroundColor: colors.background,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                    }}
+                    textStyle={{
+                      fontSize: 15,
+                      color: colors.text
+                    }}
+                    zIndex={1000}
+                    listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
+                    scrollViewProps={{
+                      nestedScrollEnabled: true,
+                    }}
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity 
+                style={styles.savePasswordBtn}
+                onPress={handleSaveBarangay}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.savePasswordBtnText}>Save Preferences</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
       </ScrollView>
     </View>
   );

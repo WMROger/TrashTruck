@@ -236,7 +236,7 @@ export default function LoadingPage() {
       await navigateBasedOnRole();
 
     } catch (error: any) {
-      console.error('Email/password authentication error:', error);
+      console.warn('Email/password authentication error:', error);
       let errorMessage = 'Login failed. Please try again.';
       
       if (error.code === 'auth/user-not-found') {
@@ -294,7 +294,7 @@ export default function LoadingPage() {
       await navigateBasedOnRole();
 
     } catch (error: any) {
-      console.error(`${authType} authentication error:`, error);
+      console.warn(`${authType} authentication error:`, error);
       showError(error.message || `${authType} sign-in failed`, 'Authentication Failed', 'error');
       setTimeout(() => {
         router.replace('/(auth)/login' as any);

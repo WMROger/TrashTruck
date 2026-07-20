@@ -62,9 +62,23 @@ service cloud.firestore {
       );
       allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
     }
+
+    // Barangay Schedules (Admin created)
+    match /barangay_schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      // Temporarily allow any authenticated user to create/update schedules for development
+      allow write: if isAuthenticated();
+    }
+
+    // Live Truck Locations
+    match /truck_locations/{truckId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
     // User profiles
     match /users/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
       allow read, write: if isAdmin();
     }
 
@@ -83,14 +97,11 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
 
-  // ...existing code...
-
     // Collection requests
     match /collection_requests/{requestId} {
       allow read, write: if isAuthenticated() && isOwner(resource.data.userId);
       allow read, write: if isAdmin();
     }
-
 
     // Feedback (singular)
     match /feedback/{feedbackId} {
@@ -109,7 +120,7 @@ service cloud.firestore {
     // Reports
     match /reports/{reportId} {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 

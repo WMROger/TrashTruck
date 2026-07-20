@@ -21,7 +21,8 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to attach photos to reports.",
         "NSCameraUsageDescription": "We need access to your camera so you can take photos for reports.",
-        "NSMicrophoneUsageDescription": "Microphone is used when recording videos with sound (not required for photos)."
+        "NSMicrophoneUsageDescription": "Microphone is used when recording videos with sound (not required for photos).",
+        "NSLocationWhenInUseUsageDescription": "We need your location to verify where the pickup was completed and to show your location on the map."
       }
     },
     "android": {
@@ -33,7 +34,9 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -44,6 +47,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow TrashTrack to use your location."
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-secure-store"
     ],
