@@ -8,6 +8,7 @@ import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, Touc
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
+import { useTheme } from '@/hooks/useTheme';
 
 interface NextPickup {
   id: string;
@@ -32,6 +33,9 @@ interface HistoryItem {
 export default function DriverIndex() {
   const router = useRouter();
   const { user } = useAuthContext();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [nextPickup, setNextPickup] = useState<NextPickup | null>(null);
   const [liveDispatches, setLiveDispatches] = useState<NextPickup[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
@@ -176,15 +180,15 @@ export default function DriverIndex() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#4E6C50" />
+      <View style={[styles.container, isDark && styles.containerDark, styles.center]}>
+        <ActivityIndicator size="large" color={isDark ? "#86EFAC" : "#4E6C50"} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
+    <ScrollView style={[styles.container, isDark && styles.containerDark]} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F4FBF1"} />
       
       {/* Header */}
       <View style={styles.header}>
@@ -194,7 +198,7 @@ export default function DriverIndex() {
             style={styles.logoIcon}
             resizeMode="contain"
           />
-          <Text style={styles.logoText}>TrashTrack</Text>
+          <Text style={[styles.logoText, isDark && styles.textLight]}>TrashTrack</Text>
         </View>
         
         <View style={styles.headerRight}>
@@ -205,33 +209,33 @@ export default function DriverIndex() {
       </View>
 
       {/* Welcome & Shift Section */}
-      <View style={styles.welcomeSection}>
+      <View style={[styles.welcomeSection, isDark && styles.cardDark]}>
         <View style={styles.welcomeLeft}>
-          <Text style={styles.welcomeText}>Welcome back, {user?.displayName || 'Louisse Natasha'}</Text>
-          <Text style={[styles.statusText, { color: isShiftActive ? '#2E8B57' : '#9CA3AF' }]}>
+          <Text style={[styles.welcomeText, isDark && styles.textMuted]}>Welcome back, {user?.displayName || 'Louisse Natasha'}</Text>
+          <Text style={[styles.statusText, { color: isShiftActive ? (isDark ? '#86EFAC' : '#2E8B57') : (isDark ? '#6B7280' : '#9CA3AF') }]}>
             {isShiftActive ? 'Active Shift' : 'Off Duty'}
           </Text>
         </View>
         <View style={styles.shiftToggle}>
-          <Text style={styles.shiftToggleText}>{isShiftActive ? 'ON' : 'OFF'}</Text>
+          <Text style={[styles.shiftToggleText, isDark && styles.textLight]}>{isShiftActive ? 'ON' : 'OFF'}</Text>
           <Switch 
             value={isShiftActive} 
             onValueChange={setIsShiftActive}
-            trackColor={{ false: '#D1D5DB', true: '#95C596' }}
-            thumbColor={isShiftActive ? '#2E8B57' : '#F3F4F6'}
+            trackColor={{ false: isDark ? '#374151' : '#D1D5DB', true: isDark ? '#166534' : '#95C596' }}
+            thumbColor={isShiftActive ? (isDark ? '#22C55E' : '#2E8B57') : (isDark ? '#9CA3AF' : '#F3F4F6')}
           />
         </View>
       </View>
 
       {/* Live Dispatches (AI Optimized Routes) */}
       {isShiftActive && liveDispatches.length > 0 && (
-        <View style={styles.alertsContainer}>
+        <View style={[styles.alertsContainer, isDark && styles.alertsContainerDark]}>
           <View style={styles.alertHeader}>
             <View style={styles.liveIndicator}>
               <View style={styles.pulsingDot} />
-              <Text style={styles.alertTitle}>LIVE ROUTE DISPATCH ({liveDispatches.length})</Text>
+              <Text style={[styles.alertTitle, isDark && {color: '#C4B5FD'}]}>LIVE ROUTE DISPATCH ({liveDispatches.length})</Text>
             </View>
-            <Text style={styles.alertSubtitle}>AI Optimized Collection Path</Text>
+            <Text style={[styles.alertSubtitle, isDark && {color: '#A78BFA'}]}>AI Optimized Collection Path</Text>
           </View>
           
           <ScrollView 
@@ -241,13 +245,13 @@ export default function DriverIndex() {
             contentContainerStyle={{ paddingRight: 32 }}
           >
             {liveDispatches.map((dispatch, index) => (
-              <View key={dispatch.id} style={styles.alertCard}>
+              <View key={dispatch.id} style={[styles.alertCard, isDark && styles.alertCardDark]}>
                 <View style={styles.alertRouteBadge}>
                   <Text style={styles.alertRouteNumber}>{index + 1}</Text>
                 </View>
                 <View style={styles.alertCardContent}>
-                  <Text style={styles.alertStreet} numberOfLines={1}>{dispatch.street}</Text>
-                  <Text style={styles.alertType}>{dispatch.wasteCategory}</Text>
+                  <Text style={[styles.alertStreet, isDark && styles.textLight]} numberOfLines={1}>{dispatch.street}</Text>
+                  <Text style={[styles.alertType, isDark && styles.textMuted]}>{dispatch.wasteCategory}</Text>
                   
                   <View style={styles.alertActions}>
                     <TouchableOpacity style={styles.navigateBtn} onPress={() => handleNavigate(dispatch.street)}>
@@ -266,29 +270,29 @@ export default function DriverIndex() {
       )}
 
       {isShiftActive && liveDispatches.length === 0 && (
-        <View style={styles.emptyAlertsCard}>
-          <MaterialIcons name="radar" size={24} color="#9CA3AF" />
-          <Text style={styles.emptyAlertsText}>Waiting for CENRO dispatch...</Text>
+        <View style={[styles.emptyAlertsCard, isDark && styles.emptyDashedDark]}>
+          <MaterialIcons name="radar" size={24} color={isDark ? "#6B7280" : "#9CA3AF"} />
+          <Text style={[styles.emptyAlertsText, isDark && styles.textMuted]}>Waiting for CENRO dispatch...</Text>
         </View>
       )}
 
       {!isShiftActive && (
-        <View style={styles.offlineCard}>
-          <Feather name="moon" size={24} color="#6B7280" />
-          <Text style={styles.offlineText}>Start your shift to receive live routes.</Text>
+        <View style={[styles.offlineCard, isDark && styles.emptyDashedDark]}>
+          <Feather name="moon" size={24} color={isDark ? "#6B7280" : "#6B7280"} />
+          <Text style={[styles.offlineText, isDark && styles.textMuted]}>Start your shift to receive live routes.</Text>
         </View>
       )}
 
       {/* Next Scheduled Pickup */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Next Scheduled Pickup</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Next Scheduled Pickup</Text>
         <TouchableOpacity onPress={handleSeeAllSchedule}>
-          <Text style={styles.seeAllText}>See all</Text>
+          <Text style={[styles.seeAllText, isDark && {color: '#86EFAC'}]}>See all</Text>
         </TouchableOpacity>
       </View>
 
       {nextPickup ? (
-        <View style={styles.pickupCard}>
+        <View style={[styles.pickupCard, isDark && styles.pickupCardDark]}>
           <View style={styles.pickupCardHeader}>
             <Text style={styles.pickupBarangay}>Scheduled Collection</Text>
             <TouchableOpacity style={styles.navOutlineBtn} onPress={() => handleNavigate(nextPickup.street)}>
@@ -320,36 +324,36 @@ export default function DriverIndex() {
           </View>
         </View>
       ) : (
-        <View style={styles.emptyCard}>
-          <Feather name="check-circle" size={48} color="#9CA3AF" />
-          <Text style={styles.emptyText}>No pending schedules</Text>
-          <Text style={styles.emptySubtext}>You're all caught up for today!</Text>
+        <View style={[styles.emptyCard, isDark && styles.emptyDashedDark]}>
+          <Feather name="check-circle" size={48} color={isDark ? "#4B5563" : "#9CA3AF"} />
+          <Text style={[styles.emptyText, isDark && styles.textLight]}>No pending schedules</Text>
+          <Text style={[styles.emptySubtext, isDark && styles.textMuted]}>You are all caught up for today!</Text>
         </View>
       )}
 
       {/* Your History */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your History</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Recent Activity</Text>
         <TouchableOpacity onPress={handleSeeAllHistory}>
-          <Text style={styles.seeAllText}>See all</Text>
+          <Text style={[styles.seeAllText, isDark && {color: '#86EFAC'}]}>See all</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.historyContainer}>
         {historyItems.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyScroll}>
-            {historyItems.map((item, index) => (
-              <View key={item.id} style={styles.historyCard}>
+            {historyItems.map((item) => (
+              <View key={item.id} style={[styles.historyCard, isDark && styles.cardDark]}>
                 <Image 
-                  source={{ uri: item.completionImage || 'https://via.placeholder.com/150' }} 
-                  style={styles.historyImage}
+                  source={{ uri: item.completionImage || 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=400&q=80' }} 
+                  style={styles.historyImage} 
                 />
                 <View style={styles.historyContent}>
-                  <Text style={styles.historyStreet} numberOfLines={1}>{item.street}</Text>
-                  <Text style={styles.historyType}>{item.wasteCategory}</Text>
-                  <View style={styles.completedBadge}>
-                    <Text style={styles.completedBadgeText}>
-                      {item.status === 'issue' ? 'Issue' : 'Completed'}
+                  <Text style={[styles.historyStreet, isDark && styles.textLight]} numberOfLines={1}>{item.street}</Text>
+                  <Text style={[styles.historyType, isDark && styles.textMuted]}>{item.wasteCategory}</Text>
+                  <View style={[styles.completedBadge, isDark && {backgroundColor: '#374151'}]}>
+                    <Text style={[styles.completedBadgeText, isDark && {color: '#D1D5DB'}]}>
+                      {item.status === 'issue' ? 'Issue Reported' : 'Completed'}
                     </Text>
                   </View>
                 </View>
@@ -357,32 +361,37 @@ export default function DriverIndex() {
             ))}
           </ScrollView>
         ) : (
-          <View style={styles.emptyHistoryCard}>
-            <Feather name="clock" size={32} color="#9CA3AF" />
-            <Text style={styles.emptyText}>No history yet</Text>
+          <View style={[styles.emptyHistoryCard, isDark && styles.emptyDashedDark]}>
+            <Feather name="clock" size={32} color={isDark ? "#4B5563" : "#D1D5DB"} />
+            <Text style={[styles.emptyText, isDark && styles.textLight]}>No recent history</Text>
           </View>
         )}
       </View>
-      
-      <View style={{ height: 100 }} />
 
-      <CompletePickupModal 
-        visible={showCompleteModal} 
-        onClose={() => setShowCompleteModal(false)}
-        onComplete={() => {
-          setShowCompleteModal(false);
-          console.log('Complete action for', selectedPickupId);
-        }}
-      />
-      
-      <ReportIssueModal 
-        visible={showIssueModal} 
-        onClose={() => setShowIssueModal(false)}
-        onSubmit={() => {
-          setShowIssueModal(false);
-          console.log('Submit issue action for', selectedPickupId);
-        }}
-      />
+      <View style={{ height: 40 }} />
+
+      {selectedPickupId && (
+        <CompletePickupModal
+          visible={showCompleteModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowCompleteModal(false)}
+          onSubmit={() => {
+            setShowCompleteModal(false);
+          }}
+        />
+      )}
+
+      {selectedPickupId && (
+        <ReportIssueModal
+          visible={showIssueModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowIssueModal(false)}
+          onSubmit={() => {
+            setShowIssueModal(false);
+            console.log('Submit issue action for', selectedPickupId);
+          }}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -392,6 +401,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
+  },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
+  textLight: {
+    color: '#F9FAFB',
+  },
+  textMuted: {
+    color: '#9CA3AF',
+  },
+  cardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  emptyDashedDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  pickupCardDark: {
+    backgroundColor: '#1C2920',
   },
   center: {
     justifyContent: 'center',
@@ -474,6 +503,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DDD6FE',
   },
+  alertsContainerDark: {
+    backgroundColor: '#1E1B4B', // Dark deep purple
+    borderColor: '#4C1D95',
+  },
   alertHeader: {
     paddingHorizontal: 16,
     marginBottom: 12,
@@ -518,6 +551,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+  },
+  alertCardDark: {
+    backgroundColor: '#2E1065',
+    borderColor: '#5B21B6',
   },
   alertRouteBadge: {
     backgroundColor: '#8B5CF6',

@@ -1,4 +1,5 @@
 import { useAuthContext } from '@/components/AuthContext';
+import { useTheme } from '@/hooks/useTheme';
 import { auth, db } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -10,6 +11,9 @@ import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, St
 export default function DriverEditProfile() {
   const router = useRouter();
   const { user } = useAuthContext();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
@@ -73,18 +77,18 @@ export default function DriverEditProfile() {
 
   return (
     <KeyboardAvoidingView 
-      style={styles.container}
+      style={[styles.container, isDark && styles.containerDark]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F9FAFB"} />
       
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Feather name="arrow-left" size={24} color="#1F2937" />
+            <Feather name="arrow-left" size={24} color={isDark ? "#F9FAFB" : "#1F2937"} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={[styles.headerTitle, isDark && styles.textLight]}>Profile</Text>
           <View style={{ width: 24 }} />
         </View>
 
@@ -96,33 +100,36 @@ export default function DriverEditProfile() {
               style={styles.avatar} 
             />
           </View>
-          <Text style={styles.name}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
+          <Text style={[styles.name, isDark && styles.textLight]}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
           <Text style={styles.email}>{user?.email ? user.email : 'louissea@gmail.com'}</Text>
         </View>
 
         {/* Form Fields */}
         <View style={styles.form}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, isDark && styles.inputDark]}
+            placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
             placeholder="What's your first name?"
             value={firstName}
             onChangeText={setFirstName}
           />
 
           <TextInput
-            style={styles.input}
+            style={[styles.input, isDark && styles.inputDark]}
+            placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
             placeholder="And your last name?"
             value={lastName}
             onChangeText={setLastName}
           />
 
-          <View style={styles.phoneInputContainer}>
-            <View style={styles.countryCode}>
+          <View style={[styles.phoneInputContainer, isDark && styles.inputDark]}>
+            <View style={[styles.countryCode, isDark && styles.inputDark]}>
               <Text style={styles.flag}>🇵🇭</Text>
-              <View style={styles.separator} />
+              <View style={[styles.separator, isDark && { backgroundColor: '#374151' }]} />
             </View>
             <TextInput
-              style={styles.phoneInput}
+              style={[styles.phoneInput, isDark && styles.textLight]}
+              placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
               placeholder="Phone number"
               keyboardType="phone-pad"
               value={phone}
@@ -130,9 +137,10 @@ export default function DriverEditProfile() {
             />
           </View>
 
-          <View style={styles.inputWithIcon}>
+          <View style={[styles.inputWithIcon, isDark && styles.inputDark]}>
             <TextInput
-              style={styles.inputField}
+              style={[styles.inputField, isDark && styles.textLight]}
+              placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
               placeholder="Select your gender"
               value={gender}
               onChangeText={setGender}
@@ -140,14 +148,15 @@ export default function DriverEditProfile() {
             <Feather name="chevron-down" size={20} color="#9CA3AF" />
           </View>
 
-          <View style={styles.inputWithIcon}>
+          <View style={[styles.inputWithIcon, isDark && styles.inputDark]}>
             <TextInput
-              style={styles.inputField}
+              style={[styles.inputField, isDark && styles.textLight]}
+              placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
               placeholder="What is your date of birth?"
               value={dob}
               onChangeText={setDob}
             />
-            <Feather name="calendar" size={20} color="#3B5241" />
+            <Feather name="calendar" size={20} color={isDark ? "#9CA3AF" : "#3B5241"} />
           </View>
         </View>
 
@@ -173,6 +182,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
+  textLight: {
+    color: '#F9FAFB',
   },
   header: {
     flexDirection: 'row',
@@ -231,6 +246,11 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     borderWidth: 1,
     borderColor: '#F3F4F6',
+  },
+  inputDark: {
+    backgroundColor: '#1F2937',
+    color: '#F9FAFB',
+    borderColor: '#374151',
   },
   phoneInputContainer: {
     flexDirection: 'row',

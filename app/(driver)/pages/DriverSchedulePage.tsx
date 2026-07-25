@@ -6,6 +6,7 @@ import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOp
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
+import { useTheme } from '@/hooks/useTheme';
 
 interface ScheduleItem {
   id: string;
@@ -16,6 +17,9 @@ interface ScheduleItem {
 }
 
 export default function DriverSchedulePage() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [loading, setLoading] = useState(true);
   const [todaySchedules, setTodaySchedules] = useState<ScheduleItem[]>([]);
   const [tomorrowSchedules, setTomorrowSchedules] = useState<ScheduleItem[]>([]);
@@ -85,24 +89,26 @@ export default function DriverSchedulePage() {
   }, []);
 
   const handleCompletePickup = (id: string) => {
-    console.log('Open Complete Popup for', id);
+    setSelectedPickupId(id);
+    setShowCompleteModal(true);
   };
 
   const handleIssuePickup = (id: string) => {
-    console.log('Open Issue Popup for', id);
+    setSelectedPickupId(id);
+    setShowIssueModal(true);
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#4E6C50" />
+      <View style={[styles.container, isDark && styles.containerDark, styles.center]}>
+        <ActivityIndicator size="large" color={isDark ? "#86EFAC" : "#4E6C50"} />
       </View>
     );
   }
 
   const renderScheduleCard = (item: ScheduleItem) => (
-    <View key={item.id} style={styles.pickupCard}>
-      <Text style={styles.pickupBarangay}>Barangay Poblacion</Text>
+    <View key={item.id} style={[styles.pickupCard, isDark && styles.pickupCardDark]}>
+      <Text style={styles.pickupBarangay}>Scheduled Collection</Text>
       <View style={styles.pickupDetails}>
         <View style={styles.detailRow}>
           <View style={styles.dotRed} />
@@ -129,42 +135,64 @@ export default function DriverSchedulePage() {
   );
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
+    <ScrollView style={[styles.container, isDark && styles.containerDark]} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F4FBF1"} />
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Schedule</Text>
-        <Text style={styles.subtitle}>Your list of assigned pickups for today.</Text>
+        <Text style={[styles.title, isDark && styles.textLight]}>Schedule</Text>
+        <Text style={[styles.subtitle, isDark && styles.textMuted]}>Your list of assigned pickups.</Text>
       </View>
 
       {/* Today Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Today</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Today</Text>
         {todaySchedules.length > 0 ? (
           todaySchedules.map(renderScheduleCard)
         ) : (
-          <View style={styles.emptyCard}>
-            <Feather name="calendar" size={32} color="#9CA3AF" />
-            <Text style={styles.emptyText}>No pickups for today</Text>
+          <View style={[styles.emptyCard, isDark && styles.emptyCardDark]}>
+            <Feather name="calendar" size={32} color={isDark ? "#4B5563" : "#9CA3AF"} />
+            <Text style={[styles.emptyText, isDark && styles.textLight]}>No pickups for today</Text>
           </View>
         )}
       </View>
 
       {/* Tomorrow Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tomorrow</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Tomorrow</Text>
         {tomorrowSchedules.length > 0 ? (
           tomorrowSchedules.map(renderScheduleCard)
         ) : (
-          <View style={styles.emptyCard}>
-            <Feather name="calendar" size={32} color="#9CA3AF" />
-            <Text style={styles.emptyText}>No pickups for tomorrow</Text>
+          <View style={[styles.emptyCard, isDark && styles.emptyCardDark]}>
+            <Feather name="calendar" size={32} color={isDark ? "#4B5563" : "#9CA3AF"} />
+            <Text style={[styles.emptyText, isDark && styles.textLight]}>No pickups for tomorrow</Text>
           </View>
         )}
       </View>
-      
-      <View style={{ height: 100 }} />
+
+      <View style={{ height: 40 }} />
+
+      {selectedPickupId && (
+        <CompletePickupModal
+          visible={showCompleteModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowCompleteModal(false)}
+          onSubmit={() => {
+            setShowCompleteModal(false);
+          }}
+        />
+      )}
+
+      {selectedPickupId && (
+        <ReportIssueModal
+          visible={showIssueModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowIssueModal(false)}
+          onSubmit={() => {
+            setShowIssueModal(false);
+          }}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -175,9 +203,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
   },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
   center: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  textLight: {
+    color: '#F9FAFB',
+  },
+  textMuted: {
+    color: '#9CA3AF',
   },
   header: {
     marginTop: 60,
@@ -185,22 +222,22 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#3B5241',
-    marginBottom: 8,
+    fontWeight: '800',
+    color: '#1A3B2B',
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
     color: '#4B5563',
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 30,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   pickupCard: {
     backgroundColor: '#58715B',
@@ -212,6 +249,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+  },
+  pickupCardDark: {
+    backgroundColor: '#1C2920',
   },
   pickupBarangay: {
     fontSize: 18,
@@ -274,13 +314,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   emptyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 20,
     padding: 32,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderStyle: 'dashed',
+  },
+  emptyCardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
   emptyText: {
     fontSize: 16,

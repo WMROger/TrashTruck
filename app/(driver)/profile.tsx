@@ -1,18 +1,21 @@
 import { useAuthContext } from '@/components/AuthContext';
+import { useTheme } from '@/hooks/useTheme';
 import { auth } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, Alert } from 'react-native';
+import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, Alert, Modal, Pressable } from 'react-native';
 
 export default function DriverProfileSettings() {
   const router = useRouter();
   const { user } = useAuthContext();
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const isDarkMode = theme === 'dark';
+  const [isHelpModalVisible, setIsHelpModalVisible] = useState(false);
+  const [isAboutModalVisible, setIsAboutModalVisible] = useState(false);
 
   const handleThemeToggle = (value: boolean) => {
-    setIsDarkMode(value);
-    Alert.alert('Theme Settings', value ? 'Dark mode applied.' : 'Light mode applied.');
+    setTheme(value ? 'dark' : 'light');
   };
 
   const handleLogout = async () => {
@@ -25,141 +28,200 @@ export default function DriverProfileSettings() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={24} color="#1F2937" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      {/* Profile Card */}
-      <View style={styles.profileCard}>
-        <Image 
-          source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
-          style={styles.avatar} 
-        />
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
-          <Text style={styles.profileHandle}>{user?.email ? user.email : '@jellylace'}</Text>
+    <>
+      <ScrollView style={[styles.container, isDarkMode && styles.containerDark]} showsVerticalScrollIndicator={false}>
+        <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={isDarkMode ? "#111827" : "#F9FAFB"} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Feather name="arrow-left" size={24} color={isDarkMode ? "#F9FAFB" : "#1F2937"} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, isDarkMode && styles.textLight]}>Settings</Text>
+          <View style={{ width: 24 }} />
         </View>
-        <TouchableOpacity 
-          style={styles.editButton} 
-          onPress={() => router.push('/(driver)/edit-profile')}
-        >
-          <Feather name="edit-2" size={16} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
 
-      {/* Main Menu */}
-      <View style={styles.menuSection}>
-        <TouchableOpacity 
-          style={styles.menuItem} 
-          onPress={() => router.push('/(driver)/edit-profile')}
-        >
-          <View style={styles.menuIconContainer}>
-            <Feather name="user" size={18} color="#6B7280" />
-          </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>My Account</Text>
-            <Text style={styles.menuSubtitle}>Make changes to your account</Text>
-          </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.menuItem}
-          onPress={() => Alert.alert('Coming Soon', 'Beneficiary management will be available in the next update.')}
-        >
-          <View style={styles.menuIconContainer}>
-            <Feather name="user-check" size={18} color="#6B7280" />
-          </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>Saved Beneficiary</Text>
-            <Text style={styles.menuSubtitle}>Manage your saved accounts</Text>
-          </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
-
-        <View style={styles.menuItem}>
-          <View style={styles.menuIconContainer}>
-            <Feather name="moon" size={18} color="#6B7280" />
-          </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>Dark Mode / Light Mode</Text>
-            <Text style={styles.menuSubtitle}>Customize your app appearance</Text>
-          </View>
-          <Switch
-            value={isDarkMode}
-            onValueChange={handleThemeToggle}
-            trackColor={{ false: '#E5E7EB', true: '#3B5241' }}
-            thumbColor={isDarkMode ? '#FFFFFF' : '#FFFFFF'}
+        {/* Profile Card */}
+        <View style={styles.profileCard}>
+          <Image 
+            source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
+            style={styles.avatar} 
           />
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
+            <Text style={styles.profileHandle}>{user?.email ? user.email : '@jellylace'}</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.editButton} 
+            onPress={() => router.push('/(driver)/edit-profile')}
+          >
+            <Feather name="edit-2" size={16} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity 
-          style={styles.menuItem}
-          onPress={() => Alert.alert('2FA Settings', 'Two-factor authentication setup instructions have been sent to your email.')}
-        >
-          <View style={styles.menuIconContainer}>
-            <Feather name="shield" size={18} color="#6B7280" />
-          </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>Two-Factor Authentication</Text>
-            <Text style={styles.menuSubtitle}>Further secure your account for safety</Text>
-          </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
+        {/* Main Menu */}
+        <View style={[styles.menuSection, isDarkMode && styles.menuSectionDark]}>
+          <TouchableOpacity 
+            style={styles.menuItem} 
+            onPress={() => router.push('/(driver)/edit-profile')}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="user" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>My Account</Text>
+              <Text style={styles.menuSubtitle}>Make changes to your account</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-          <View style={styles.menuIconContainer}>
-            <Feather name="log-out" size={18} color="#6B7280" />
-          </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>Log out</Text>
-            <Text style={styles.menuSubtitle}>Sign out of your driver account</Text>
-          </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => Alert.alert('Coming Soon', 'Beneficiary management will be available in the next update.')}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="user-check" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Saved Beneficiary</Text>
+              <Text style={styles.menuSubtitle}>Manage your saved accounts</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
 
-      {/* More Section */}
-      <Text style={styles.sectionTitle}>More</Text>
-      
-      <View style={styles.menuSection}>
-        <TouchableOpacity 
-          style={styles.menuItem}
-          onPress={() => Alert.alert('Help & Support', 'Please contact CENRO dispatch at (032) 123-4567 for immediate assistance.')}
-        >
-          <View style={styles.menuIconContainer}>
-            <Feather name="bell" size={18} color="#6B7280" />
+          <View style={styles.menuItem}>
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="moon" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Dark Mode / Light Mode</Text>
+              <Text style={styles.menuSubtitle}>Customize your app appearance</Text>
+            </View>
+            <Switch
+              value={isDarkMode}
+              onValueChange={handleThemeToggle}
+              trackColor={{ false: '#E5E7EB', true: '#3B5241' }}
+              thumbColor={isDarkMode ? '#FFFFFF' : '#FFFFFF'}
+            />
           </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>Help & Support</Text>
-          </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.menuItem}
-          onPress={() => Alert.alert('About TrashTrack', 'TrashTrack Driver Portal v1.0.0\nDeveloped for Cebu City CENRO.')}
-        >
-          <View style={styles.menuIconContainer}>
-            <Feather name="heart" size={18} color="#6B7280" />
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => Alert.alert('2FA Settings', 'Two-factor authentication setup instructions have been sent to your email.')}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="shield" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Two-Factor Authentication</Text>
+              <Text style={styles.menuSubtitle}>Further secure your account for safety</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="log-out" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Log out</Text>
+              <Text style={styles.menuSubtitle}>Sign out of your driver account</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* More Section */}
+        <Text style={[styles.sectionTitle, isDarkMode && styles.textLight]}>More</Text>
+        
+        <View style={[styles.menuSection, isDarkMode && styles.menuSectionDark]}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => setIsHelpModalVisible(true)}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="bell" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Help & Support</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => setIsAboutModalVisible(true)}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="info" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>About App</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      {/* Help Modal */}
+      <Modal
+        visible={isHelpModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsHelpModalVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setIsHelpModalVisible(false)}>
+          <View style={[styles.modalContent, isDarkMode && styles.modalContentDark]}>
+            <View style={styles.modalIconBg}>
+              <Feather name="life-buoy" size={32} color="#3B5241" />
+            </View>
+            <Text style={[styles.modalTitle, isDarkMode && styles.textLight]}>Help & Support</Text>
+            <Text style={styles.modalBody}>
+              Need assistance with your dispatch routes or having trouble with the app? Our CENRO support team is here for you.
+            </Text>
+            <View style={styles.modalInfoBox}>
+              <Text style={styles.modalInfoLabel}>Emergency Dispatch Hotline</Text>
+              <Text style={styles.modalInfoValue}>(032) 123-4567</Text>
+              <Text style={[styles.modalInfoLabel, { marginTop: 12 }]}>Email Support</Text>
+              <Text style={styles.modalInfoValue}>support@trashtrack.ph</Text>
+            </View>
+            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setIsHelpModalVisible(false)}>
+              <Text style={styles.modalCloseBtnText}>Got it</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuTitle}>About App</Text>
+        </Pressable>
+      </Modal>
+
+      {/* About Modal */}
+      <Modal
+        visible={isAboutModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsAboutModalVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setIsAboutModalVisible(false)}>
+          <View style={[styles.modalContent, isDarkMode && styles.modalContentDark]}>
+            <Image 
+              source={require('@/assets/images/trashtrack_logo_driver.png')} 
+              style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 16 }}
+            />
+            <Text style={[styles.modalTitle, isDarkMode && styles.textLight]}>TrashTrack</Text>
+            <Text style={[styles.modalTitle, { fontSize: 16, marginTop: -4, color: '#3B5241' }]}>Driver Portal</Text>
+            
+            <Text style={styles.modalBody}>
+              Version 1.0.0{'\n\n'}
+              An intelligent, AI-optimized waste management and tracking system designed exclusively for Cebu City CENRO drivers.
+            </Text>
+            
+            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setIsAboutModalVisible(false)}>
+              <Text style={styles.modalCloseBtnText}>Close</Text>
+            </TouchableOpacity>
           </View>
-          <Feather name="chevron-right" size={20} color="#9CA3AF" />
-        </TouchableOpacity>
-      </View>
-      
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -168,6 +230,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
     paddingHorizontal: 20,
+  },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
+  textLight: {
+    color: '#F9FAFB'
   },
   header: {
     flexDirection: 'row',
@@ -228,6 +296,9 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 24,
   },
+  menuSectionDark: {
+    backgroundColor: '#1F2937',
+  },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -241,6 +312,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+  },
+  menuIconContainerDark: {
+    backgroundColor: '#374151',
   },
   menuTextContainer: {
     flex: 1,
@@ -261,5 +335,84 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     marginBottom: 12,
     marginLeft: 4,
+  },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalContentDark: {
+    backgroundColor: '#1F2937',
+  },
+  modalIconBg: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F0FDF4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalBody: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  modalInfoBox: {
+    width: '100%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  modalInfoLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    marginBottom: 4,
+  },
+  modalInfoValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#3B5241',
+  },
+  modalCloseBtn: {
+    width: '100%',
+    backgroundColor: '#3B5241',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCloseBtnText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

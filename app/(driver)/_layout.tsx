@@ -1,3 +1,4 @@
+import { useTheme } from '@/hooks/useTheme';
 import { Tabs, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -12,6 +13,8 @@ import { locationService } from '@/services/locationService';
 export default function DriverLayout() {
   const { user } = useAuthContext();
   const router = useRouter();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [isLoading, setIsLoading] = useState(true);
 
   // Check if user has driver role
@@ -61,8 +64,8 @@ export default function DriverLayout() {
     return null; // Will redirect if needed
   }
 
-  const activeColor = '#4E6C50'; // Dark green
-  const inactiveColor = '#9CA3AF'; // Gray
+  const activeColor = isDark ? '#86EFAC' : '#4E6C50'; 
+  const inactiveColor = isDark ? '#4B5563' : '#9CA3AF';
 
   return (
     <Tabs
@@ -73,9 +76,9 @@ export default function DriverLayout() {
         tabBarActiveTintColor: activeColor,
         tabBarInactiveTintColor: inactiveColor,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: '#F3F4F6',
+          borderTopColor: isDark ? '#111827' : '#F3F4F6',
           height: Platform.OS === 'ios' ? 85 : 65,
           paddingBottom: Platform.OS === 'ios' ? 25 : 10,
           paddingTop: 10,

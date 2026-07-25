@@ -1,8 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import React from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '@/hooks/useTheme';
 
 export default function DriverInbox() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const notifications = [
     {
       id: 'notif-1',
@@ -32,51 +36,55 @@ export default function DriverInbox() {
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'pickup': return <Feather name="truck" size={20} color="#92400E" />;
-      case 'route': return <Feather name="map" size={20} color="#065F46" />;
-      case 'maintenance': return <Feather name="tool" size={20} color="#065F46" />;
-      default: return <Feather name="bell" size={20} color="#1F2937" />;
+      case 'pickup': return <Feather name="truck" size={20} color={isDark ? "#FCD34D" : "#92400E"} />;
+      case 'route': return <Feather name="map" size={20} color={isDark ? "#34D399" : "#065F46"} />;
+      case 'maintenance': return <Feather name="tool" size={20} color={isDark ? "#34D399" : "#065F46"} />;
+      default: return <Feather name="bell" size={20} color={isDark ? "#F9FAFB" : "#1F2937"} />;
     }
   };
 
   const getIconBgColor = (type: string) => {
     switch (type) {
-      case 'pickup': return '#FEF3C7';
-      case 'route': return '#D1FAE5';
-      case 'maintenance': return '#D1FAE5';
-      default: return '#F3F4F6';
+      case 'pickup': return isDark ? '#78350F' : '#FEF3C7';
+      case 'route': return isDark ? '#064E3B' : '#D1FAE5';
+      case 'maintenance': return isDark ? '#064E3B' : '#D1FAE5';
+      default: return isDark ? '#374151' : '#F3F4F6';
     }
   };
 
   const getCardBgColor = (type: string, isNew: boolean) => {
-    if (isNew && type === 'pickup') return '#FEF3C7';
-    return '#F9FAFB';
+    if (isNew && type === 'pickup') return isDark ? '#451A03' : '#FEF3C7';
+    return isDark ? '#1F2937' : '#F9FAFB';
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
+    <ScrollView style={[styles.container, isDark && styles.containerDark]} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F4FBF1"} />
       
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={[styles.headerTitle, isDark && styles.textLight]}>Notifications</Text>
       </View>
 
-      <Text style={styles.statusFeed}>STATUS FEED</Text>
-      <Text style={styles.stayUpdated}>Stay Updated</Text>
+      <Text style={[styles.statusFeed, isDark && {color: '#86EFAC'}]}>STATUS FEED</Text>
+      <Text style={[styles.stayUpdated, isDark && styles.textLight]}>Stay Updated</Text>
 
       <View style={styles.notificationList}>
         {notifications.length > 0 ? (
           notifications.map(notif => (
             <View 
               key={notif.id} 
-              style={[styles.notificationCard, { backgroundColor: getCardBgColor(notif.type, notif.isNew) }]}
+              style={[
+                styles.notificationCard, 
+                isDark && styles.cardDark,
+                { backgroundColor: getCardBgColor(notif.type, notif.isNew) }
+              ]}
             >
               <View style={styles.cardHeader}>
                 <View style={[styles.iconWrapper, { backgroundColor: getIconBgColor(notif.type) }]}>
                   {getIcon(notif.type)}
                 </View>
                 <View style={styles.titleWrapper}>
-                  <Text style={styles.cardTitle}>{notif.title}</Text>
+                  <Text style={[styles.cardTitle, isDark && styles.textLight]}>{notif.title}</Text>
                   {notif.isNew && (
                     <View style={styles.newBadge}>
                       <Text style={styles.newBadgeText}>NEW</Text>
@@ -84,15 +92,15 @@ export default function DriverInbox() {
                   )}
                 </View>
               </View>
-              <Text style={styles.cardBody}>{notif.body}</Text>
+              <Text style={[styles.cardBody, isDark && styles.textMuted]}>{notif.body}</Text>
               <Text style={styles.cardTime}>{notif.time}</Text>
             </View>
           ))
         ) : (
-          <View style={styles.emptyCard}>
-            <Feather name="bell-off" size={48} color="#9CA3AF" />
-            <Text style={styles.emptyText}>No notifications yet</Text>
-            <Text style={styles.emptySubtext}>You will see new updates and alerts here.</Text>
+          <View style={[styles.emptyCard, isDark && styles.emptyCardDark]}>
+            <Feather name="bell-off" size={48} color={isDark ? "#4B5563" : "#9CA3AF"} />
+            <Text style={[styles.emptyText, isDark && styles.textLight]}>No notifications yet</Text>
+            <Text style={[styles.emptySubtext, isDark && styles.textMuted]}>You will see new updates and alerts here.</Text>
           </View>
         )}
       </View>
@@ -107,6 +115,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
+  },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
+  textLight: {
+    color: '#F9FAFB',
+  },
+  textMuted: {
+    color: '#9CA3AF',
   },
   header: {
     marginTop: 60,
@@ -138,6 +155,9 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  cardDark: {
+    borderColor: '#374151',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -194,6 +214,10 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     borderStyle: 'dashed',
     marginTop: 20,
+  },
+  emptyCardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
   emptyText: {
     fontSize: 16,

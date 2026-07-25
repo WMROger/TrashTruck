@@ -3,6 +3,7 @@ import { Feather } from '@expo/vector-icons';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '@/hooks/useTheme';
 
 interface HistoryItem {
   id: string;
@@ -13,6 +14,9 @@ interface HistoryItem {
 }
 
 export default function DriverHistoryPage() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [loading, setLoading] = useState(true);
   const [historyData, setHistoryData] = useState<Record<string, HistoryItem[]>>({});
 
@@ -70,39 +74,39 @@ export default function DriverHistoryPage() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#4E6C50" />
+      <View style={[styles.container, isDark && styles.containerDark, styles.center]}>
+        <ActivityIndicator size="large" color={isDark ? "#86EFAC" : "#4E6C50"} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
+    <ScrollView style={[styles.container, isDark && styles.containerDark]} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F4FBF1"} />
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>History</Text>
-        <Text style={styles.subtitle}>Track your past garbage collection records.</Text>
+        <Text style={[styles.title, isDark && styles.textLight]}>History</Text>
+        <Text style={[styles.subtitle, isDark && styles.textMuted]}>Track your past garbage collection records.</Text>
       </View>
 
       {/* History List Grouped by Month */}
       {Object.keys(historyData).length > 0 ? (
         Object.entries(historyData).map(([month, items]) => (
           <View key={month} style={styles.monthSection}>
-            <Text style={styles.monthTitle}>{month}</Text>
+            <Text style={[styles.monthTitle, isDark && styles.textLight]}>{month}</Text>
             
             <View style={styles.cardsContainer}>
               {items.map((item) => (
-                <View key={item.id} style={styles.historyCard}>
+                <View key={item.id} style={[styles.historyCard, isDark && styles.cardDark]}>
                   <Image 
                     source={{ uri: item.completionImage }} 
                     style={styles.historyImage}
                   />
                   <View style={styles.historyContent}>
                     <View style={styles.historyTextContainer}>
-                      <Text style={styles.historyStreet}>Street Name: {item.street}</Text>
-                      <Text style={styles.historyType}>Type: {item.wasteCategory}</Text>
+                      <Text style={[styles.historyStreet, isDark && styles.textLight]}>Street Name: {item.street}</Text>
+                      <Text style={[styles.historyType, isDark && styles.textMuted]}>Type: {item.wasteCategory}</Text>
                     </View>
                     <View style={styles.completedBadge}>
                       <Text style={styles.completedBadgeText}>Completed</Text>
@@ -114,10 +118,10 @@ export default function DriverHistoryPage() {
           </View>
         ))
       ) : (
-        <View style={styles.emptyCard}>
-          <Feather name="clock" size={48} color="#9CA3AF" />
-          <Text style={styles.emptyText}>No history found</Text>
-          <Text style={styles.emptySubtext}>Your completed pickups will appear here.</Text>
+        <View style={[styles.emptyCard, isDark && styles.emptyCardDark]}>
+          <Feather name="clock" size={48} color={isDark ? "#4B5563" : "#9CA3AF"} />
+          <Text style={[styles.emptyText, isDark && styles.textLight]}>No history found</Text>
+          <Text style={[styles.emptySubtext, isDark && styles.textMuted]}>Your completed pickups will appear here.</Text>
         </View>
       )}
       
@@ -132,9 +136,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
   },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
   center: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  textLight: {
+    color: '#F9FAFB',
+  },
+  textMuted: {
+    color: '#9CA3AF',
   },
   header: {
     marginTop: 60,
@@ -175,6 +188,10 @@ const styles = StyleSheet.create({
     borderColor: '#F3F4F6',
     flexDirection: 'row',
   },
+  cardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
   historyImage: {
     width: 120,
     height: 120,
@@ -213,6 +230,10 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     borderStyle: 'dashed',
     marginTop: 40,
+  },
+  emptyCardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
   emptyText: {
     fontSize: 16,
