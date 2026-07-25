@@ -10,6 +10,10 @@ interface AdminSidebarProps {
 const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) => {
   const navigationItems = [
     { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
+    { id: 'trash-reports', label: 'TRASH REPORTS', icon: 'assignment', activeIcon: 'assignment' },
+    { id: 'service-feedback', label: 'SERVICE FEEDBACK', icon: 'rate-review', activeIcon: 'rate-review' },
+    { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route', activeIcon: 'route' },
+    { id: 'truck-inventory', label: 'FLEET INVENTORY', icon: 'local-shipping', activeIcon: 'local-shipping' },
     { id: 'driver-onboarding', label: 'DRIVER ACCOUNTS', icon: 'person-search', activeIcon: 'person-search' },
     { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note', activeIcon: 'event-note' },
     { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people', activeIcon: 'people' },

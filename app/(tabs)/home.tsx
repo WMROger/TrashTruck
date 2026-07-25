@@ -200,8 +200,12 @@ export default function HomePage() {
         // Check for new announcements and send notifications
         if (announcementsData.length > 0) {
           const latestAnnouncement = announcementsData[0];
-          if (lastAnnouncementId !== latestAnnouncement.id) {
-            // New announcement detected, send notification
+          
+          if (lastAnnouncementId === null) {
+            // Initial load - don't spam a notification on login, just set the ID
+            setLastAnnouncementId(latestAnnouncement.id);
+          } else if (lastAnnouncementId !== latestAnnouncement.id) {
+            // New announcement detected while app is running, send notification
             try {
               await NotificationService.scheduleAnnouncementNotification(
                 latestAnnouncement
@@ -541,10 +545,19 @@ export default function HomePage() {
           <Text style={styles.quickActionText}>Report a Pile</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitleSmall}>Recent Reports</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitleSmall}>Recent Reports</Text>
+          <TouchableOpacity onPress={() => router.push('/my-reports')}>
+            <Text style={styles.viewAllText}>View All</Text>
+          </TouchableOpacity>
+        </View>
         {userReports.length > 0 ? (
           userReports.slice(0, 3).map((report, index) => (
-            <View key={report.id || index} style={styles.updateCard}>
+            <TouchableOpacity 
+              key={report.id || index} 
+              style={styles.updateCard}
+              onPress={() => router.push('/my-reports')}
+            >
               <View style={styles.updateIconBg}>
                 <IconSymbol name={report.imageURL ? "camera.fill" : "doc.text"} size={20} color="#234033" />
               </View>
@@ -554,7 +567,7 @@ export default function HomePage() {
                   {new Date(report.createdAt).toLocaleDateString()} • {report.barangay}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         ) : (
           <View style={styles.updateCard}>

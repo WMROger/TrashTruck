@@ -179,9 +179,17 @@ export default function ProfilePage() {
           </View>
   
           {/* Recent Activity */}
-          <Text style={[styles.sectionTitle, { marginHorizontal: 24, marginBottom: 12 }]}>Recent Activity</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 24, marginBottom: 12 }}>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <TouchableOpacity onPress={() => router.push('/my-reports')}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#2E7D32' }}>View All →</Text>
+            </TouchableOpacity>
+          </View>
           {recentActivity ? (
-            <View style={styles.activityCard}>
+            <TouchableOpacity 
+              style={styles.activityCard}
+              onPress={() => router.push('/my-reports')}
+            >
               <View style={styles.activityIconBg}>
                 <IconSymbol name={recentActivity.imageURL ? "camera.fill" : "doc.text"} size={20} color="#2E7D32" />
               </View>
@@ -193,7 +201,7 @@ export default function ProfilePage() {
                 <Text style={styles.activityPoints}>+50 XP</Text>
                 <Text style={styles.activityStatus}>{recentActivity.status || "Pending"}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ) : (
             <View style={styles.activityCard}>
               <View style={styles.activityDetails}>

@@ -488,8 +488,12 @@ export default function SettingsPage() {
     try {
       await addDoc(collection(db, 'feedback'), {
         rating,
+        title: `${rating} feedback`,
         description: feedbackText,
+        message: feedbackText,
         userId: auth.currentUser?.uid,
+        userEmail: auth.currentUser?.email || '',
+        street: userProfile?.barangay || '',
         createdAt: new Date().toISOString(),
       });
       Alert.alert('Thank you!', 'Your feedback has been submitted successfully.');

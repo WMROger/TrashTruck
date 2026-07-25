@@ -4,7 +4,7 @@ import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Switch, Linking } from 'react-native';
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
@@ -16,6 +16,8 @@ interface NextPickup {
   timeText: string;
   dateText: string;
   status: string;
+  isLiveDispatch?: boolean;
+  routeOrder?: number;
 }
 
 interface HistoryItem {
@@ -31,13 +33,14 @@ export default function DriverIndex() {
   const router = useRouter();
   const { user } = useAuthContext();
   const [nextPickup, setNextPickup] = useState<NextPickup | null>(null);
+  const [liveDispatches, setLiveDispatches] = useState<NextPickup[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isShiftActive, setIsShiftActive] = useState(false);
   
   // Modal states
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
   const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,10 +52,11 @@ export default function DriverIndex() {
     const currentUser = auth.currentUser;
     const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
     
-    // Fetch Next Pickup
+    // Fetch Next Pickup & Live Dispatches
     const nextPickupQuery = query(collection(db, 'schedules'));
     const unsubscribeNextPickup = onSnapshot(nextPickupQuery, (snapshot) => {
       let todayPickups: NextPickup[] = [];
+      let liveDispatchesData: NextPickup[] = [];
       const todayString = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
       
       snapshot.forEach((doc) => {
@@ -65,14 +69,26 @@ export default function DriverIndex() {
           data.assignedDriverId === currentUser.uid;
           
         if (isDriverMatch && (data.status === 'pending' || !data.status)) {
-          if (data.dateText === todayString || data.dateText === 'Today') {
+          if (data.isLiveDispatch) {
+            liveDispatchesData.push({
+              id: doc.id,
+              street: data.street || 'Unknown Street',
+              wasteCategory: data.wasteCategory || 'General',
+              timeText: data.timeText || 'ASAP',
+              dateText: data.dateText || 'Unknown Date',
+              status: data.status || 'pending',
+              isLiveDispatch: true,
+              routeOrder: data.routeOrder || 0
+            });
+          } else if (data.dateText === todayString || data.dateText === 'Today') {
             todayPickups.push({
               id: doc.id,
               street: data.street || 'Unknown Street',
               wasteCategory: data.wasteCategory || 'General',
               timeText: data.timeText || 'Unknown Time',
               dateText: data.dateText || 'Unknown Date',
-              status: data.status || 'pending'
+              status: data.status || 'pending',
+              isLiveDispatch: false,
             });
           }
         }
@@ -80,6 +96,9 @@ export default function DriverIndex() {
       
       todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
       setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
+
+      liveDispatchesData.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
+      setLiveDispatches(liveDispatchesData);
     });
 
     // Fetch History
@@ -117,7 +136,7 @@ export default function DriverIndex() {
       const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
       historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
       
-      setHistoryItems(historyList.slice(0, 5)); // Keep latest 5 for the horizontal scroll
+      setHistoryItems(historyList.slice(0, 5));
       setLoading(false);
     });
 
@@ -127,12 +146,20 @@ export default function DriverIndex() {
     };
   }, [user]);
 
-  const handleCompletePickup = () => {
+  const handleCompletePickup = (id: string) => {
+    setSelectedPickupId(id);
     setShowCompleteModal(true);
   };
 
-  const handleIssuePickup = () => {
+  const handleIssuePickup = (id: string) => {
+    setSelectedPickupId(id);
     setShowIssueModal(true);
+  };
+
+  const handleNavigate = (street: string) => {
+    const queryStr = encodeURIComponent(`${street}, Philippines`);
+    const url = `https://www.google.com/maps/search/?api=1&query=${queryStr}`;
+    Linking.openURL(url).catch(err => console.error("An error occurred", err));
   };
 
   const handleSeeAllSchedule = () => {
@@ -163,7 +190,7 @@ export default function DriverIndex() {
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <Image 
-            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/802/802251.png' }} // Placeholder logo
+            source={require('@/assets/images/trashtrack_logo_driver.png')}
             style={styles.logoIcon}
             resizeMode="contain"
           />
@@ -171,25 +198,90 @@ export default function DriverIndex() {
         </View>
         
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleProfileSettings} style={styles.iconButton}>
-            <Feather name="hexagon" size={20} color="#4E6C50" />
-            <View style={styles.innerDot} />
-          </TouchableOpacity>
           <TouchableOpacity onPress={handleProfileSettings}>
-            <Image source={{ uri: 'https://i.pravatar.cc/100?img=33' }} style={styles.avatar} />
+            <Image source={{ uri: user?.photoURL || 'https://i.pravatar.cc/100?img=33' }} style={styles.avatar} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Welcome Message */}
+      {/* Welcome & Shift Section */}
       <View style={styles.welcomeSection}>
-        <Text style={styles.welcomeText}>Good day and welcome back, {user?.displayName || 'Kalix'}</Text>
-        <Text style={styles.statusText}>Ready to Work!</Text>
+        <View style={styles.welcomeLeft}>
+          <Text style={styles.welcomeText}>Welcome back, {user?.displayName || 'Louisse Natasha'}</Text>
+          <Text style={[styles.statusText, { color: isShiftActive ? '#2E8B57' : '#9CA3AF' }]}>
+            {isShiftActive ? 'Active Shift' : 'Off Duty'}
+          </Text>
+        </View>
+        <View style={styles.shiftToggle}>
+          <Text style={styles.shiftToggleText}>{isShiftActive ? 'ON' : 'OFF'}</Text>
+          <Switch 
+            value={isShiftActive} 
+            onValueChange={setIsShiftActive}
+            trackColor={{ false: '#D1D5DB', true: '#95C596' }}
+            thumbColor={isShiftActive ? '#2E8B57' : '#F3F4F6'}
+          />
+        </View>
       </View>
 
-      {/* Next Pickup */}
+      {/* Live Dispatches (AI Optimized Routes) */}
+      {isShiftActive && liveDispatches.length > 0 && (
+        <View style={styles.alertsContainer}>
+          <View style={styles.alertHeader}>
+            <View style={styles.liveIndicator}>
+              <View style={styles.pulsingDot} />
+              <Text style={styles.alertTitle}>LIVE ROUTE DISPATCH ({liveDispatches.length})</Text>
+            </View>
+            <Text style={styles.alertSubtitle}>AI Optimized Collection Path</Text>
+          </View>
+          
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            style={styles.alertsScroll}
+            contentContainerStyle={{ paddingRight: 32 }}
+          >
+            {liveDispatches.map((dispatch, index) => (
+              <View key={dispatch.id} style={styles.alertCard}>
+                <View style={styles.alertRouteBadge}>
+                  <Text style={styles.alertRouteNumber}>{index + 1}</Text>
+                </View>
+                <View style={styles.alertCardContent}>
+                  <Text style={styles.alertStreet} numberOfLines={1}>{dispatch.street}</Text>
+                  <Text style={styles.alertType}>{dispatch.wasteCategory}</Text>
+                  
+                  <View style={styles.alertActions}>
+                    <TouchableOpacity style={styles.navigateBtn} onPress={() => handleNavigate(dispatch.street)}>
+                      <MaterialIcons name="navigation" size={14} color="#FFF" />
+                      <Text style={styles.navigateBtnText}>Navigate</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.completeIconBtn} onPress={() => handleCompletePickup(dispatch.id)}>
+                      <MaterialIcons name="check" size={16} color="#FFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {isShiftActive && liveDispatches.length === 0 && (
+        <View style={styles.emptyAlertsCard}>
+          <MaterialIcons name="radar" size={24} color="#9CA3AF" />
+          <Text style={styles.emptyAlertsText}>Waiting for CENRO dispatch...</Text>
+        </View>
+      )}
+
+      {!isShiftActive && (
+        <View style={styles.offlineCard}>
+          <Feather name="moon" size={24} color="#6B7280" />
+          <Text style={styles.offlineText}>Start your shift to receive live routes.</Text>
+        </View>
+      )}
+
+      {/* Next Scheduled Pickup */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Next Pickup</Text>
+        <Text style={styles.sectionTitle}>Next Scheduled Pickup</Text>
         <TouchableOpacity onPress={handleSeeAllSchedule}>
           <Text style={styles.seeAllText}>See all</Text>
         </TouchableOpacity>
@@ -197,11 +289,17 @@ export default function DriverIndex() {
 
       {nextPickup ? (
         <View style={styles.pickupCard}>
-          <Text style={styles.pickupBarangay}>Barangay Poblacion</Text>
+          <View style={styles.pickupCardHeader}>
+            <Text style={styles.pickupBarangay}>Scheduled Collection</Text>
+            <TouchableOpacity style={styles.navOutlineBtn} onPress={() => handleNavigate(nextPickup.street)}>
+              <MaterialIcons name="directions" size={16} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.pickupDetails}>
             <View style={styles.detailRow}>
               <View style={styles.dotRed} />
-              <Text style={styles.detailText}>Street Name: {nextPickup.street}</Text>
+              <Text style={styles.detailText}>Location: {nextPickup.street}</Text>
             </View>
             <View style={styles.detailRow}>
               <Feather name="clock" size={12} color="#E5E7EB" style={styles.detailIcon} />
@@ -213,10 +311,10 @@ export default function DriverIndex() {
           </View>
           
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.completeBtn} onPress={handleCompletePickup}>
+            <TouchableOpacity style={styles.completeBtn} onPress={() => handleCompletePickup(nextPickup.id)}>
               <Text style={styles.completeBtnText}>Complete</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.issueBtn} onPress={handleIssuePickup}>
+            <TouchableOpacity style={styles.issueBtn} onPress={() => handleIssuePickup(nextPickup.id)}>
               <Text style={styles.issueBtnText}>Issue</Text>
             </TouchableOpacity>
           </View>
@@ -224,7 +322,7 @@ export default function DriverIndex() {
       ) : (
         <View style={styles.emptyCard}>
           <Feather name="check-circle" size={48} color="#9CA3AF" />
-          <Text style={styles.emptyText}>No pending pickups</Text>
+          <Text style={styles.emptyText}>No pending schedules</Text>
           <Text style={styles.emptySubtext}>You're all caught up for today!</Text>
         </View>
       )}
@@ -247,8 +345,8 @@ export default function DriverIndex() {
                   style={styles.historyImage}
                 />
                 <View style={styles.historyContent}>
-                  <Text style={styles.historyStreet} numberOfLines={1}>Street Name: {item.street}</Text>
-                  <Text style={styles.historyType}>Type: {item.wasteCategory}</Text>
+                  <Text style={styles.historyStreet} numberOfLines={1}>{item.street}</Text>
+                  <Text style={styles.historyType}>{item.wasteCategory}</Text>
                   <View style={styles.completedBadge}>
                     <Text style={styles.completedBadgeText}>
                       {item.status === 'issue' ? 'Issue' : 'Completed'}
@@ -273,7 +371,7 @@ export default function DriverIndex() {
         onClose={() => setShowCompleteModal(false)}
         onComplete={() => {
           setShowCompleteModal(false);
-          console.log('Complete action');
+          console.log('Complete action for', selectedPickupId);
         }}
       />
       
@@ -282,7 +380,7 @@ export default function DriverIndex() {
         onClose={() => setShowIssueModal(false)}
         onSubmit={() => {
           setShowIssueModal(false);
-          console.log('Submit issue action');
+          console.log('Submit issue action for', selectedPickupId);
         }}
       />
     </ScrollView>
@@ -304,40 +402,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 60,
-    marginBottom: 30,
+    marginBottom: 20,
   },
   logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   logoIcon: {
-    width: 24,
-    height: 24,
-    marginRight: 6,
+    width: 32,
+    height: 32,
+    marginRight: 8,
   },
   logoText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#4E6C50',
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1A3B2B',
+    letterSpacing: -0.5,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  innerDot: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-    backgroundColor: '#4E6C50',
-    borderRadius: 3,
   },
   avatar: {
     width: 36,
@@ -347,18 +432,180 @@ const styles = StyleSheet.create({
     borderColor: '#4E6C50',
   },
   welcomeSection: {
-    marginBottom: 30,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  welcomeLeft: {
+    flex: 1,
   },
   welcomeText: {
-    fontSize: 14,
-    color: '#4B5563',
-    marginBottom: 4,
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 2,
   },
   statusText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#3B5241',
+    fontSize: 22,
+    fontWeight: '800',
   },
+  shiftToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shiftToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  
+  // Alerts
+  alertsContainer: {
+    marginBottom: 24,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  alertHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pulsingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8B5CF6',
+  },
+  alertTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.5,
+  },
+  alertSubtitle: {
+    fontSize: 11,
+    color: '#7C3AED',
+    marginTop: 2,
+    marginLeft: 16,
+  },
+  alertsScroll: {
+    paddingLeft: 16,
+  },
+  alertCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    width: 240,
+    marginRight: 12,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  alertRouteBadge: {
+    backgroundColor: '#8B5CF6',
+    width: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  alertRouteNumber: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  alertCardContent: {
+    flex: 1,
+    padding: 12,
+  },
+  alertStreet: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  alertType: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  alertActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  navigateBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  navigateBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  completeIconBtn: {
+    width: 32,
+    backgroundColor: '#059669',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  emptyAlertsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  emptyAlertsText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  offlineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  offlineText: {
+    fontSize: 13,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -386,11 +633,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  pickupCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   pickupBarangay: {
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 16,
+  },
+  navOutlineBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pickupDetails: {
     marginBottom: 20,
@@ -474,23 +734,27 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   historyStreet: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 4,
   },
   historyType: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#6B7280',
     marginBottom: 12,
   },
   completedBadge: {
-    alignSelf: 'flex-end',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   completedBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: '#6B7280',
   },
   emptyCard: {
     backgroundColor: '#F9FAFB',

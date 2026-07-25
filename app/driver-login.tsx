@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, Stack } from 'expo-router';
 import React, { useState } from 'react';
-import { Dimensions, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -17,216 +17,298 @@ export default function DriverLoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4FBF1" />
-      
-      {/* Back Button */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <KeyboardAvoidingView 
+        style={{ flex: 1, backgroundColor: '#F3F4F6' }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 50}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.container} 
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <MaterialIcons name="arrow-back" size={24} color="#4E6C50" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Truck Image & Badge */}
-      <View style={styles.heroSection}>
-        {/* We use a placeholder truck for now, you can replace with your actual asset */}
-        <Image 
-          source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png' }} 
-          style={styles.truckImage} 
-          resizeMode="contain" 
-        />
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>ACTIVE SHIFT DEPLOYMENT</Text>
-        </View>
-      </View>
-
-      {/* Login Card */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text style={styles.cardTitle}>Login Account</Text>
-            <Text style={styles.cardSubtitle}>Enter credentials to begin vehicle{"\n"}assignment.</Text>
+        <StatusBar barStyle="light-content" backgroundColor="#1A3B2B" />
+        
+        {/* Top Header Background */}
+        <View style={styles.topBackground}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Driver Portal</Text>
+            <View style={{width: 40}} />
           </View>
-          <MaterialIcons name="eco" size={40} color="#E8F5E9" style={styles.leafIcon} />
-        </View>
-
-        {/* Inputs */}
-        <View style={styles.inputSection}>
-          <Text style={styles.inputLabel}>FULL NAME</Text>
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="person-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="John Doe"
-              placeholderTextColor="#9CA3AF"
-              value={fullName}
-              onChangeText={setFullName}
-            />
-          </View>
-
-          <Text style={styles.inputLabel}>EMPLOYEE ID</Text>
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="badge" size={20} color="#9CA3AF" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="CENRO-2024-XXXX"
-              placeholderTextColor="#9CA3AF"
-              value={employeeId}
-              onChangeText={setEmployeeId}
-              autoCapitalize="characters"
-            />
+          
+          {/* Hero Illustration */}
+          <View style={styles.heroSection}>
+            <View style={styles.imageContainer}>
+              <Image 
+                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/3063/3063822.png' }} 
+                style={styles.truckImage} 
+                resizeMode="contain" 
+              />
+            </View>
           </View>
         </View>
 
-        {/* Login Button */}
-        <TouchableOpacity 
-          style={styles.loginButton} 
-          onPress={handleLogin}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.loginButtonText}>Login</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Main Login Card */}
+        <View style={styles.cardContainer}>
+          <View style={styles.badge}>
+            <MaterialIcons name="verified-user" size={16} color="#10B981" />
+            <Text style={styles.badgeText}>SECURE ACCESS</Text>
+          </View>
 
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>OFFICIAL CITY GOVERNMENT PORTAL © 2024</Text>
-      </View>
-    </View>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Welcome Back</Text>
+              <Text style={styles.cardSubtitle}>Enter your official credentials to access your daily routes and deployments.</Text>
+            </View>
+
+            {/* Inputs */}
+            <View style={styles.inputSection}>
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>FULL NAME</Text>
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="person-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. John Doe"
+                    placeholderTextColor="#9CA3AF"
+                    value={fullName}
+                    onChangeText={setFullName}
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>EMPLOYEE ID</Text>
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="badge" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="CENRO-2024-XXXX"
+                    placeholderTextColor="#9CA3AF"
+                    value={employeeId}
+                    onChangeText={setEmployeeId}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Login Button */}
+            <TouchableOpacity 
+              style={styles.loginButton} 
+              onPress={handleLogin}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.loginButtonText}>Sign In to Fleet</Text>
+              <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon}/>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Cebu City Environmental & Natural Resources Office</Text>
+          <Text style={styles.footerSubText}>© 2024 Waste Management System</Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#F4FBF1', // Very light green background
+    flexGrow: 1,
+    backgroundColor: '#F3F4F6', // modern light gray
+    paddingBottom: 200, // ensures the scrollview has enough room to scroll up when keyboard opens
   },
-  header: {
+  topBackground: {
+    backgroundColor: '#1A3B2B', // Deep elegant green
+    paddingTop: 50,
+    paddingBottom: 60,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    alignItems: 'center',
+    position: 'relative',
+    zIndex: 1,
+  },
+  headerTop: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 50, // For status bar
-    paddingBottom: 10,
+    marginBottom: 20,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#4E6C50',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
   heroSection: {
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 30,
-    position: 'relative',
-    height: 200,
+    justifyContent: 'center',
+  },
+  imageContainer: {
+    width: 140,
+    height: 140,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   truckImage: {
-    width: width * 0.8,
-    height: 180,
+    width: 90,
+    height: 90,
+    tintColor: '#E8F5E9', // Optional: tint the placeholder image lightly to match theme
+  },
+  cardContainer: {
+    paddingHorizontal: 20,
+    marginTop: -40,
+    zIndex: 2,
   },
   badge: {
-    position: 'absolute',
-    bottom: -10,
-    left: 40,
-    backgroundColor: '#86B588',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginBottom: -16, // overlaps card
+    zIndex: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 4,
   },
   badgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    color: '#1F2937',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginLeft: 6,
   },
   card: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: 28,
+    padding: 28,
+    paddingTop: 40,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 5,
   },
   cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: 32,
   },
   cardTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 4,
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   cardSubtitle: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#6B7280',
-    lineHeight: 18,
-  },
-  leafIcon: {
-    opacity: 0.8,
+    lineHeight: 22,
+    textAlign: 'center',
+    paddingHorizontal: 10,
   },
   inputSection: {
-    gap: 16,
-    marginBottom: 24,
+    gap: 20,
+    marginBottom: 32,
+  },
+  inputWrapper: {
+    gap: 8,
   },
   inputLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: -8, // Tweak spacing
+    color: '#374151',
+    letterSpacing: 0.5,
     marginLeft: 4,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 50,
-    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#F3F4F6',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 56,
+    backgroundColor: '#F9FAFB',
   },
   inputIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: '#1F2937',
+    fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: '#4E6C50',
-    borderRadius: 12,
-    height: 50,
+    backgroundColor: '#10B981', // vibrant green
+    borderRadius: 16,
+    height: 56,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   loginButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
   },
   footer: {
-    position: 'absolute',
-    bottom: 30,
-    left: 0,
-    right: 0,
+    marginTop: 'auto',
+    paddingVertical: 32,
     alignItems: 'center',
   },
   footerText: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#9CA3AF',
-    letterSpacing: 0.5,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  footerSubText: {
+    fontSize: 11,
+    color: '#D1D5DB',
+    fontWeight: '500',
   },
 });

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Dimensions, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Image, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -68,6 +68,16 @@ export default function AuthScreen() {
         >
           <Text style={styles.devBackText}>Driver Portal Access</Text>
         </TouchableOpacity>
+
+        {Platform.OS === 'web' && (
+          <TouchableOpacity
+            style={styles.devBack}
+            onPress={() => router.push('/admin/login')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.devBackText}>Admin Portal Access</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

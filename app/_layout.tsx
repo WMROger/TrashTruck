@@ -185,6 +185,13 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
+        name="my-reports" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }} 
+      />
+      <Stack.Screen 
         name="settings" 
         options={{ 
           headerShown: false, 

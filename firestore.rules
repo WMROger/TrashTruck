@@ -65,7 +65,8 @@ service cloud.firestore {
 
     // Barangay Schedules (Admin created)
     match /barangay_schedules/{scheduleId} {
-      allow read: if isAuthenticated();
+      // Allow public read so the signup screen can list available barangays
+      allow read: if true;
       // Temporarily allow any authenticated user to create/update schedules for development
       allow write: if isAuthenticated();
     }
@@ -212,6 +213,12 @@ service cloud.firestore {
     match /waste_tracking/{userId}/entries/{entryId} {
       allow read, write: if isAuthenticated() && isOwner(userId);
       allow read: if isAdmin();
+    }
+
+    // Barangays (public read for signup)
+    match /barangays/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Default deny

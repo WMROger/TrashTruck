@@ -1,15 +1,75 @@
+import { useAuthContext } from '@/components/AuthContext';
+import { auth, db } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
+import React, { useEffect, useState } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 
 export default function DriverEditProfile() {
   const router = useRouter();
+  const { user } = useAuthContext();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState('');
   const [dob, setDob] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!auth.currentUser || !db) return;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          if (data.firstName) setFirstName(data.firstName);
+          else if (data.name) {
+            const parts = data.name.split(' ');
+            setFirstName(parts[0]);
+            setLastName(parts.slice(1).join(' '));
+          }
+          if (data.lastName) setLastName(data.lastName);
+          if (data.phone) setPhone(data.phone);
+          if (data.gender) setGender(data.gender);
+          if (data.dob) setDob(data.dob);
+        }
+      } catch (err) {
+        console.error("Error fetching user data", err);
+      }
+    };
+    fetchUserData();
+  }, []);
+
+  const handleUpdate = async () => {
+    if (!auth.currentUser || !db) {
+      Alert.alert('Notice', 'Profile updating is disabled in mockup mode. Please log in with a real driver account.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const fullName = `${firstName} ${lastName}`.trim();
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        firstName,
+        lastName,
+        name: fullName,
+        phone,
+        gender,
+        dob
+      });
+      await updateProfile(auth.currentUser, {
+        displayName: fullName
+      });
+      Alert.alert('Success', 'Profile updated successfully!');
+      router.back();
+    } catch (err) {
+      console.error("Error updating profile", err);
+      Alert.alert('Error', 'Failed to update profile. Check your connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView 
@@ -32,12 +92,12 @@ export default function DriverEditProfile() {
         <View style={styles.avatarContainer}>
           <View style={styles.avatarWrapper}>
             <Image 
-              source={{ uri: 'https://i.pravatar.cc/150?img=33' }} 
+              source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
               style={styles.avatar} 
             />
           </View>
-          <Text style={styles.name}>Louisse Natasha Valeria</Text>
-          <Text style={styles.email}>louissea@gmail.com</Text>
+          <Text style={styles.name}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
+          <Text style={styles.email}>{user?.email ? user.email : 'louissea@gmail.com'}</Text>
         </View>
 
         {/* Form Fields */}
@@ -58,7 +118,7 @@ export default function DriverEditProfile() {
 
           <View style={styles.phoneInputContainer}>
             <View style={styles.countryCode}>
-              <Text style={styles.flag}>🇳🇬</Text>
+              <Text style={styles.flag}>🇵🇭</Text>
               <View style={styles.separator} />
             </View>
             <TextInput
@@ -92,10 +152,15 @@ export default function DriverEditProfile() {
         </View>
 
         <TouchableOpacity 
-          style={styles.updateButton} 
-          onPress={() => router.back()}
+          style={[styles.updateButton, loading && { opacity: 0.7 }]} 
+          onPress={handleUpdate}
+          disabled={loading}
         >
-          <Text style={styles.updateButtonText}>Update Profile</Text>
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.updateButtonText}>Update Profile</Text>
+          )}
         </TouchableOpacity>
         
         <View style={{ height: 40 }} />

@@ -42,11 +42,13 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 25,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
     paddingHorizontal: 20,
     marginBottom: 20,
-    height: 50,
+    height: 56,
   },
   inputIcon: {
     marginRight: 10,

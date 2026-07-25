@@ -191,6 +191,20 @@ export default function ReportScreen() {
       return;
     }
 
+    // Block submission if AI hasn't analyzed the image or detected non-waste
+    if (!aiResult) {
+      Alert.alert("Photo Required", "Please take a photo of the waste so the AI can analyze it before submitting.");
+      return;
+    }
+    if (aiResult.wasteType === 'Not waste') {
+      Alert.alert("Not Waste", "The AI detected that your photo does not contain waste. Please take a photo of actual trash to submit a report.");
+      return;
+    }
+    if (aiResult.wasteType === 'Unable to determine' || aiResult.wasteType === 'Temporarily unavailable') {
+      Alert.alert("Cannot Submit", "The AI could not determine the waste type. Please retake the photo or try again later.");
+      return;
+    }
+
     setIsUploading(true);
     setUploadProgress(0);
 
@@ -459,28 +473,41 @@ export default function ReportScreen() {
 
   // Helper functions for AI waste type display
   const getWasteTypeIcon = (wasteType: string): string => {
-    if (wasteType.includes('Biodegradable')) return 'leaf.fill';
-    if (wasteType.includes('Non-Biodegradable')) return 'trash.fill';
+    if (wasteType.includes('Solid')) return 'cube.fill';
+    if (wasteType.includes('Liquid')) return 'drop.fill';
+    if (wasteType.includes('Organic')) return 'leaf.fill';
     if (wasteType.includes('Recyclable')) return 'arrow.triangle.2.circlepath';
-    if (wasteType.includes('Residual')) return 'trash.fill';
     if (wasteType.includes('Hazardous')) return 'exclamationmark.triangle.fill';
-    if (wasteType.includes('Special') || wasteType.includes('Bulk')) return 'shippingbox.fill';
     if (wasteType.includes('Cannot determine')) return 'questionmark.circle.fill';
     if (wasteType.includes('Not waste')) return 'xmark.circle.fill';
+    if (wasteType.includes('Temporarily')) return 'clock.fill';
     return 'sparkles';
   };
 
   const getWasteTypeColor = (wasteType: string): string => {
-    if (wasteType.includes('Biodegradable') && !wasteType.includes('Non')) return '#059669';
-    if (wasteType.includes('Non-Biodegradable')) return '#2563EB';
+    if (wasteType.includes('Solid')) return '#2563EB';
+    if (wasteType.includes('Liquid')) return '#0891B2';
+    if (wasteType.includes('Organic')) return '#059669';
     if (wasteType.includes('Recyclable')) return '#D97706';
-    if (wasteType.includes('Residual')) return '#6B7280';
     if (wasteType.includes('Hazardous')) return '#DC2626';
-    if (wasteType.includes('Special') || wasteType.includes('Bulk')) return '#7C3AED';
     if (wasteType.includes('Cannot determine')) return '#9CA3AF';
     if (wasteType.includes('Not waste')) return '#EF4444';
+    if (wasteType.includes('Temporarily')) return '#6B7280';
     return '#4A6741';
   };
+
+  // Check if the current AI result allows submission
+  const canSubmitReport = useMemo(() => {
+    // No AI result yet — block submission
+    if (!aiResult) return false;
+    // Not waste — block submission
+    if (aiResult.wasteType === 'Not waste') return false;
+    // Temporarily unavailable — block submission
+    if (aiResult.wasteType === 'Temporarily unavailable') return false;
+    // Unable to determine (fallback) — block submission
+    if (aiResult.wasteType === 'Unable to determine') return false;
+    return true;
+  }, [aiResult]);
 
   return (
     <View style={styles.root}>
@@ -686,16 +713,25 @@ export default function ReportScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.submitBtn, isUploading && styles.submitBtnDisabled]}
+            style={[styles.submitBtn, (isUploading || !canSubmitReport) && styles.submitBtnDisabled]}
             activeOpacity={0.8}
             onPress={handleSendReport}
-            disabled={isUploading}
+            disabled={isUploading || !canSubmitReport}
           >
             <Text style={styles.submitText}>
               {isUploading ? "Submitting..." : "Submit Report"}
             </Text>
             <IconSymbol name="paperplane.fill" size={16} color="white" />
           </TouchableOpacity>
+          {!canSubmitReport && !isUploading && (
+            <Text style={{ color: '#DC2626', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
+              {!aiResult
+                ? '📸 Take a photo first so the AI can classify the waste'
+                : aiResult.wasteType === 'Not waste'
+                ? '🚫 This photo does not contain waste — please retake'
+                : '⚠️ AI could not determine waste type — please retake the photo'}
+            </Text>
+          )}
           <Text style={styles.submitFooterText}>
             By submitting, you&apos;ll earn 50 Community Points and help reach the &quot;Cleanest Quarter&quot; goal!
           </Text>

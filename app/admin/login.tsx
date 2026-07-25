@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { Image, Text, TouchableOpacity, View } from 'react-native';
+import { ImageBackground, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
@@ -14,6 +14,7 @@ import { adminStyles } from '../../styles/admin';
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorModal, setErrorModal] = useState({
@@ -40,6 +41,11 @@ export default function AdminLogin() {
   };
 
   const handleLogin = async () => {
+    if (Platform.OS !== 'web') {
+      showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
+      return;
+    }
+
     if (!username.trim() || !password.trim()) {
       showError('Please enter both username and password', 'Validation Error', 'warning');
       return;
@@ -71,6 +77,10 @@ export default function AdminLogin() {
           if (userRole === 'admin') {
             console.log('Admin role confirmed, redirecting to dashboard');
             router.replace('/admin/dashboard');
+            return;
+          } else if (userRole === 'dict') {
+            console.log('DICT role confirmed, redirecting to dict dashboard');
+            router.replace('/dict/dashboard');
             return;
           } else if (userRole === 'driver') {
             console.log('Driver trying to login on admin portal');
@@ -119,22 +129,19 @@ export default function AdminLogin() {
   };
 
   return (
-    <SafeAreaView style={adminStyles.container}>
-      <View style={adminStyles.mainCard}>
-        {/* Left Panel - Illustration */}
-        <View style={adminStyles.leftPanel}>
-          <Image
-            source={require('@/assets/images/admin_login_bg.png')}
-            style={adminStyles.backgroundImage}
-            resizeMode="cover"
-          />
-        </View>
-
-        {/* Right Panel - Login Form */}
-        <View style={adminStyles.rightPanel}>
-          {/* Back Button */}
-          <TouchableOpacity 
-            style={adminStyles.backButton} 
+    <SafeAreaView style={{ flex: 1 }}>
+      <ImageBackground
+        source={require('@/assets/images/admin_login_bg.png')}
+        style={adminStyles.fullScreenBackground}
+        resizeMode="cover"
+      >
+        <View style={adminStyles.overlay}>
+          {/* Right-aligned Floating Card */}
+          <View style={adminStyles.floatingCardContainer}>
+          <View style={adminStyles.loginFloatingCard as any}>
+            {/* Back Button */}
+            <TouchableOpacity 
+              style={adminStyles.backButton} 
             onPress={() => router.replace('/admin/splash')}
             disabled={isLoading}
           >
@@ -160,25 +167,30 @@ export default function AdminLogin() {
               value={password}
               onChangeText={setPassword}
               icon="lock"
-              secureTextEntry
+              secureTextEntry={!showPassword}
               editable={!isLoading}
               rightComponent={
-                <TouchableOpacity style={adminStyles.forgotPassword}>
-                  <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 5 }}>
+                  <MaterialIcons name={showPassword ? "visibility-off" : "visibility"} size={20} color="#999" />
                 </TouchableOpacity>
               }
             />
             
-            {/* Keep me logged in checkbox */}
-            <View style={adminStyles.checkboxContainer}>
-              <TouchableOpacity
-                style={[adminStyles.checkbox, keepLoggedIn && adminStyles.checkboxChecked]}
-                onPress={() => setKeepLoggedIn(!keepLoggedIn)}
-                disabled={isLoading}
-              >
-                {keepLoggedIn && <MaterialIcons name="check" size={16} color="white" />}
+            {/* Form Options */}
+            <View style={[adminStyles.checkboxContainer, { justifyContent: 'space-between', alignItems: 'center' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity
+                  style={[adminStyles.checkbox, keepLoggedIn && adminStyles.checkboxChecked]}
+                  onPress={() => setKeepLoggedIn(!keepLoggedIn)}
+                  disabled={isLoading}
+                >
+                  {keepLoggedIn && <MaterialIcons name="check" size={16} color="white" />}
+                </TouchableOpacity>
+                <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
+              </View>
+              <TouchableOpacity>
+                <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
               </TouchableOpacity>
-              <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
             </View>
             
             {/* Login Button */}
@@ -189,7 +201,9 @@ export default function AdminLogin() {
             />
           </View>
         </View>
-      </View>
+        </View>
+        </View>
+      </ImageBackground>
 
       {/* Error Modal */}
       <ErrorModal

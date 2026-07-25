@@ -265,7 +265,7 @@ export default function SignupScreen() {
         router.replace('/(auth)/login' as any);
       }
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.log('Signup failed:', error.code);
       let errorMessage = 'Sign up failed. Please try again.';
       
       if (error.code === 'auth/email-already-in-use') {
@@ -299,7 +299,7 @@ export default function SignupScreen() {
         Alert.alert('Google Sign Up Error', result.error || 'Failed to sign up with Google. Please try again.');
       }
     } catch (error: any) {
-      console.error('Google signup error:', error);
+      console.log('Google signup failed:', error.code);
       Alert.alert('Google Sign Up Error', 'Failed to sign up with Google. Please try again.');
     } finally {
       setIsLoading(false);
@@ -319,7 +319,7 @@ export default function SignupScreen() {
         Alert.alert('Facebook Sign Up Error', result.error || 'Failed to sign up with Facebook. Please try again.');
       }
     } catch (error: any) {
-      console.error('Facebook signup error:', error);
+      console.log('Facebook signup failed:', error.code);
       Alert.alert('Facebook Sign Up Error', 'Failed to sign up with Facebook. Please try again.');
     } finally {
       setIsLoading(false);

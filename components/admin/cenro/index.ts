@@ -5,3 +5,7 @@ export { default as OperationalOverridesTab } from './OperationalOverridesTab';
 export { default as AddNewBarangayTab } from './AddNewBarangayTab';
 export { default as EnvironmentalCoordinatorsTab } from './EnvironmentalCoordinatorsTab';
 export { default as WasteAnalyticsTab } from './WasteAnalyticsTab';
+export { default as TrashReportsTab } from './TrashReportsTab';
+export { default as ServiceFeedbackTab } from './ServiceFeedbackTab';
+export { default as RouteOptimizationTab } from './RouteOptimizationTab';
+export { default as TruckInventoryTab } from './TruckInventoryTab';

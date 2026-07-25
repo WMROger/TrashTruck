@@ -14,7 +14,11 @@ import {
   DriverOnboardingTab,
   EnvironmentalCoordinatorsTab,
   OperationalOverridesTab,
+  TrashReportsTab,
   WasteAnalyticsTab,
+  ServiceFeedbackTab,
+  RouteOptimizationTab,
+  TruckInventoryTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
@@ -474,6 +478,14 @@ export default function AdminDashboard() {
     switch (activeTab) {
       case 'dashboard':
         return <CenroDashboardTab />;
+      case 'trash-reports':
+        return <TrashReportsTab />;
+      case 'service-feedback':
+        return <ServiceFeedbackTab />;
+      case 'route-optimization':
+        return <RouteOptimizationTab />;
+      case 'truck-inventory':
+        return <TruckInventoryTab />;
       case 'driver-onboarding':
         return <DriverOnboardingTab />;
       case 'collection-scheduler':

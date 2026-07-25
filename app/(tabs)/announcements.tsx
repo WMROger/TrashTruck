@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
@@ -20,6 +20,8 @@ export default function AnnouncementsPage() {
   const insets = useSafeAreaInsets();
   const [allAnnouncements, setAllAnnouncements] = useState<any[]>([]);
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<any>(null);
   const [displayCount, setDisplayCount] = useState(5);
 
   useEffect(() => {
@@ -60,29 +62,104 @@ export default function AnnouncementsPage() {
 
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Announcements</Text>
-          <TouchableOpacity style={styles.filterButton}>
+          <TouchableOpacity 
+            style={styles.filterButton}
+            onPress={() => setShowFilterModal(true)}
+          >
             <IconSymbol name="line.3.horizontal.decrease" size={16} color="#4A6741" />
-            <Text style={styles.filterText}>Most Recent</Text>
+            <Text style={styles.filterText}>{selectedFilter === 'All' ? 'Filter' : selectedFilter}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Filter Chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsContainer} contentContainerStyle={styles.chipsContent}>
-          {FILTER_CATEGORIES.map(category => (
-            <TouchableOpacity 
-              key={category}
-              style={[styles.chip, selectedFilter === category && styles.chipActive]}
-              onPress={() => {
-                setSelectedFilter(category);
-                setDisplayCount(5); // Reset display count on filter change
-              }}
-            >
-              <Text style={[styles.chipText, selectedFilter === category && styles.chipTextActive]}>
-                {category}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <Modal
+          visible={showFilterModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowFilterModal(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowFilterModal(false)}
+          >
+            <View style={styles.dropdownMenu}>
+              <Text style={styles.dropdownHeader}>Filter by Category</Text>
+              {FILTER_CATEGORIES.map(category => (
+                <TouchableOpacity
+                  key={category}
+                  style={[styles.dropdownItem, selectedFilter === category && styles.dropdownItemActive]}
+                  onPress={() => {
+                    setSelectedFilter(category);
+                    setDisplayCount(5);
+                    setShowFilterModal(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownItemText, selectedFilter === category && styles.dropdownItemTextActive]}>
+                    {category}
+                  </Text>
+                  {selectedFilter === category && (
+                    <IconSymbol name="checkmark" size={16} color="#4A6741" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Details Modal */}
+        <Modal
+          visible={!!selectedAnnouncement}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setSelectedAnnouncement(null)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setSelectedAnnouncement(null)}
+          >
+            <View style={styles.detailsModalContent} onStartShouldSetResponder={() => true}>
+              {selectedAnnouncement && (
+                <>
+                  <View style={styles.detailsModalHeader}>
+                    <View style={styles.detailsModalHeaderLeft}>
+                      <IconSymbol 
+                        name={selectedAnnouncement.priority === "Urgent" || selectedAnnouncement.priority === "High" ? "exclamationmark.triangle" : "info.circle"} 
+                        size={20} 
+                        color={selectedAnnouncement.priority === "Urgent" || selectedAnnouncement.priority === "High" ? "#B56576" : "#4A6741"} 
+                      />
+                      <Text style={styles.detailsModalDate}>
+                        {new Date(selectedAnnouncement.createdAt?.toDate ? selectedAnnouncement.createdAt.toDate() : selectedAnnouncement.createdAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={styles.closeButton}>
+                      <IconSymbol name="xmark" size={20} color="#6B7280" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.detailsModalTitle}>{selectedAnnouncement.title}</Text>
+                  
+                  {selectedAnnouncement.category && (
+                    <View style={styles.detailsModalCategoryBadge}>
+                      <Text style={styles.detailsModalCategoryText}>{selectedAnnouncement.category}</Text>
+                    </View>
+                  )}
+
+                  <ScrollView style={styles.detailsModalBody} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.detailsModalDescription}>{selectedAnnouncement.description}</Text>
+                  </ScrollView>
+
+                  <TouchableOpacity 
+                    style={styles.detailsModalCloseButton}
+                    onPress={() => setSelectedAnnouncement(null)}
+                  >
+                    <Text style={styles.detailsModalCloseButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Dynamic Announcements List */}
         {displayedAnnouncements.length > 0 ? (
@@ -125,7 +202,11 @@ export default function AnnouncementsPage() {
                     <Text style={styles.avatarMoreText}>+12</Text>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.detailsButton}>
+                <TouchableOpacity 
+                  style={styles.detailsButton}
+                  onPress={() => setSelectedAnnouncement(announcement)}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.detailsText}>Details</Text>
                   <IconSymbol name="arrow.right" size={14} color="#4A6741" />
                 </TouchableOpacity>
@@ -205,30 +286,127 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4A6741',
   },
-  chipsContainer: {
-    flexGrow: 0,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownMenu: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '80%',
+    maxWidth: 320,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  dropdownHeader: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  dropdownItemActive: {
+    backgroundColor: '#F0FDF4',
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#374151',
+  },
+  dropdownItemTextActive: {
+    color: '#4A6741',
+    fontWeight: '600',
+  },
+  detailsModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  detailsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  detailsModalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailsModalDate: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  closeButton: {
+    padding: 4,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 20,
+  },
+  detailsModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
+    lineHeight: 28,
+  },
+  detailsModalCategoryBadge: {
+    backgroundColor: '#E8F5E9',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     marginBottom: 20,
   },
-  chipsContent: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
-  },
-  chipActive: {
-    backgroundColor: '#4A6741',
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '600',
+  detailsModalCategoryText: {
     color: '#4A6741',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  chipTextActive: {
+  detailsModalBody: {
+    maxHeight: 400,
+  },
+  detailsModalDescription: {
+    fontSize: 16,
+    color: '#374151',
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  detailsModalCloseButton: {
+    backgroundColor: '#4A6741',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  detailsModalCloseButtonText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   card: {
     backgroundColor: '#FFFFFF',

@@ -172,13 +172,18 @@ export default function LoadingPage() {
           const data = snap.data();
           const userRole = (data as any)?.role;
           
-          // If user is admin, show error and redirect to admin login
-          if (userRole === 'admin') {
+          // Prevent admin and dict logins on the mobile app
+          if (userRole === 'admin' || userRole === 'dict') {
             try { 
               await signOut(auth);
               await clearCredentials();
             } catch {}
-            showError('Admin accounts must use the admin login portal. Please go to the admin login page.', 'Wrong Login Portal', 'warning');
+            
+            const message = Platform.OS === 'web' 
+              ? 'Admin accounts must use the admin login portal. Please go to the admin login page.'
+              : 'Admin access is restricted to the desktop website. Please log in on a computer.';
+              
+            showError(message, 'Restricted Access', 'warning');
             setTimeout(() => {
               router.replace('/(auth)/login' as any);
             }, 3000);
@@ -310,10 +315,21 @@ export default function LoadingPage() {
         const snap = await getDoc(doc(db, 'users', currentUser.uid));
         const role = snap.exists() ? (snap.data() as any)?.role : 'user';
         
-        setTimeout(() => {
-          if (role === 'admin') {
-            console.log('Admin user detected, redirecting to admin dashboard');
-            router.replace('/admin/dashboard' as any);
+        setTimeout(async () => {
+          if (role === 'admin' || role === 'dict') {
+            if (Platform.OS !== 'web') {
+              try { await signOut(auth); } catch {}
+              showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
+              setTimeout(() => { router.replace('/(auth)/login' as any); }, 3000);
+              return;
+            }
+            if (role === 'admin') {
+              console.log('Admin user detected, redirecting to admin dashboard');
+              router.replace('/admin/dashboard' as any);
+            } else {
+              console.log('DICT user detected, redirecting to DICT dashboard');
+              router.replace('/dict/dashboard' as any);
+            }
           } else if (role === 'driver') {
             console.log('Driver user detected, redirecting to driver interface');
             router.replace('/(driver)' as any);

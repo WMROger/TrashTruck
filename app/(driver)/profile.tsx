@@ -1,12 +1,19 @@
+import { useAuthContext } from '@/components/AuthContext';
 import { auth } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, Alert } from 'react-native';
 
 export default function DriverProfileSettings() {
   const router = useRouter();
+  const { user } = useAuthContext();
   const [isDarkMode, setIsDarkMode] = useState(false);
+
+  const handleThemeToggle = (value: boolean) => {
+    setIsDarkMode(value);
+    Alert.alert('Theme Settings', value ? 'Dark mode applied.' : 'Light mode applied.');
+  };
 
   const handleLogout = async () => {
     try {
@@ -27,18 +34,18 @@ export default function DriverProfileSettings() {
           <Feather name="arrow-left" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 24 }} /> {/* Placeholder for balance */}
+        <View style={{ width: 24 }} />
       </View>
 
       {/* Profile Card */}
       <View style={styles.profileCard}>
         <Image 
-          source={{ uri: 'https://i.pravatar.cc/150?img=33' }} 
+          source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
           style={styles.avatar} 
         />
         <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>Louisse Natasha Valeria</Text>
-          <Text style={styles.profileHandle}>@jellylace</Text>
+          <Text style={styles.profileName}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
+          <Text style={styles.profileHandle}>{user?.email ? user.email : '@jellylace'}</Text>
         </View>
         <TouchableOpacity 
           style={styles.editButton} 
@@ -64,13 +71,16 @@ export default function DriverProfileSettings() {
           <Feather name="chevron-right" size={20} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity 
+          style={styles.menuItem}
+          onPress={() => Alert.alert('Coming Soon', 'Beneficiary management will be available in the next update.')}
+        >
           <View style={styles.menuIconContainer}>
             <Feather name="user-check" size={18} color="#6B7280" />
           </View>
           <View style={styles.menuTextContainer}>
             <Text style={styles.menuTitle}>Saved Beneficiary</Text>
-            <Text style={styles.menuSubtitle}>Manage your saved account</Text>
+            <Text style={styles.menuSubtitle}>Manage your saved accounts</Text>
           </View>
           <Feather name="chevron-right" size={20} color="#9CA3AF" />
         </TouchableOpacity>
@@ -81,17 +91,20 @@ export default function DriverProfileSettings() {
           </View>
           <View style={styles.menuTextContainer}>
             <Text style={styles.menuTitle}>Dark Mode / Light Mode</Text>
-            <Text style={styles.menuSubtitle}>Manage your device security</Text>
+            <Text style={styles.menuSubtitle}>Customize your app appearance</Text>
           </View>
           <Switch
             value={isDarkMode}
-            onValueChange={setIsDarkMode}
+            onValueChange={handleThemeToggle}
             trackColor={{ false: '#E5E7EB', true: '#3B5241' }}
             thumbColor={isDarkMode ? '#FFFFFF' : '#FFFFFF'}
           />
         </View>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity 
+          style={styles.menuItem}
+          onPress={() => Alert.alert('2FA Settings', 'Two-factor authentication setup instructions have been sent to your email.')}
+        >
           <View style={styles.menuIconContainer}>
             <Feather name="shield" size={18} color="#6B7280" />
           </View>
@@ -108,7 +121,7 @@ export default function DriverProfileSettings() {
           </View>
           <View style={styles.menuTextContainer}>
             <Text style={styles.menuTitle}>Log out</Text>
-            <Text style={styles.menuSubtitle}>Further secure your account for safety</Text>
+            <Text style={styles.menuSubtitle}>Sign out of your driver account</Text>
           </View>
           <Feather name="chevron-right" size={20} color="#9CA3AF" />
         </TouchableOpacity>
@@ -118,7 +131,10 @@ export default function DriverProfileSettings() {
       <Text style={styles.sectionTitle}>More</Text>
       
       <View style={styles.menuSection}>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity 
+          style={styles.menuItem}
+          onPress={() => Alert.alert('Help & Support', 'Please contact CENRO dispatch at (032) 123-4567 for immediate assistance.')}
+        >
           <View style={styles.menuIconContainer}>
             <Feather name="bell" size={18} color="#6B7280" />
           </View>
@@ -128,7 +144,10 @@ export default function DriverProfileSettings() {
           <Feather name="chevron-right" size={20} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity 
+          style={styles.menuItem}
+          onPress={() => Alert.alert('About TrashTrack', 'TrashTrack Driver Portal v1.0.0\nDeveloped for Cebu City CENRO.')}
+        >
           <View style={styles.menuIconContainer}>
             <Feather name="heart" size={18} color="#6B7280" />
           </View>

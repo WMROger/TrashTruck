@@ -19,8 +19,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
   const dynamicStyles = StyleSheet.create({
     container: {
-      marginVertical: 4,
+      marginVertical: 6,
       paddingHorizontal: 16,
+      width: '100%',
     },
     userContainer: {
       alignItems: 'flex-end',
@@ -31,80 +32,86 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     aiHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 4,
+      marginBottom: 6,
       marginLeft: 4,
     },
     aiLabel: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: colors.primary,
-      marginLeft: 4,
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#4A6741',
+      marginLeft: 6,
     },
     bubble: {
-      maxWidth: '80%',
-      padding: 12,
-      borderRadius: 18,
-      elevation: 1,
+      maxWidth: '85%',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 20,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 3,
+      elevation: 2,
     },
     userBubble: {
-      backgroundColor: colors.chatUserBubble,
+      backgroundColor: '#4A6741',
       borderBottomRightRadius: 4,
     },
     aiBubble: {
-      backgroundColor: colors.chatAIBubble,
+      backgroundColor: '#FFFFFF',
       borderBottomLeftRadius: 4,
-      borderLeftWidth: 3,
-      borderLeftColor: colors.chatAIBorder,
+      borderWidth: 1,
+      borderColor: '#F3F4F6',
     },
     text: {
-      fontSize: 16,
+      fontSize: 15,
       lineHeight: 22,
     },
     userText: {
-      color: colors.chatUserText,
+      color: '#FFFFFF',
     },
     aiText: {
-      color: colors.chatAIText,
+      color: '#1F2937',
     },
     timestamp: {
-      fontSize: 12,
-      marginTop: 4,
-      opacity: 0.7,
+      fontSize: 11,
+      marginTop: 6,
+      alignSelf: 'flex-end',
     },
     userTimestamp: {
-      color: colors.chatUserText,
-      textAlign: 'right',
+      color: 'rgba(255,255,255,0.7)',
     },
     aiTimestamp: {
-      color: colors.textSecondary,
-      textAlign: 'left',
-    },
-    aiFooter: {
-      marginTop: 2,
-      marginLeft: 4,
-    },
-    aiFooterText: {
-      fontSize: 10,
-      color: colors.primary,
-      fontStyle: 'italic',
+      color: '#9CA3AF',
     },
   });
+
+  const renderFormattedText = (text: string) => {
+    // Basic markdown parser for **bold**
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return (
+          <Text key={index} style={{ fontWeight: 'bold' }}>
+            {part.substring(2, part.length - 2)}
+          </Text>
+        );
+      }
+      return <Text key={index}>{part}</Text>;
+    });
+  };
 
   return (
     <View style={[dynamicStyles.container, isUser ? dynamicStyles.userContainer : dynamicStyles.aiContainer]}>
       {!isUser && (
         <View style={dynamicStyles.aiHeader}>
-          <IconSymbol name="leaf.fill" size={16} color={colors.primary} />
-          <Text style={dynamicStyles.aiLabel}>TrashTrack AI</Text>
+          <IconSymbol name="sparkles" size={14} color="#4A6741" />
+          <Text style={dynamicStyles.aiLabel}>Assistant</Text>
         </View>
       )}
       <View style={[dynamicStyles.bubble, isUser ? dynamicStyles.userBubble : dynamicStyles.aiBubble]}>
         <Text style={[dynamicStyles.text, isUser ? dynamicStyles.userText : dynamicStyles.aiText]}>
-          {message.text}
+          {renderFormattedText(message.text)}
         </Text>
         {message.timestamp && (
           <Text style={[dynamicStyles.timestamp, isUser ? dynamicStyles.userTimestamp : dynamicStyles.aiTimestamp]}>
@@ -112,11 +119,6 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           </Text>
         )}
       </View>
-      {!isUser && (
-        <View style={dynamicStyles.aiFooter}>
-          <Text style={dynamicStyles.aiFooterText}>💚 Powered by TrashTrack</Text>
-        </View>
-      )}
     </View>
   );
 } 

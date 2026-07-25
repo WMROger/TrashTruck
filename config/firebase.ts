@@ -1,7 +1,7 @@
 // Firebase configuration — handles hot-reload / lazy-bundling re-evaluation
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 import { Platform } from 'react-native';
@@ -52,10 +52,21 @@ let storage: any = null;
   // ─── 3. Firestore ─────────────────────────────────────────────────────────
   if (app) {
     try {
-      db = getFirestore(app);
-      console.log('Firebase: Firestore ready');
+      // Use initializeFirestore with persistentLocalCache to enable offline capabilities
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
+      });
+      console.log('Firebase: Firestore ready (with offline persistence)');
     } catch (e: any) {
-      console.error('Firebase: Firestore error:', e.message);
+      // Fallback to getFirestore if initializeFirestore throws (e.g. unsupported environment)
+      try {
+        db = getFirestore(app);
+        console.log('Firebase: Firestore ready (fallback to memory cache)');
+      } catch (fallbackError: any) {
+        console.error('Firebase: Firestore initialization error:', fallbackError.message);
+      }
     }
   }
 
