@@ -9,7 +9,7 @@ import { analyzeWasteImage, WasteAnalysisResult } from "@/services/wasteAIServic
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -46,7 +46,29 @@ export default function ReportScreen() {
   const [locationAddress, setLocationAddress] = useState<string>("Locating...");
   const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
   const [aiResult, setAiResult] = useState<WasteAnalysisResult | null>(null);
+  const [userProfileBarangay, setUserProfileBarangay] = useState("");
   const MAX_FIRESTORE_FIELD_BYTES = 1000000; // ~1MB safe cap
+
+  React.useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (auth.currentUser) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const data = userSnap.data();
+            if (data.barangay) {
+              setUserProfileBarangay(data.barangay);
+              setBarangay(data.barangay); // Initialize input with profile barangay
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching user profile:", err);
+        }
+      }
+    };
+    fetchUserProfile();
+  }, []);
 
   // Debug function to check Firebase configuration
   const checkFirebaseConfig = () => {
@@ -181,6 +203,11 @@ export default function ReportScreen() {
       Alert.alert("Error", "You must be signed in to submit a report.");
       return;
     }
+    if (!geoCoords) {
+      Alert.alert("Location Required", "Please wait for your GPS location to be fetched before submitting.");
+      return;
+    }
+
     if (
       !title.trim() ||
       !barangay.trim() ||
@@ -191,17 +218,13 @@ export default function ReportScreen() {
       return;
     }
 
-    // Block submission if AI hasn't analyzed the image or detected non-waste
-    if (!aiResult) {
-      Alert.alert("Photo Required", "Please take a photo of the waste so the AI can analyze it before submitting.");
+    if (!imageUri) {
+      Alert.alert("Photo Required", "Please take a photo of the waste before submitting.");
       return;
     }
-    if (aiResult.wasteType === 'Not waste') {
-      Alert.alert("Not Waste", "The AI detected that your photo does not contain waste. Please take a photo of actual trash to submit a report.");
-      return;
-    }
-    if (aiResult.wasteType === 'Unable to determine' || aiResult.wasteType === 'Temporarily unavailable') {
-      Alert.alert("Cannot Submit", "The AI could not determine the waste type. Please retake the photo or try again later.");
+    
+    if (isAnalyzingAI) {
+      Alert.alert("Please Wait", "The AI is currently analyzing your photo. Please wait a moment before submitting.");
       return;
     }
 
@@ -430,8 +453,12 @@ export default function ReportScreen() {
             const place = geocode[0];
             const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
             setLocationAddress(addressStr || "Unknown Location");
+            setBarangay(place.district || place.city || place.subregion || 'Unknown Area');
+            setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           } else {
             setLocationAddress("Unknown Location");
+            setBarangay('Unknown Area');
+            setStreet(`${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           }
         } catch (locErr) {
           console.warn("Failed to get current location, trying last known:", locErr);
@@ -450,8 +477,18 @@ export default function ReportScreen() {
                 const place = geocode[0];
                 const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
                 setLocationAddress(addressStr || "Unknown Location");
+                // If user has a barangay in their profile, use it. Otherwise try district first, then subregion, fallback to city
+                if (userProfileBarangay) {
+                  setBarangay(userProfileBarangay);
+                } else {
+                  setBarangay(place.district || place.subregion || place.city || '');
+                }
+                setStreet(place.street || place.name || '');
               } else {
                 setLocationAddress("Unknown Location");
+                if (userProfileBarangay) {
+                  setBarangay(userProfileBarangay);
+                }
               }
             } else {
               throw new Error("No last known location");
@@ -670,6 +707,34 @@ export default function ReportScreen() {
               </View>
             </View>
           )}
+        </View>
+
+        {/* Barangay & Street Inputs (Auto-filled but Editable) */}
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Barangay</Text>
+            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
+              <TextInput
+                value={barangay}
+                onChangeText={setBarangay}
+                placeholder="e.g. Sambag 2"
+                placeholderTextColor="#7C8E80"
+                style={styles.inputText}
+              />
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Street</Text>
+            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
+              <TextInput
+                value={street}
+                onChangeText={setStreet}
+                placeholder="e.g. V. Rama Ave"
+                placeholderTextColor="#7C8E80"
+                style={styles.inputText}
+              />
+            </View>
+          </View>
         </View>
 
         {/* Description */}

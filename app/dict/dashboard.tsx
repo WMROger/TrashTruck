@@ -64,25 +64,37 @@ export default function DictDashboard() {
   }, [user]);
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut(auth);
-              router.replace('/admin/login');
-            } catch (error) {
-              console.error('Logout error:', error);
+    if (Platform.OS === 'web') {
+      const confirmLog = window.confirm('Are you sure you want to log out?');
+      if (confirmLog) {
+        try {
+          await signOut(auth);
+          router.replace('/admin/login');
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
+      }
+    } else {
+      Alert.alert(
+        'Logout',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Logout', 
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await signOut(auth);
+                router.replace('/admin/login');
+              } catch (error) {
+                console.error('Logout error:', error);
+              }
             }
           }
-        }
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const renderActiveTab = () => {

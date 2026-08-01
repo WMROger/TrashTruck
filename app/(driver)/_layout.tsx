@@ -137,6 +137,12 @@ export default function DriverLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="select-truck"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

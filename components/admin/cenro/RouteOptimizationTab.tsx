@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, Platform, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../../app/(tabs)/home.notifications';
 
@@ -16,6 +16,12 @@ interface Report {
   createdAt: any;
   userEmail: string;
   userId: string;
+  aiAnalysis?: {
+    wasteType: string;
+    estimatedWeight: string;
+    confidence: string;
+    details: string;
+  };
 }
 
 interface Driver {
@@ -34,13 +40,15 @@ export default function RouteOptimizationTab() {
   const [optimizedRoute, setOptimizedRoute] = useState<Report[]>([]);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
+  const [viewingReport, setViewingReport] = useState<Report | null>(null);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!db) return;
 
-    // Listen to pending/acknowledged reports
+    // Listen to acknowledged reports only
     const reportsRef = collection(db, 'reports');
-    const reportsQuery = query(reportsRef, where('status', 'in', ['pending', 'acknowledged']));
+    const reportsQuery = query(reportsRef, where('status', '==', 'acknowledged'));
     
     const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
       const data: Report[] = [];
@@ -150,11 +158,19 @@ export default function RouteOptimizationTab() {
           createdAt: serverTimestamp(),
         });
 
+        const newHistoryItem = {
+          status: 'in-progress',
+          notes: `Dispatched to driver ${driverName}`,
+          timestamp: new Date().toISOString(),
+          adminEmail: 'System Dispatch'
+        };
+
         // 2. Update the original report status to in-progress
         await updateDoc(doc(db, 'reports', report.id), {
-          status: 'in progress',
-          adminNote: `Dispatched to driver ${driverName}`,
+          status: 'in-progress',
+          assignedDriver: driverName,
           updatedAt: serverTimestamp(),
+          statusHistory: arrayUnion(newHistoryItem)
         });
 
         // 3. Notify the resident
@@ -222,7 +238,7 @@ export default function RouteOptimizationTab() {
                     style={[styles.reportItem, isSelected && styles.reportItemSelected]}
                     onPress={() => toggleReportSelection(report.id)}
                   >
-                    <View style={styles.checkbox}>
+                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                       {isSelected && <MaterialIcons name="check" size={16} color="#FFF" />}
                     </View>
                     <View style={styles.reportImageBg}>
@@ -241,6 +257,15 @@ export default function RouteOptimizationTab() {
                         {report.status.toUpperCase()}
                       </Text>
                     </View>
+                    <TouchableOpacity 
+                      style={{ padding: 8, marginLeft: 4 }}
+                      onPress={(e) => {
+                        e.stopPropagation(); // prevent toggling the checkbox
+                        setViewingReport(report);
+                      }}
+                    >
+                      <MaterialIcons name="visibility" size={22} color="#6B7280" />
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 );
               })
@@ -366,6 +391,113 @@ export default function RouteOptimizationTab() {
           </View>
         </View>
       </Modal>
+
+      {/* Report View Modal */}
+      <Modal visible={!!viewingReport} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Report Details</Text>
+              <TouchableOpacity onPress={() => setViewingReport(null)}>
+                <MaterialIcons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {viewingReport && (
+              <ScrollView style={styles.modalBody}>
+                {viewingReport.imageURL ? (
+                  <TouchableOpacity activeOpacity={0.8} onPress={() => setFullScreenImage(viewingReport.imageURL!)}>
+                    <Image 
+                      source={{ uri: viewingReport.imageURL }} 
+                      style={{ width: '100%', height: 200, borderRadius: 8, marginBottom: 16 }} 
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ width: '100%', height: 100, borderRadius: 8, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                    <MaterialIcons name="image-not-supported" size={32} color="#9CA3AF" />
+                    <Text style={{ color: '#6B7280', marginTop: 8 }}>No image provided</Text>
+                  </View>
+                )}
+                
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+                  {viewingReport.title}
+                </Text>
+                <Text style={{ fontSize: 14, color: '#4B5563', marginBottom: 16 }}>
+                  {viewingReport.description}
+                </Text>
+                
+                <View style={{ backgroundColor: '#F9FAFB', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 4 }}>LOCATION</Text>
+                  <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>
+                    {viewingReport.street}, {viewingReport.barangay}
+                  </Text>
+                </View>
+
+                {viewingReport.aiAnalysis && (
+                  <View style={{ backgroundColor: '#E2EFE3', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#4A6741', marginBottom: 8 }}>AI ANALYSIS</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 13, color: '#6B8C72' }}>Detected Type:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{viewingReport.aiAnalysis.wasteType}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 13, color: '#6B8C72' }}>Est. Weight:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{viewingReport.aiAnalysis.estimatedWeight}</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#4A6741', fontStyle: 'italic' }}>
+                      {viewingReport.aiAnalysis.details}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ height: 20 }} />
+              </ScrollView>
+            )}
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={[styles.cancelBtn, { borderColor: '#6B7280', borderWidth: 1 }]} 
+                onPress={() => setViewingReport(null)}
+              >
+                <Text style={[styles.cancelBtnText, { color: '#6B7280' }]}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.confirmBtn, { backgroundColor: '#2E8B57' }]} 
+                onPress={() => {
+                  if (!selectedReports.has(viewingReport!.id)) {
+                    toggleReportSelection(viewingReport!.id);
+                  }
+                  setViewingReport(null);
+                }}
+              >
+                <MaterialIcons name="check-circle" size={18} color="#FFF" />
+                <Text style={styles.confirmBtnText}>Select for Route</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
+      {/* Full Screen Image Modal */}
+      <Modal visible={!!fullScreenImage} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' }}>
+          <TouchableOpacity 
+            style={{ position: 'absolute', top: 40, right: 20, zIndex: 10, padding: 10 }}
+            onPress={() => setFullScreenImage(null)}
+          >
+            <MaterialIcons name="close" size={30} color="#FFF" />
+          </TouchableOpacity>
+          {fullScreenImage && (
+            <Image 
+              source={{ uri: fullScreenImage }} 
+              style={{ width: '100%', height: '80%' }} 
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 }
@@ -396,6 +528,7 @@ const styles = StyleSheet.create({
   reportItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 8, backgroundColor: '#FFF' },
   reportItemSelected: { borderColor: '#2E8B57', backgroundColor: '#F6FBF7' },
   checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#D1D5DB', marginRight: 12, justifyContent: 'center', alignItems: 'center' },
+  checkboxSelected: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
   reportImageBg: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginRight: 12, overflow: 'hidden' },
   reportImg: { width: 40, height: 40 },
   reportContent: { flex: 1 },

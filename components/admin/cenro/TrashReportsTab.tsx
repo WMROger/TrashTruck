@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db } from '../../../config/firebase';
-import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy, arrayUnion } from 'firebase/firestore';
 
 type ReportStatus = 'pending' | 'acknowledged' | 'in-progress' | 'resolved';
 
@@ -30,6 +30,7 @@ interface Report {
   updatedAt?: any;
   statusHistory?: StatusHistoryItem[];
   adminNotes?: string;
+  assignedDriver?: string;
 }
 
 export default function TrashReportsTab() {
@@ -133,16 +134,14 @@ export default function TrashReportsTab() {
       const newHistoryItem = {
         status: newStatus,
         notes: adminNotes || '',
-        timestamp: serverTimestamp(),
+        timestamp: new Date().toISOString(),
         adminEmail: 'admin@cenro.gov.ph' // Placeholder for auth user
       };
-      
-      const currentHistory = selectedReport.statusHistory || [];
       
       await updateDoc(reportRef, {
         status: newStatus,
         updatedAt: serverTimestamp(),
-        statusHistory: [...currentHistory, newHistoryItem]
+        statusHistory: arrayUnion(newHistoryItem)
       });
 
       // Send notification
@@ -170,6 +169,16 @@ export default function TrashReportsTab() {
   const renderStatusActions = () => {
     if (!selectedReport) return null;
     
+    if (selectedReport.status === 'acknowledged') {
+      return (
+        <View style={[styles.actionContainer, { alignItems: 'center', paddingVertical: 16 }]}>
+           <Text style={{color: '#6B7280', fontSize: 13, fontStyle: 'italic', textAlign: 'center'}}>
+             ✅ Report is Acknowledged.{"\n"}Head to the Route Optimization tab to assign a driver. This report will automatically move to "In Progress" once dispatched.
+           </Text>
+        </View>
+      );
+    }
+
     let nextStatus: ReportStatus | null = null;
     let buttonText = '';
     let buttonColor = '';
@@ -178,10 +187,6 @@ export default function TrashReportsTab() {
       nextStatus = 'acknowledged';
       buttonText = 'Acknowledge';
       buttonColor = '#3b82f6';
-    } else if (selectedReport.status === 'acknowledged') {
-      nextStatus = 'in-progress';
-      buttonText = 'Mark In Progress';
-      buttonColor = '#f97316';
     } else if (selectedReport.status === 'in-progress') {
       nextStatus = 'resolved';
       buttonText = 'Mark Resolved';
@@ -383,6 +388,16 @@ export default function TrashReportsTab() {
                       <Text style={styles.detailSubValue}>Submitted: {formatDate(selectedReport.createdAt)}</Text>
                     </View>
 
+                    {selectedReport.assignedDriver && (
+                      <View style={styles.detailsGroup}>
+                        <Text style={styles.detailLabel}>ASSIGNED DRIVER</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                          <MaterialIcons name="local-shipping" size={16} color="#2E8B57" />
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: '#2E8B57' }}>{selectedReport.assignedDriver}</Text>
+                        </View>
+                      </View>
+                    )}
+
                     {selectedReport.aiAnalysis && (
                       <View style={styles.aiCard}>
                         <Text style={styles.aiCardTitle}>AI Analysis</Text>
@@ -396,6 +411,18 @@ export default function TrashReportsTab() {
                   <View style={styles.modalRight}>
                     <Text style={styles.detailLabel}>STATUS TIMELINE</Text>
                     <View style={styles.timeline}>
+                      {/* Initial Report Created State (Always visible at the top of the timeline) */}
+                      <View style={styles.timelineItem}>
+                        <View style={styles.timelineDot} />
+                        {(selectedReport.statusHistory?.length || 0) > 0 && <View style={styles.timelineLine} />}
+                        <View style={styles.timelineContent}>
+                          <Text style={styles.timelineStatus}>Pending</Text>
+                          <Text style={styles.timelineTime}>{formatDate(selectedReport.createdAt)}</Text>
+                          <Text style={styles.timelineNotes}>Report created</Text>
+                        </View>
+                      </View>
+
+                      {/* Map through all subsequent status changes */}
                       {(selectedReport.statusHistory || []).map((history, idx) => (
                         <View key={idx} style={styles.timelineItem}>
                           <View style={styles.timelineDot} />
@@ -407,16 +434,6 @@ export default function TrashReportsTab() {
                           </View>
                         </View>
                       ))}
-                      {(!selectedReport.statusHistory || selectedReport.statusHistory.length === 0) && (
-                        <View style={styles.timelineItem}>
-                          <View style={styles.timelineDot} />
-                          <View style={styles.timelineContent}>
-                            <Text style={styles.timelineStatus}>{getStatusLabel(selectedReport.status)}</Text>
-                            <Text style={styles.timelineTime}>{formatDate(selectedReport.createdAt)}</Text>
-                            <Text style={styles.timelineNotes}>Report created</Text>
-                          </View>
-                        </View>
-                      )}
                     </View>
                     
                     <View style={{ marginTop: 24 }}>

@@ -1,34 +1,68 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface AdminSidebarProps {
   activeTab: string;
   onTabPress: (tab: string) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) => {
+const SIDEBAR_WIDTH = 256;
+const COLLAPSED_WIDTH = 64;
+const BREAKPOINT = 900;
+
+const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOpen = false, onClose }) => {
+  const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
+  const slideAnim = useState(new Animated.Value(-SIDEBAR_WIDTH))[0];
+
+  const isNarrow = windowWidth < BREAKPOINT;
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowWidth(window.width);
+      if (window.width >= BREAKPOINT && onClose) {
+        onClose();
+      }
+    });
+    return () => subscription?.remove();
+  }, [onClose]);
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: isOpen ? 0 : -SIDEBAR_WIDTH,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+  }, [isOpen]);
+
   const navigationItems = [
-    { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
-    { id: 'trash-reports', label: 'TRASH REPORTS', icon: 'assignment', activeIcon: 'assignment' },
-    { id: 'service-feedback', label: 'SERVICE FEEDBACK', icon: 'rate-review', activeIcon: 'rate-review' },
-    { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route', activeIcon: 'route' },
-    { id: 'truck-inventory', label: 'FLEET INVENTORY', icon: 'local-shipping', activeIcon: 'local-shipping' },
-    { id: 'driver-onboarding', label: 'DRIVER ACCOUNTS', icon: 'person-search', activeIcon: 'person-search' },
-    { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note', activeIcon: 'event-note' },
-    { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people', activeIcon: 'people' },
-    { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem', activeIcon: 'report-problem' },
-    { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart', activeIcon: 'bar-chart' },
+    { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view' },
+    { id: 'trash-reports', label: 'TRASH REPORTS', icon: 'assignment' },
+    { id: 'service-feedback', label: 'SERVICE FEEDBACK', icon: 'rate-review' },
+    { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route' },
+    { id: 'truck-inventory', label: 'FLEET INVENTORY', icon: 'local-shipping' },
+    { id: 'driver-onboarding', label: 'DRIVER ACCOUNTS', icon: 'person-search' },
+    { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note' },
+    { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people' },
+    { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem' },
+    { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart' },
   ];
 
-  return (
-    <View style={styles.sidebar}>
+  const handleItemPress = (id: string) => {
+    onTabPress(id);
+    if (isNarrow && onClose) onClose();
+  };
+
+  const sidebarContent = (
+    <>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>CENRO</Text>
         <Text style={styles.headerSubtitle}>CITY GOVT PORTAL</Text>
       </View>
-      
-      <View style={styles.navigation}>
+
+      <ScrollView style={styles.navigation} showsVerticalScrollIndicator={false}>
         {navigationItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
@@ -38,11 +72,11 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
                 styles.navItem,
                 isActive && styles.activeNavItem
               ]}
-              onPress={() => onTabPress(item.id)}
+              onPress={() => handleItemPress(item.id)}
               activeOpacity={0.7}
             >
               <MaterialIcons
-                name={(isActive ? item.activeIcon : item.icon) as any}
+                name={item.icon as any}
                 size={20}
                 color={isActive ? '#FFFFFF' : '#4B5563'}
               />
@@ -55,7 +89,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       <View style={styles.bottomSection}>
         <View style={styles.statusBlock}>
@@ -76,13 +110,48 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress }) =>
           <Text style={styles.bottomNavText}>LOGS</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </>
+  );
+
+  // Wide screen: normal fixed sidebar
+  if (!isNarrow) {
+    return (
+      <View style={styles.sidebar}>
+        {sidebarContent}
+      </View>
+    );
+  }
+
+  // Narrow screen: animated drawer overlay
+  return (
+    <>
+      {/* Overlay backdrop */}
+      {isOpen && (
+        <Pressable style={styles.overlay} onPress={onClose} />
+      )}
+
+      {/* Sliding drawer */}
+      <Animated.View
+        style={[
+          styles.drawer,
+          { transform: [{ translateX: slideAnim }] }
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.closeBtn}
+          onPress={onClose}
+        >
+          <MaterialIcons name="close" size={24} color="#4B5563" />
+        </TouchableOpacity>
+        {sidebarContent}
+      </Animated.View>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: 256,
+    width: SIDEBAR_WIDTH,
     backgroundColor: '#F3F4F6',
     borderRightWidth: 1,
     borderRightColor: '#E5E7EB',
@@ -131,7 +200,7 @@ const styles = StyleSheet.create({
   activeNavText: {
     color: '#FFFFFF',
   },
-  
+
   bottomSection: {
     padding: 24,
     paddingBottom: 40,
@@ -176,6 +245,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#4B5563',
     letterSpacing: 0.5,
+  },
+
+  // Responsive / narrow screen styles
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    zIndex: 998,
+  },
+  drawer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: SIDEBAR_WIDTH,
+    backgroundColor: '#F3F4F6',
+    zIndex: 999,
+    borderRightWidth: 1,
+    borderRightColor: '#E5E7EB',
+    justifyContent: 'space-between',
+    ...(Platform.OS === 'web' ? { boxShadow: '4px 0 16px rgba(0,0,0,0.15)' } : {}),
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+    padding: 4,
   },
 });
 

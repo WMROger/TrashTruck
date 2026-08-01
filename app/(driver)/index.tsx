@@ -2,9 +2,9 @@ import { useAuthContext } from '@/components/AuthContext';
 import { auth, db } from '@/config/firebase';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Switch, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Linking } from 'react-native';
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
@@ -46,6 +46,9 @@ export default function DriverIndex() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
+
+  // Current truck assignment
+  const [currentTruck, setCurrentTruck] = useState<{ id: string; plateNumber: string; type: string } | null>(null);
 
   useEffect(() => {
     if (!db || !auth?.currentUser) {
@@ -150,6 +153,40 @@ export default function DriverIndex() {
     };
   }, [user]);
 
+  // Listen for current truck assignment
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.currentTruckId) {
+          // Listen to the truck document for real-time info
+          const unsubTruck = onSnapshot(doc(db, 'trucks', data.currentTruckId), (truckSnap) => {
+            if (truckSnap.exists()) {
+              const truckData = truckSnap.data();
+              setCurrentTruck({
+                id: truckSnap.id,
+                plateNumber: truckData.plateNumber || 'Unknown',
+                type: truckData.type || 'Truck',
+              });
+              setIsShiftActive(true);
+            } else {
+              setCurrentTruck(null);
+              setIsShiftActive(false);
+            }
+          });
+          return () => unsubTruck();
+        } else {
+          setCurrentTruck(null);
+          setIsShiftActive(false);
+        }
+      }
+    });
+
+    return () => unsubUser();
+  }, [user]);
+
   const handleCompletePickup = (id: string) => {
     setSelectedPickupId(id);
     setShowCompleteModal(true);
@@ -176,6 +213,49 @@ export default function DriverIndex() {
 
   const handleProfileSettings = () => {
     router.push('/(driver)/profile');
+  };
+
+  const handleEndShift = () => {
+    Alert.alert(
+      'End Shift',
+      `Are you sure you want to end your shift${currentTruck ? ` and release ${currentTruck.plateNumber}` : ''}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Shift',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (currentTruck && user?.uid) {
+                // Unassign driver from truck
+                await updateDoc(doc(db, 'trucks', currentTruck.id), {
+                  assignedDriverId: null,
+                  assignedDriverName: null,
+                  shiftStartedAt: null,
+                  updatedAt: serverTimestamp(),
+                });
+                // Clear truck from user profile
+                await updateDoc(doc(db, 'users', user.uid), {
+                  currentTruckId: null,
+                  currentTruckPlate: null,
+                });
+              }
+              setIsShiftActive(false);
+              setCurrentTruck(null);
+              // Navigate back to user portal
+              router.replace('/(tabs)/home');
+            } catch (e) {
+              console.error('End shift error:', e);
+              Alert.alert('Error', 'Failed to end shift. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBackToUserPortal = () => {
+    router.replace('/(tabs)/home');
   };
 
   if (loading) {
@@ -211,19 +291,28 @@ export default function DriverIndex() {
       {/* Welcome & Shift Section */}
       <View style={[styles.welcomeSection, isDark && styles.cardDark]}>
         <View style={styles.welcomeLeft}>
-          <Text style={[styles.welcomeText, isDark && styles.textMuted]}>Welcome back, {user?.displayName || 'Louisse Natasha'}</Text>
+          <Text style={[styles.welcomeText, isDark && styles.textMuted]}>Welcome back, {user?.displayName || 'Driver'}</Text>
           <Text style={[styles.statusText, { color: isShiftActive ? (isDark ? '#86EFAC' : '#2E8B57') : (isDark ? '#6B7280' : '#9CA3AF') }]}>
             {isShiftActive ? 'Active Shift' : 'Off Duty'}
           </Text>
+          {currentTruck && (
+            <View style={styles.truckBadgeRow}>
+              <MaterialIcons name="local-shipping" size={14} color={isDark ? '#86EFAC' : '#2E8B57'} />
+              <Text style={[styles.truckBadgeText, isDark && { color: '#86EFAC' }]}>{currentTruck.plateNumber} • {currentTruck.type}</Text>
+            </View>
+          )}
         </View>
-        <View style={styles.shiftToggle}>
-          <Text style={[styles.shiftToggleText, isDark && styles.textLight]}>{isShiftActive ? 'ON' : 'OFF'}</Text>
-          <Switch 
-            value={isShiftActive} 
-            onValueChange={setIsShiftActive}
-            trackColor={{ false: isDark ? '#374151' : '#D1D5DB', true: isDark ? '#166534' : '#95C596' }}
-            thumbColor={isShiftActive ? (isDark ? '#22C55E' : '#2E8B57') : (isDark ? '#9CA3AF' : '#F3F4F6')}
-          />
+        <View style={styles.shiftActions}>
+          {isShiftActive && (
+            <TouchableOpacity onPress={handleEndShift} style={styles.endShiftBtn}>
+              <MaterialIcons name="power-settings-new" size={18} color="#DC2626" />
+              <Text style={styles.endShiftText}>End Shift</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={handleBackToUserPortal} style={styles.backToPortalBtn}>
+            <Feather name="arrow-left" size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+            <Text style={[styles.backToPortalText, isDark && { color: '#9CA3AF' }]}>User App</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -492,6 +581,52 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#4B5563',
+  },
+  truckBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  truckBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2E8B57',
+  },
+  shiftActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  endShiftBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  endShiftText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  backToPortalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  backToPortalText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   
   // Alerts

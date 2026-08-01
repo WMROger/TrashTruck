@@ -61,11 +61,17 @@ export default function ScheduleScreen() {
 
   const CATEGORY_COLORS: Record<string, string> = useMemo(() => ({
     'Biodegradable': '#22C55E',
+    'BIODEGRADABLE': '#22C55E',
     'Non-Biodegradable': '#2563EB',
+    'NON-BIODEGRADABLE': '#2563EB',
     'Recyclable': '#EAB308',
+    'RECYCLABLE': '#EAB308',
     'Residual': '#6B7280',
+    'RESIDUAL': '#6B7280',
     'Hazardous': '#EF4444',
+    'HAZARDOUS': '#EF4444',
     'Special/Bulk': '#A855F7',
+    'SPECIAL/BULK': '#A855F7',
   }), []);
 
   const LEGEND_ITEMS = useMemo(() => [
@@ -230,7 +236,7 @@ export default function ScheduleScreen() {
         let time = 'Regular Hours';
 
         // 2. Check if a specific schedule was added for this date
-        const specificMatch = (s.specificSchedules || []).find((ss: any) => {
+        const specificMatches = (s.specificSchedules || []).filter((ss: any) => {
           if (!ss.date) return false;
           // Simplistic match: if ss.date is YYYY-MM-DD or MM/DD matching this date
           const mmdd = `${(date.getMonth()+1).toString().padStart(2,'0')}/${date.getDate().toString().padStart(2,'0')}`;
@@ -252,17 +258,23 @@ export default function ScheduleScreen() {
                  dText === shortMonthDD.toLowerCase();
         });
 
-        if (specificMatch) {
-          isMatch = true;
-          category = specificMatch.category || category;
-          time = specificMatch.time || time;
-        }
-
-        if (isMatch) {
+        if (specificMatches.length > 0) {
+          // Push every specific schedule that lands on this day
+          specificMatches.forEach((match: any) => {
+            daySchedules.push({
+              ...s,
+              wasteCategory: match.category || category,
+              timeText: match.time || time,
+              dateText: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+            });
+          });
+        } else if (isMatch) {
+          // Fallback to recurring schedule if it falls on this day
           daySchedules.push({
             ...s,
             wasteCategory: category,
-            timeText: time
+            timeText: time,
+            dateText: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
           });
         }
       });
@@ -282,22 +294,63 @@ export default function ScheduleScreen() {
       const items = monthScheduleDates[key];
       if (items.length > 0) {
         const allCompleted = items.every((it: any) => (it.status || '').toLowerCase() === 'completed');
-        const color = CATEGORY_COLORS[items[0].wasteCategory] || colors.primary;
         
-        dates[key] = {
-          customStyles: {
-            container: {
-              backgroundColor: allCompleted ? '#F1F5F9' : color,
-              borderWidth: allCompleted ? 1 : 0,
-              borderColor: '#E2E8F0',
-              borderRadius: 8,
-            },
-            text: {
-              color: allCompleted ? '#94A3B8' : 'white',
-              fontWeight: '700'
+        // Get unique waste category colors for this day
+        const uniqueCategories = [...new Set(items.map((it: any) => it.wasteCategory))];
+        const categoryColors = uniqueCategories.map(cat => CATEGORY_COLORS[cat] || colors.primary);
+        
+        if (allCompleted) {
+          dates[key] = {
+            customStyles: {
+              container: {
+                backgroundColor: '#F1F5F9',
+                borderWidth: 1,
+                borderColor: '#E2E8F0',
+                borderRadius: 8,
+              },
+              text: {
+                color: '#94A3B8',
+                fontWeight: '700'
+              }
             }
-          }
-        };
+          };
+        } else if (categoryColors.length === 1) {
+          // Single waste type — fill the cell
+          dates[key] = {
+            customStyles: {
+              container: {
+                backgroundColor: categoryColors[0],
+                borderRadius: 8,
+              },
+              text: {
+                color: '#FFFFFF',
+                fontWeight: '700'
+              }
+            }
+          };
+        } else {
+          // Multiple waste types — use native-compatible borders to show multiple colors
+          // Base background is the first color, a thick bottom border is the second color.
+          // If there's a third, we add a left border.
+          const c1 = categoryColors[0];
+          const c2 = categoryColors[1];
+          const c3 = categoryColors[2] || categoryColors[1]; // fallback to c2 if only 2
+
+          dates[key] = {
+            customStyles: {
+              container: {
+                backgroundColor: c1,
+                borderWidth: categoryColors.length >= 2 ? 3 : 0,
+                borderColor: c2,
+                borderRadius: 8,
+              },
+              text: {
+                color: '#FFFFFF',
+                fontWeight: '700'
+              }
+            }
+          };
+        }
       }
     });
 
@@ -312,9 +365,13 @@ export default function ScheduleScreen() {
           customStyles: {
             ...dates[selKey].customStyles,
             container: {
-              ...dates[selKey].customStyles.container,
+              ...dates[selKey].customStyles?.container,
               borderWidth: 2,
               borderColor: colors.primary,
+            },
+            text: {
+              ...dates[selKey].customStyles?.text,
+              color: '#FFFFFF',
             }
           }
         };
@@ -497,30 +554,50 @@ export default function ScheduleScreen() {
         {selectedDate ? (
           (monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).length > 0 ? (
             <>
-              {(monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).map((s) => (
-                <TouchableOpacity 
-                  key={s.id} 
-                  style={[styles.infoItem, { backgroundColor: colors.surface }, (s as any).status && (s as any).status.toLowerCase() === 'completed' ? { opacity: 0.55 } : null]}
-                  onPress={() => handlePickupPress(s)}
-                  activeOpacity={0.7}
-                > 
-                  <IconSymbol name="calendar" size={18} color={colors.primary} />
-                  <Text style={styles.infoText}>
-                    {s.timeText} • {s.barangayName || 'Barangay'} • {s.wasteCategory || 'General'} • {s.truck || 'Pending Truck'}
-                  </Text>
-                  <IconSymbol name="chevron.right" size={16} color={colors.textSecondary} />
-                </TouchableOpacity>
-              ))}
+              {(monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).map((s, index) => {
+                const wasteColor = s.wasteCategory ? (CATEGORY_COLORS[s.wasteCategory] || CATEGORY_COLORS[s.wasteCategory.toUpperCase()] || colors.primary) : colors.primary;
+                return (
+                  <TouchableOpacity 
+                    key={`${s.id}-${index}`} 
+                    style={[styles.pickupCard, { backgroundColor: colors.surface }, (s as any).status && (s as any).status.toLowerCase() === 'completed' ? { opacity: 0.55 } : null]}
+                    onPress={() => handlePickupPress(s)}
+                    activeOpacity={0.7}
+                  > 
+                    <View style={[styles.pickupColorBar, { backgroundColor: wasteColor }]} />
+                    <View style={styles.pickupContent}>
+                      <View style={styles.pickupHeader}>
+                        <Text style={styles.pickupCategory}>{s.wasteCategory || 'General Waste'}</Text>
+                        <Text style={styles.pickupTime}>{s.timeText}</Text>
+                      </View>
+                      <View style={styles.pickupDetailsRow}>
+                        <IconSymbol name="mappin.circle.fill" size={14} color="#6B7280" />
+                        <Text style={styles.pickupLocationText}>
+                          {s.streetName && s.streetName.toLowerCase() !== 'whole barangay' 
+                            ? `${s.streetName}, ${s.barangayName}` 
+                            : s.barangayName || 'Barangay'}
+                        </Text>
+                      </View>
+                      <View style={styles.pickupDetailsRow}>
+                        <IconSymbol name="car.fill" size={14} color="#6B7280" />
+                        <Text style={styles.pickupTruckText}>{s.truck || 'Pending Truck'}</Text>
+                      </View>
+                    </View>
+                    <View style={{ paddingRight: 16 }}>
+                      <IconSymbol name="chevron.right" size={20} color="#9CA3AF" />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </>
           ) : (
-            <View style={[styles.infoItem, { backgroundColor: colors.surface }]}> 
-              <IconSymbol name="info.circle" size={18} color={colors.primary} />
+            <View style={[styles.emptyPickupCard, { backgroundColor: colors.surface }]}> 
+              <IconSymbol name="info.circle" size={20} color="#9CA3AF" />
               <Text style={styles.infoText}>No pickups on {formatDate(selectedDate)}</Text>
             </View>
           )
         ) : (
-          <View style={[styles.infoItem, { backgroundColor: colors.surface }]}> 
-            <IconSymbol name="info.circle" size={18} color={colors.primary} />
+          <View style={[styles.emptyPickupCard, { backgroundColor: colors.surface }]}> 
+            <IconSymbol name="info.circle" size={20} color="#9CA3AF" />
             <Text style={styles.infoText}>Select a date to view pickups</Text>
           </View>
         )}
@@ -737,20 +814,84 @@ const styles = StyleSheet.create({
   infoSection: {
     marginTop: 32,
     marginHorizontal: 16,
-    gap: 10,
+    marginBottom: 40,
+    gap: 12,
   },
   infoTitle: {
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  infoItem: {
+  pickupCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 10,
+  },
+  pickupColorBar: {
+    width: 8,
+    alignSelf: 'stretch',
+  },
+  pickupContent: {
+    flex: 1,
+    padding: 14,
+    gap: 6,
+  },
+  pickupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  pickupCategory: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  pickupTime: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2E8B57',
+    backgroundColor: '#EAF6E8',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  pickupDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pickupLocationText: {
+    fontSize: 13,
+    color: '#4B5563',
+  },
+  pickupTruckText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  emptyPickupCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    padding: 12,
-    borderRadius: 10,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
   },
   infoText: {
     flex: 1,
+    color: '#6B7280',
+    fontSize: 14,
   },
   mapCard: {
     marginTop: 16,

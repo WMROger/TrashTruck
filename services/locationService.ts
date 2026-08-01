@@ -60,8 +60,12 @@ class LocationService {
         }, { merge: true });
         console.log('Stopped live GPS tracking for driver:', driverId);
       }
-    } catch (error) {
-      console.error('Error stopping location tracking:', error);
+    } catch (error: any) {
+      if (error?.message?.includes('Missing or insufficient permissions') || error?.code === 'permission-denied') {
+        console.log('Location tracking stopped (Ignored permission error during logout)');
+      } else {
+        console.error('Error stopping location tracking:', error);
+      }
     }
   }
 

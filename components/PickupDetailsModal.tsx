@@ -115,7 +115,9 @@ const PickupDetailsModal: React.FC<PickupDetailsModalProps> = ({
                       Street Address
                     </Text>
                     <Text style={[styles.detailValue, { color: colors.textPrimary }]}>
-                      {pickupData.street}
+                      {pickupData.streetName && pickupData.streetName.toLowerCase() !== 'whole barangay'
+                        ? `${pickupData.streetName}, ${pickupData.barangayName}`
+                        : pickupData.barangayName || 'Barangay'}
                     </Text>
                   </View>
                 </View>

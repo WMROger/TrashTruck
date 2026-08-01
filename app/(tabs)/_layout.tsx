@@ -42,11 +42,7 @@ export default function TabLayout() {
             router.replace('/admin/dashboard');
             return;
           }
-          if (userData.role === 'driver') {
-            // Redirect driver users to the dedicated driver section
-            router.replace('/(driver)');
-            return;
-          }
+          // Drivers stay on the regular user portal but have access to driver features
           setRole(userData.role || null);
         }
         setIsAdmin(false);

@@ -12,6 +12,7 @@ interface Truck {
   status: 'active' | 'maintenance' | 'out_of_service';
   assignedDriverId?: string;
   assignedDriverName?: string;
+  shiftStartedAt?: any;
   createdAt: any;
 }
 
@@ -82,9 +83,53 @@ export default function TruckInventoryTab() {
     }
   };
 
+  const handleUnassignDriver = async (truckId: string) => {
+    const truck = trucks.find(t => t.id === truckId);
+    if (!truck) return;
+
+    Alert.alert(
+      'Unassign Driver',
+      `Remove ${truck.assignedDriverName || 'driver'} from ${truck.plateNumber}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unassign',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear driver assignment from truck
+              await updateDoc(doc(db, 'trucks', truckId), {
+                assignedDriverId: null,
+                assignedDriverName: null,
+                shiftStartedAt: null,
+                updatedAt: serverTimestamp(),
+              });
+
+              // Clear truck from driver's user doc
+              if (truck.assignedDriverId) {
+                try {
+                  await updateDoc(doc(db, 'users', truck.assignedDriverId), {
+                    currentTruckId: null,
+                    currentTruckPlate: null,
+                  });
+                } catch (userErr) {
+                  console.warn('Could not clear driver user doc:', userErr);
+                }
+              }
+            } catch (e) {
+              console.error(e);
+              Alert.alert('Error', 'Failed to unassign driver.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const activeCount = trucks.filter(t => t.status === 'active').length;
   const maintenanceCount = trucks.filter(t => t.status === 'maintenance').length;
   const outCount = trucks.filter(t => t.status === 'out_of_service').length;
+  const deployedCount = trucks.filter(t => t.assignedDriverId).length;
 
   if (loading) {
     return (
@@ -125,8 +170,18 @@ export default function TruckInventoryTab() {
             <MaterialIcons name="check-circle" size={24} color="#059669" />
           </View>
           <View>
-            <Text style={styles.summaryTitle}>Active / Deployed</Text>
+            <Text style={styles.summaryTitle}>Active</Text>
             <Text style={[styles.summaryValue, { color: '#059669' }]}>{activeCount}</Text>
+          </View>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <View style={[styles.summaryIconBg, { backgroundColor: '#EDE9FE' }]}>
+            <MaterialIcons name="person-pin" size={24} color="#7C3AED" />
+          </View>
+          <View>
+            <Text style={styles.summaryTitle}>Deployed (Driver Assigned)</Text>
+            <Text style={[styles.summaryValue, { color: '#7C3AED' }]}>{deployedCount}</Text>
           </View>
         </View>
 
@@ -224,6 +279,7 @@ export default function TruckInventoryTab() {
           <View style={styles.tableHead}>
             <Text style={[styles.th, { flex: 1.5 }]}>VEHICLE INFO</Text>
             <Text style={[styles.th, { flex: 1 }]}>CAPACITY</Text>
+            <Text style={[styles.th, { flex: 1.5 }]}>ASSIGNED DRIVER</Text>
             <Text style={[styles.th, { flex: 1.5 }]}>STATUS</Text>
             <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>ACTIONS</Text>
           </View>
@@ -247,6 +303,17 @@ export default function TruckInventoryTab() {
                 
                 <View style={[styles.td, { flex: 1, justifyContent: 'center' }]}>
                   <Text style={styles.capacityText}>{truck.capacity} Tons</Text>
+                </View>
+
+                <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
+                  {truck.assignedDriverId ? (
+                    <View style={styles.driverAssignedBadge}>
+                      <MaterialIcons name="person" size={14} color="#7C3AED" />
+                      <Text style={styles.driverAssignedText} numberOfLines={1}>{truck.assignedDriverName || 'Unknown'}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.unassignedText}>Unassigned</Text>
+                  )}
                 </View>
                 
                 <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
@@ -272,6 +339,11 @@ export default function TruckInventoryTab() {
                 </View>
                 
                 <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
+                  {truck.assignedDriverId && (
+                    <TouchableOpacity onPress={() => handleUnassignDriver(truck.id)} style={styles.actionBtn}>
+                      <MaterialIcons name="person-remove" size={18} color="#7C3AED" />
+                    </TouchableOpacity>
+                  )}
                   {truck.status !== 'active' && (
                     <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'active')} style={styles.actionBtn}>
                       <MaterialIcons name="check-circle" size={20} color="#059669" />
@@ -355,6 +427,10 @@ const styles = StyleSheet.create({
   
   actionBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F9FAFB', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
   
+  driverAssignedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: '#EDE9FE', alignSelf: 'flex-start' },
+  driverAssignedText: { fontSize: 12, fontWeight: '600', color: '#7C3AED', maxWidth: 120 },
+  unassignedText: { fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' },
+
   emptyTable: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#9CA3AF', fontSize: 14 },
 });

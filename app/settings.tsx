@@ -472,28 +472,24 @@ export default function SettingsPage() {
   };
 
   // Feedback handling
-  const sentiments = [
-    { label: 'Terrible', emoji: '😣' },
-    { label: 'Bad', emoji: '😕' },
-    { label: 'Good', emoji: '😊' },
-    { label: 'Loved it', emoji: '😍' },
-  ];
-
   const handleSendFeedback = async () => {
-    if (feedbackSelected === null || !feedbackText.trim() || feedbackSelected < 0 || feedbackSelected >= sentiments.length) {
+    if (feedbackSelected === null || !feedbackText.trim()) {
       Alert.alert('Error', 'Please select a rating and enter your feedback.');
       return;
     }
-    const rating = sentiments[feedbackSelected].label;
+
+    const ratingOptions = ['Terrible', 'Bad', 'Good', 'Loved it'];
+    const rating = ratingOptions[feedbackSelected] || 'Average';
+
     try {
       await addDoc(collection(db, 'feedback'), {
         rating,
         title: `${rating} feedback`,
         description: feedbackText,
         message: feedbackText,
-        userId: auth.currentUser?.uid,
-        userEmail: auth.currentUser?.email || '',
-        street: userProfile?.barangay || '',
+        userId: auth.currentUser?.uid || 'anonymous',
+        userEmail: auth.currentUser?.email || 'anonymous',
+        street: userProfile?.barangay || 'unknown',
         createdAt: new Date().toISOString(),
       });
       Alert.alert('Thank you!', 'Your feedback has been submitted successfully.');
@@ -501,6 +497,7 @@ export default function SettingsPage() {
       setFeedbackText('');
       setShowFeedbackModal(false);
     } catch (err) {
+      console.error('Feedback error:', err);
       Alert.alert('Error', 'Failed to send feedback. Please try again.');
     }
   };
@@ -990,9 +987,10 @@ export default function SettingsPage() {
               
               <View style={styles.feedbackRow}>
                 {[
-                  { id: 1, icon: 'hand.thumbsdown.fill', label: 'Poor', color: '#EF5350' },
-                  { id: 2, icon: 'minus.circle.fill', label: 'Average', color: '#FFB300' },
-                  { id: 3, icon: 'hand.thumbsup.fill', label: 'Great', color: '#66BB6A' },
+                  { id: 0, emoji: '😣', label: 'Terrible', color: '#EF5350' },
+                  { id: 1, emoji: '😕', label: 'Bad', color: '#FFB300' },
+                  { id: 2, emoji: '😊', label: 'Good', color: '#66BB6A' },
+                  { id: 3, emoji: '😍', label: 'Loved it', color: '#4CAF50' },
                 ].map((reaction) => (
                   <TouchableOpacity
                     key={reaction.id}
@@ -1003,7 +1001,7 @@ export default function SettingsPage() {
                     ]}
                     onPress={() => setFeedbackSelected(reaction.id)}
                   >
-                    <IconSymbol name={reaction.icon as any} size={28} color={reaction.color} />
+                    <Text style={{ fontSize: 24, marginBottom: 4 }}>{reaction.emoji}</Text>
                     <Text style={[styles.feedbackReactionText, { color: feedbackSelected === reaction.id ? reaction.color : '#757575' }]}>
                       {reaction.label}
                     </Text>

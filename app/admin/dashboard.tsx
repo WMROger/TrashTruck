@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Animated, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
 import { AdminSidebar } from '../../components/admin';
@@ -32,6 +32,9 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isTabLoading, setIsTabLoading] = useState(false);
   const spinValue = new Animated.Value(0);
+  const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
+  const isNarrow = windowWidth < 900;
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [latestReportImages, setLatestReportImages] = useState<string[]>([]);
   const [latestFeedback, setLatestFeedback] = useState<{ userName: string; message: string; rating: string; createdAt?: any; photoURL?: string } | null>(null);
   const [feedbackStats, setFeedbackStats] = useState<{ loved: number; good: number; bad: number; terrible: number }>({ loved: 0, good: 0, bad: 0, terrible: 0 });
@@ -60,6 +63,13 @@ export default function AdminDashboard() {
     createdAt: any;
   };
   const [resolvedReports, setResolvedReports] = useState<Report[]>([]);
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowWidth(window.width);
+    });
+    return () => subscription?.remove();
+  }, []);
 
   useEffect(() => {
     const checkAdminAccess = async () => {
@@ -474,10 +484,10 @@ export default function AdminDashboard() {
     return null; // Will redirect to login
   }
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <CenroDashboardTab />;
+    const renderContent = () => {
+      switch (activeTab) {
+        case 'dashboard':
+          return <CenroDashboardTab onTabChange={handleTabPress} />;
       case 'trash-reports':
         return <TrashReportsTab />;
       case 'service-feedback':
@@ -528,20 +538,32 @@ export default function AdminDashboard() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>CENRO Civic Steward</Text>
+        {isNarrow && (
+          <TouchableOpacity
+            style={styles.hamburgerBtn}
+            onPress={() => setDrawerOpen(true)}
+          >
+            <MaterialIcons name="menu" size={26} color="#2E8B57" />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.topBarTitle}>{isNarrow ? 'CENRO' : 'CENRO Civic Steward'}</Text>
         <View style={styles.topBarRight}>
           <TouchableOpacity style={styles.topBarIconBtn}>
             <MaterialIcons name="notifications-none" size={24} color="#374151" />
             <View style={styles.notificationDot} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.topBarIconBtn}>
-            <MaterialIcons name="settings" size={24} color="#374151" />
-          </TouchableOpacity>
+          {!isNarrow && (
+            <TouchableOpacity style={styles.topBarIconBtn}>
+              <MaterialIcons name="settings" size={24} color="#374151" />
+            </TouchableOpacity>
+          )}
           <View style={styles.topBarDivider} />
-          <View style={styles.topBarUser}>
-            <Text style={styles.topBarRole}>Admin Panel</Text>
-            <Text style={styles.topBarSubrole}>FLEET SUPERVISOR</Text>
-          </View>
+          {!isNarrow && (
+            <View style={styles.topBarUser}>
+              <Text style={styles.topBarRole}>Admin Panel</Text>
+              <Text style={styles.topBarSubrole}>FLEET SUPERVISOR</Text>
+            </View>
+          )}
           <TouchableOpacity onPress={handleLogout} activeOpacity={0.7}>
             <Image source={{ uri: 'https://i.pravatar.cc/100?img=33' }} style={styles.topBarAvatar} />
           </TouchableOpacity>
@@ -549,7 +571,12 @@ export default function AdminDashboard() {
       </View>
       
       <View style={styles.mainContainer}>
-        <AdminSidebar activeTab={activeTab} onTabPress={handleTabPress} />
+        <AdminSidebar 
+          activeTab={activeTab} 
+          onTabPress={handleTabPress} 
+          isOpen={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
         <View style={styles.contentContainer}>
           {isTabLoading ? (
             <View style={styles.tabLoaderContainer}>
@@ -832,6 +859,10 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: '#E5E7EB',
+  },
+  hamburgerBtn: {
+    marginRight: 12,
+    padding: 4,
   },
   mainContainer: {
     flexDirection: 'row',

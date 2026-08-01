@@ -1,12 +1,183 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { collection, query, where, getDocs, onSnapshot, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../../config/firebase';
 
-export default function CenroDashboardTab() {
+interface DashboardStats {
+  totalWaste: number;
+  activeTrucks: number;
+  totalTrucks: number;
+  pendingIssues: number;
+}
+
+interface Report {
+  id: string;
+  barangay: string;
+  type: string;
+  status: string;
+  statusColor: string;
+}
+
+interface Schedule {
+  id: string;
+  time: string;
+  brgy: string;
+  truck: string;
+  status: string;
+  color: string;
+}
+
+export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab: string) => void }) {
+  const [stats, setStats] = useState<DashboardStats>({ totalWaste: 0, activeTrucks: 0, totalTrucks: 0, pendingIssues: 0 });
+  const [recentReports, setRecentReports] = useState<Report[]>([]);
+  const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [progress, setProgress] = useState({ completed: 0, total: 0 });
+  const [loading, setLoading] = useState(true);
+
+  // Manual Schedule State
+  const [drivers, setDrivers] = useState<{id: string, name: string}[]>([]);
+
+  useEffect(() => {
+    if (!db) return;
+
+    // 1. Fetch Drivers count and list
+    const fetchDrivers = async () => {
+      try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('role', '==', 'driver'));
+        const snap = await getDocs(q);
+        const total = snap.size;
+        setStats(prev => ({ ...prev, totalTrucks: total, activeTrucks: total }));
+        
+        const dList: {id: string, name: string}[] = [];
+        snap.forEach(doc => dList.push({ id: doc.id, name: doc.data().displayName || doc.data().email || 'Driver' }));
+        setDrivers(dList);
+      } catch(e) { console.error('Drivers error', e); }
+    };
+    fetchDrivers();
+
+    // 2. Listen to Reports for metrics and recent table
+    const reportsRef = collection(db, 'reports');
+    const reportsQuery = query(reportsRef, orderBy('createdAt', 'desc'), limit(20));
+    
+    const unsubReports = onSnapshot(reportsQuery, (snapshot) => {
+      let pendingCount = 0;
+      let wasteSum = 0;
+      const recent: Report[] = [];
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        
+        // Count pending
+        if (data.status === 'pending' || data.status === 'acknowledged') pendingCount++;
+        
+        // Sum waste if resolved/in-progress
+        if (data.status === 'resolved' || data.status === 'in progress') {
+          if (data.aiAnalysis && data.aiAnalysis.estimatedWeight) {
+            // Parse "0.1 kg" -> 0.1
+            const num = parseFloat(data.aiAnalysis.estimatedWeight.replace(/[^\d.-]/g, ''));
+            if (!isNaN(num)) wasteSum += num;
+          }
+        }
+
+        // Add to recent if we have less than 5
+        if (recent.length < 5) {
+          let statusColor = '#6b7280';
+          if (data.status === 'pending') statusColor = '#ef4444';
+          else if (data.status === 'acknowledged') statusColor = '#3b82f6';
+          else if (data.status === 'in progress') statusColor = '#f59e0b';
+          else if (data.status === 'resolved') statusColor = '#2E8B57';
+          
+          recent.push({
+            id: doc.id.substring(0, 8).toUpperCase(),
+            barangay: data.barangay || 'Unknown',
+            type: (data.aiAnalysis?.wasteType || 'General Waste'),
+            status: data.status ? data.status.toUpperCase() : 'UNKNOWN',
+            statusColor
+          });
+        }
+      });
+
+      setStats(prev => ({ ...prev, pendingIssues: pendingCount, totalWaste: wasteSum }));
+      setRecentReports(recent);
+    });
+
+    // 3. Listen to today's schedules from barangay_schedules
+    const bSchedRef = collection(db, 'barangay_schedules');
+    const bSchedQuery = query(bSchedRef, orderBy('createdAt', 'desc'));
+    
+    const unsubSched = onSnapshot(bSchedQuery, (snapshot) => {
+      const schedules: Schedule[] = [];
+      let comp = 0;
+      let tot = 0;
+
+      const now = new Date();
+      const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const todayDayStr = DAYS[now.getDay()];
+      const todayDateStr = `${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getDate().toString().padStart(2, '0')}`;
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        
+        // Check for specific date matches
+        if (data.specificSchedules && Array.isArray(data.specificSchedules)) {
+          data.specificSchedules.forEach((spec: any, idx: number) => {
+            if (spec.date === todayDateStr) {
+              tot++;
+              schedules.push({
+                id: `${doc.id}-spec-${idx}`,
+                time: spec.time || 'ASAP',
+                brgy: data.barangayName || 'Unknown',
+                truck: data.truck || 'Unassigned',
+                status: 'SCHEDULED',
+                color: '#3b82f6'
+              });
+            }
+          });
+        }
+        
+        // Check for recurring day matches
+        if (data.days && Array.isArray(data.days) && data.days.includes(todayDayStr)) {
+          tot++;
+          schedules.push({
+            id: `${doc.id}-rec`,
+            time: 'Regular Route',
+            brgy: data.barangayName || 'Unknown',
+            truck: data.truck || 'Unassigned',
+            status: 'SCHEDULED',
+            color: '#2E8B57' // Green for regular routes
+          });
+        }
+      });
+
+      setProgress({ completed: comp, total: tot });
+      setTodaySchedules(schedules);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubReports();
+      unsubSched();
+    };
+  }, []);
+
+  const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2E8B57" />
+      </View>
+    );
+  }
+
+  const progressPercent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.greeting}>Good morning, Administrator</Text>
-      <Text style={styles.dateText}>Tuesday, 24 Oct 2026</Text>
+      <Text style={styles.dateText}>{todayStr}</Text>
 
       <View style={styles.topCardsRow}>
         <View style={styles.card}>
@@ -14,8 +185,8 @@ export default function CenroDashboardTab() {
             <MaterialIcons name="delete-outline" size={24} color="#2E8B57" />
           </View>
           <Text style={styles.cardTitle}>Total Waste Collected</Text>
-          <Text style={styles.cardValue}>42.5 <Text style={styles.cardUnit}>tons</Text></Text>
-          <Text style={styles.cardTrend}>↑ 12% vs last week</Text>
+          <Text style={styles.cardValue}>{stats.totalWaste.toFixed(1)} <Text style={styles.cardUnit}>kg</Text></Text>
+          <Text style={styles.cardTrend}>From AI estimations</Text>
         </View>
 
         <View style={styles.card}>
@@ -23,8 +194,8 @@ export default function CenroDashboardTab() {
             <MaterialIcons name="local-shipping" size={24} color="#2E8B57" />
           </View>
           <Text style={styles.cardTitle}>Active Trucks</Text>
-          <Text style={styles.cardValue}>10/12 <Text style={styles.cardUnit}>trucks</Text></Text>
-          <Text style={styles.cardTrendNeutral}>2 under maintenance</Text>
+          <Text style={styles.cardValue}>{stats.activeTrucks}/{stats.totalTrucks} <Text style={styles.cardUnit}>drivers</Text></Text>
+          <Text style={styles.cardTrendNeutral}>Registered drivers online</Text>
         </View>
 
         <View style={styles.card}>
@@ -32,8 +203,8 @@ export default function CenroDashboardTab() {
             <MaterialIcons name="report-problem" size={24} color="#ef4444" />
           </View>
           <Text style={styles.cardTitle}>Pending Issues</Text>
-          <Text style={styles.cardValue}>5 <Text style={styles.cardUnit}>active</Text></Text>
-          <Text style={styles.cardTrendNegative}>↑ 2 from yesterday</Text>
+          <Text style={styles.cardValue}>{stats.pendingIssues} <Text style={styles.cardUnit}>active</Text></Text>
+          <Text style={styles.cardTrendNegative}>Requires routing</Text>
         </View>
       </View>
 
@@ -43,37 +214,17 @@ export default function CenroDashboardTab() {
           <View style={styles.progressCard}>
             <Text style={styles.sectionTitle}>Daily Schedule Progress</Text>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressMainValue}>75%</Text>
-              <Text style={styles.progressSubValue}>Overall Completion</Text>
+              <Text style={styles.progressMainValue}>{progressPercent}%</Text>
+              <Text style={styles.progressSubValue}>Overall Completion ({progress.completed}/{progress.total})</Text>
             </View>
             
             <View style={styles.barGroup}>
               <View style={styles.barLabelRow}>
-                <Text style={styles.barLabel}>Biodegradable</Text>
-                <Text style={styles.barValue}>80%</Text>
+                <Text style={styles.barLabel}>Route Tasks Completed</Text>
+                <Text style={styles.barValue}>{progressPercent}%</Text>
               </View>
               <View style={styles.barBackground}>
-                <View style={[styles.barFill, { width: '80%', backgroundColor: '#2E8B57' }]} />
-              </View>
-            </View>
-
-            <View style={styles.barGroup}>
-              <View style={styles.barLabelRow}>
-                <Text style={styles.barLabel}>Non-biodegradable</Text>
-                <Text style={styles.barValue}>65%</Text>
-              </View>
-              <View style={styles.barBackground}>
-                <View style={[styles.barFill, { width: '65%', backgroundColor: '#f59e0b' }]} />
-              </View>
-            </View>
-
-            <View style={styles.barGroup}>
-              <View style={styles.barLabelRow}>
-                <Text style={styles.barLabel}>Recyclable</Text>
-                <Text style={styles.barValue}>90%</Text>
-              </View>
-              <View style={styles.barBackground}>
-                <View style={[styles.barFill, { width: '90%', backgroundColor: '#3b82f6' }]} />
+                <View style={[styles.barFill, { width: `${progressPercent}%`, backgroundColor: '#2E8B57' }]} />
               </View>
             </View>
           </View>
@@ -88,25 +239,24 @@ export default function CenroDashboardTab() {
               <Text style={[styles.th, { flex: 1.5 }]}>Status</Text>
             </View>
             
-            {[
-              { id: 'REP-001', brgy: 'Sambag 1', type: 'Delayed Pickup', status: 'Pending', statusColor: '#ef4444' },
-              { id: 'REP-002', brgy: 'Guadalupe', type: 'Vehicle Breakdown', status: 'In Progress', statusColor: '#f59e0b' },
-              { id: 'REP-003', brgy: 'Lahug', type: 'Missed Collection', status: 'Resolved', statusColor: '#2E8B57' },
-              { id: 'REP-004', brgy: 'Talamban', type: 'Illegal Dumping', status: 'Pending', statusColor: '#ef4444' },
-            ].map((row, i) => (
-              <View key={i} style={styles.tableRow}>
-                <Text style={[styles.td, { flex: 1, fontWeight: '500' }]}>{row.id}</Text>
-                <Text style={[styles.td, { flex: 2 }]}>{row.brgy}</Text>
-                <Text style={[styles.td, { flex: 2 }]}>{row.type}</Text>
-                <View style={[styles.td, { flex: 1.5 }]}>
-                  <View style={[styles.badge, { backgroundColor: row.statusColor + '20' }]}>
-                    <Text style={[styles.badgeText, { color: row.statusColor }]}>{row.status}</Text>
+            {recentReports.length === 0 ? (
+              <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>No recent reports found.</Text>
+            ) : (
+              recentReports.map((row, i) => (
+                <View key={i} style={styles.tableRow}>
+                  <Text style={[styles.td, { flex: 1, fontWeight: '500' }]}>{row.id}</Text>
+                  <Text style={[styles.td, { flex: 2 }]}>{row.barangay}</Text>
+                  <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{row.type}</Text>
+                  <View style={[styles.td, { flex: 1.5 }]}>
+                    <View style={[styles.badge, { backgroundColor: row.statusColor + '20' }]}>
+                      <Text style={[styles.badgeText, { color: row.statusColor }]}>{row.status}</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              ))
+            )}
             
-            <TouchableOpacity style={styles.viewAllBtn}>
+            <TouchableOpacity style={styles.viewAllBtn} onPress={() => onTabChange?.('trash-reports')}>
               <Text style={styles.viewAllText}>View All Reports</Text>
             </TouchableOpacity>
           </View>
@@ -122,27 +272,25 @@ export default function CenroDashboardTab() {
               </TouchableOpacity>
             </View>
             
-            {[
-              { time: '08:00 AM', brgy: 'Guadalupe', truck: 'Truck A (TKA-123)', status: 'Completed', color: '#2E8B57' },
-              { time: '10:30 AM', brgy: 'Lahug', truck: 'Truck B (TKB-456)', status: 'In Progress', color: '#f59e0b' },
-              { time: '01:00 PM', brgy: 'Talamban', truck: 'Truck C (TKC-789)', status: 'Pending', color: '#6b7280' },
-              { time: '03:30 PM', brgy: 'Mabolo', truck: 'Truck D (TKD-012)', status: 'Pending', color: '#6b7280' },
-              { time: '05:00 PM', brgy: 'Tisa', truck: 'Truck E (TKE-345)', status: 'Pending', color: '#6b7280' },
-            ].map((item, i) => (
-              <View key={i} style={styles.scheduleItem}>
-                <View style={[styles.timelineDot, { backgroundColor: item.color }]} />
-                <View style={styles.scheduleContent}>
-                  <Text style={styles.scheduleTime}>{item.time}</Text>
-                  <Text style={styles.scheduleBrgy}>{item.brgy}</Text>
-                  <Text style={styles.scheduleTruck}>{item.truck}</Text>
+            {todaySchedules.length === 0 ? (
+              <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>No schedules dispatched today.</Text>
+            ) : (
+              todaySchedules.map((item, i) => (
+                <View key={item.id} style={styles.scheduleItem}>
+                  <View style={[styles.timelineDot, { backgroundColor: item.color }]} />
+                  <View style={styles.scheduleContent}>
+                    <Text style={styles.scheduleTime}>{item.time}</Text>
+                    <Text style={styles.scheduleBrgy}>{item.brgy}</Text>
+                    <Text style={styles.scheduleTruck}>{item.truck}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { borderColor: item.color }]}>
+                    <Text style={[styles.statusText, { color: item.color }]}>{item.status}</Text>
+                  </View>
                 </View>
-                <View style={[styles.statusBadge, { borderColor: item.color }]}>
-                  <Text style={[styles.statusText, { color: item.color }]}>{item.status}</Text>
-                </View>
-              </View>
-            ))}
+              ))
+            )}
 
-            <TouchableOpacity style={styles.addScheduleBtn}>
+            <TouchableOpacity style={styles.addScheduleBtn} onPress={() => onTabChange?.('collection-scheduler')}>
               <MaterialIcons name="add" size={20} color="#fff" />
               <Text style={styles.addScheduleBtnText}>Add New Schedule</Text>
             </TouchableOpacity>

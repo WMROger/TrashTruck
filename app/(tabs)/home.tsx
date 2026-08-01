@@ -4,7 +4,8 @@ import { db, storage } from "@/config/firebase";
 import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { NotificationService } from "@/services/notificationService";
-import { Ionicons } from "@expo/vector-icons";
+import { MaterialIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -17,22 +18,18 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, ref } from "firebase/storage";
 import React, { useEffect, useState } from "react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Image,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  getNotificationColor,
-  getNotificationIcon,
-  getNotificationTypeLabel,
   markAsRead as markAsReadHelper,
-  sendTestNotification as sendTestNotificationHelper,
+  sendTestNotification as sendTestNotificationHelper
 } from "./home.notifications";
 
 export default function HomePage() {
@@ -61,14 +58,14 @@ export default function HomePage() {
 
   // Notifications inbox state
   const [notifications, setNotifications] = useState<
-    Array<{
+    {
       id: string;
       title: string;
       body: string;
       createdAt: any;
       read?: boolean;
       type?: string;
-    }>
+    }[]
   >([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<{
@@ -88,6 +85,18 @@ export default function HomePage() {
   const totalPoints = userReports.length * 50; // 50 points per report
   const trashCollectedWeight = userReports.length * 2.5; // Mock 2.5kg per report
 
+  // Next Collection state
+  const [userBarangay, setUserBarangay] = useState<string>('');
+  const [nextCollection, setNextCollection] = useState<{
+    dateLabel: string;
+    timeText: string;
+    wasteCategory: string;
+  } | null>(null);
+
+  // Driver role detection
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const isDriver = userRole === 'driver';
+
   // Request notification permissions on mount
   useEffect(() => {
     const requestPermissions = async () => {
@@ -100,6 +109,105 @@ export default function HomePage() {
 
     requestPermissions();
   }, []);
+
+  // Fetch user's barangay from profile
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserBarangay(docSnap.data().barangay || '');
+      }
+    });
+    return () => unsubUser();
+  }, [user]);
+
+  // Compute next collection from barangay_schedules
+  useEffect(() => {
+    if (!db || !userBarangay) {
+      setNextCollection(null);
+      return;
+    }
+
+    const unsub = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
+      const schedules: any[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.barangayName === userBarangay) {
+          schedules.push({ id: d.id, ...data });
+        }
+      });
+
+      if (schedules.length === 0) {
+        setNextCollection(null);
+        return;
+      }
+
+      const DOW_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      let closest: { date: Date; wasteCategory: string; timeText: string } | null = null;
+
+      // Search the next 60 days for the closest scheduled collection
+      for (let offset = 0; offset < 60; offset++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(today.getDate() + offset);
+        const dowStr = DOW_MAP[checkDate.getDay()];
+        const key = `${checkDate.getFullYear()}-${(checkDate.getMonth() + 1).toString().padStart(2, '0')}-${checkDate.getDate().toString().padStart(2, '0')}`;
+
+        for (const s of schedules) {
+          let isMatch = s.days && s.days.includes(dowStr);
+          let category = s.wasteCategory || 'BIODEGRADABLE';
+          let time = 'Regular Hours';
+
+          const specificMatch = (s.specificSchedules || []).find((ss: any) => {
+            if (!ss.date) return false;
+            const monthNames = ["January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December"];
+            const monthName = monthNames[checkDate.getMonth()];
+            const shortMonthName = monthName.substring(0, 3);
+            const monthDD = `${monthName} ${checkDate.getDate()}`;
+            const shortMonthDD = `${shortMonthName} ${checkDate.getDate()}`;
+            const mmdd = `${(checkDate.getMonth() + 1).toString().padStart(2, '0')}/${checkDate.getDate().toString().padStart(2, '0')}`;
+            const dText = ss.date.trim().toLowerCase();
+            return dText === mmdd.toLowerCase() ||
+              dText === key.toLowerCase() ||
+              dText === monthDD.toLowerCase() ||
+              dText === shortMonthDD.toLowerCase();
+          });
+
+          if (specificMatch) {
+            isMatch = true;
+            category = specificMatch.category || category;
+            time = specificMatch.time || time;
+          }
+
+          if (isMatch) {
+            if (!closest) {
+              closest = { date: checkDate, wasteCategory: category, timeText: time };
+            }
+            break;
+          }
+        }
+        if (closest) break;
+      }
+
+      if (closest) {
+        const c = closest as { date: Date; wasteCategory: string; timeText: string };
+        const diffDays = Math.round((c.date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        let dateLabel = '';
+        if (diffDays === 0) dateLabel = 'Today';
+        else if (diffDays === 1) dateLabel = 'Tomorrow';
+        else {
+          dateLabel = c.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        }
+        setNextCollection({ dateLabel, timeText: c.timeText, wasteCategory: c.wasteCategory });
+      } else {
+        setNextCollection(null);
+      }
+    });
+
+    return () => unsub();
+  }, [userBarangay]);
 
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
@@ -138,6 +246,7 @@ export default function HomePage() {
             displayName: userData.displayName || user.displayName || "User",
             photoURL: resolved,
           });
+          setUserRole(userData.role || null);
         } else {
           // Fallback to auth data if Firestore document doesn't exist
           const resolved = await resolvePhotoURL(user.photoURL || undefined);
@@ -262,14 +371,14 @@ export default function HomePage() {
       orderBy("createdAt", "desc")
     );
     const unsub = onSnapshot(q, (snap) => {
-      const items: Array<{
+      const items: {
         id: string;
         title: string;
         body: string;
         createdAt: any;
         read?: boolean;
         type?: string;
-      }> = [];
+      }[] = [];
       snap.forEach((d) => {
         const data: any = d.data();
         items.push({
@@ -460,8 +569,8 @@ export default function HomePage() {
 
       {/* Main Content */}
       <ScrollView 
-        style={{ flex: 1 }} 
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 120) }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 10) }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Your Eco Impact */}
@@ -500,19 +609,28 @@ export default function HomePage() {
             <IconSymbol name="clock" size={20} color="white" />
             <Text style={styles.nextCollectionTitle}>Next Collection</Text>
           </View>
-          <Text style={styles.nextCollectionDate}>Tomorrow, Jan 24</Text>
-          <Text style={styles.nextCollectionTime}>08:00 AM</Text>
-          <View style={styles.nextCollectionDivider} />
-          <View style={styles.nextCollectionFooter}>
-            <IconSymbol name="arrow.triangle.2.circlepath" size={16} color="white" />
-            <Text style={styles.nextCollectionFooterText}>Recyclables & Organic waste</Text>
-          </View>
+          {nextCollection ? (
+            <>
+              <Text style={styles.nextCollectionDate}>{nextCollection.dateLabel}</Text>
+              <Text style={styles.nextCollectionTime}>{nextCollection.timeText}</Text>
+              <View style={styles.nextCollectionDivider} />
+              <View style={styles.nextCollectionFooter}>
+                <IconSymbol name="arrow.triangle.2.circlepath" size={16} color="white" />
+                <Text style={styles.nextCollectionFooterText}>{nextCollection.wasteCategory}</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.nextCollectionDate}>No upcoming collection</Text>
+              <Text style={styles.nextCollectionTime}>Set your barangay in your profile</Text>
+            </>
+          )}
         </View>
 
         {/* Community Updates */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitleSmall}>Community Updates</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/announcements')}>
             <Text style={styles.viewAllText}>View All</Text>
           </TouchableOpacity>
         </View>
@@ -536,6 +654,31 @@ export default function HomePage() {
             <Text style={styles.updateDesc}>Join us this Sunday at the Community Center for a 2-hour session.</Text>
           </View>
         </View>
+
+        {/* Driver Portal Button - Only for drivers */}
+        {isDriver && (
+          <TouchableOpacity
+            style={styles.driverPortalCard}
+            onPress={() => router.push('/(driver)/select-truck')}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#1B5E20', '#2E7D32', '#388E3C']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.driverPortalGradient}
+            >
+              <View style={styles.driverPortalIcon}>
+                <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
+              </View>
+              <View style={styles.driverPortalTextContainer}>
+                <Text style={styles.driverPortalTitle}>Driver Portal</Text>
+                <Text style={styles.driverPortalSubtitle}>Start your shift & select a truck</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
 
         {/* Quick Actions */}
         <Text style={[styles.sectionTitleSmall, { marginTop: 10, textTransform: 'uppercase', color: '#78A578' }]}>Quick Actions</Text>
@@ -971,5 +1114,48 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: "center",
     maxWidth: 60,
+  },
+
+  // Driver Portal Styles
+  driverPortalCard: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginTop: 8,
+    marginBottom: 4,
+    elevation: 6,
+    shadowColor: "#1B5E20",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  driverPortalGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  driverPortalIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  driverPortalTextContainer: {
+    flex: 1,
+  },
+  driverPortalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.3,
+  },
+  driverPortalSubtitle: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 2,
+    fontWeight: "500",
   },
 });

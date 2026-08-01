@@ -76,6 +76,12 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
     }
+
+    // Trucks (Fleet inventory)
+    match /trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
     // User profiles
     match /users/{userId} {
       allow read: if isAuthenticated();

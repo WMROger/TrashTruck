@@ -61,14 +61,6 @@ export default function AuthScreen() {
           <Text style={styles.devBackText}>Back to Splash (dev)</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.devBack}
-          onPress={() => router.push('/driver-login')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.devBackText}>Driver Portal Access</Text>
-        </TouchableOpacity>
-
         {Platform.OS === 'web' && (
           <TouchableOpacity
             style={styles.devBack}

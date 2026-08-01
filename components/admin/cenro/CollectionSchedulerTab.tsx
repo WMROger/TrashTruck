@@ -43,6 +43,7 @@ export default function CollectionSchedulerTab() {
 
   // Form State
   const [barangayName, setBarangayName] = useState('');
+  const [streetName, setStreetName] = useState('');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [truckName, setTruckName] = useState('');
   const [wasteCategory, setWasteCategory] = useState('BIODEGRADABLE');
@@ -52,6 +53,23 @@ export default function CollectionSchedulerTab() {
   const [isDetailsModalVisible, setDetailsModalVisible] = useState(false);
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const [specificCategory, setSpecificCategory] = useState('BIODEGRADABLE');
+
+  // Accordion State
+  const [expandedBarangay, setExpandedBarangay] = useState<string | null>(null);
+  const [expandedStreet, setExpandedStreet] = useState<string | null>(null);
+
+  // Group schedules by barangay and street
+  const groupedSchedules = React.useMemo(() => {
+    const groups: Record<string, Record<string, any[]>> = {};
+    schedules.forEach(s => {
+      const b = s.barangayName || 'Unknown Barangay';
+      const street = s.streetName || 'Whole Barangay';
+      if (!groups[b]) groups[b] = {};
+      if (!groups[b][street]) groups[b][street] = [];
+      groups[b][street].push(s);
+    });
+    return groups;
+  }, [schedules]);
 
   // Web-friendly string states
   const [webDateStr, setWebDateStr] = useState('');
@@ -97,10 +115,12 @@ export default function CollectionSchedulerTab() {
 
   const DAYS_OF_WEEK = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   const CATEGORIES = [
-    { name: 'BIODEGRADABLE', color: '#059669' },
-    { name: 'NON-BIODEGRADABLE', color: '#6B7280' },
+    { name: 'BIODEGRADABLE', color: '#22C55E' },
+    { name: 'NON-BIODEGRADABLE', color: '#2563EB' },
     { name: 'RECYCLABLE', color: '#EAB308' },
-    { name: 'HAZARDOUS', color: '#DC2626' }
+    { name: 'RESIDUAL', color: '#6B7280' },
+    { name: 'HAZARDOUS', color: '#EF4444' },
+    { name: 'SPECIAL/BULK', color: '#A855F7' }
   ];
 
   useEffect(() => {
@@ -141,15 +161,16 @@ export default function CollectionSchedulerTab() {
     try {
       await addDoc(collection(db, 'barangay_schedules'), {
         barangayName: barangayName.trim(),
+        streetName: streetName.trim(),
         days: [],
         truck: truckName.trim(),
-        wasteCategory: 'BIODEGRADABLE', // default fallback
-        statusColor: '#2E8B57',
+        wasteCategory: wasteCategory,
         createdAt: serverTimestamp(),
       });
       
       setModalVisible(false);
       setBarangayName('');
+      setStreetName('');
       setSelectedDays([]);
       setTruckName('');
       setWasteCategory('BIODEGRADABLE');
@@ -323,58 +344,117 @@ export default function CollectionSchedulerTab() {
             <Text style={{ color: '#6B7280' }}>No barangay schedules found.</Text>
           </View>
         ) : (
-          schedules.map((row, i) => (
-            <TouchableOpacity 
-              key={row.id || i} 
-              style={styles.tableRow}
-              onPress={() => {
-                setSelectedBarangay(row);
-                setDetailsModalVisible(true);
-              }}
-            >
-              <View style={[styles.td, { flex: 2.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12 }]}>
-                <View style={styles.avatarBadge}>
-                  <Text style={styles.avatarText}>{(row.barangayName || 'BR').substring(0, 2).toUpperCase()}</Text>
-                </View>
-                <View>
-                  <Text style={styles.brgyName}>{row.barangayName}</Text>
-                  <Text style={styles.brgyDesc}>Danao City</Text>
-                </View>
-              </View>
-
-              <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 4, flexWrap: 'wrap' }]}>
-                {(row.days || []).map((day: string, dIdx: number) => (
-                  <View key={`d-${dIdx}`} style={[styles.dayBadge, day === 'DAILY SERVICE' && { backgroundColor: '#2E8B57' }]}>
-                    <Text style={[styles.dayText, day === 'DAILY SERVICE' && { color: '#fff' }]}>{day}</Text>
+          Object.keys(groupedSchedules).map((bName, i) => (
+            <View key={bName || i} style={styles.accordionContainer}>
+              {/* Barangay Header */}
+              <TouchableOpacity 
+                style={styles.tableRow}
+                onPress={() => setExpandedBarangay(expandedBarangay === bName ? null : bName)}
+              >
+                <View style={[styles.td, { flex: 2.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12 }]}>
+                  <View style={styles.avatarBadge}>
+                    <Text style={styles.avatarText}>{(bName || 'BR').substring(0, 2).toUpperCase()}</Text>
                   </View>
-                ))}
-                {(row.specificSchedules || []).map((ss: any, idx: number) => (
-                  <View key={`ss-${idx}`} style={[styles.dayBadge, { backgroundColor: '#E0E7FF', borderColor: '#C7D2FE', borderWidth: 1 }]}>
-                    <Text style={[styles.dayText, { color: '#4338CA' }]}>{ss.date} {ss.time}</Text>
+                  <View>
+                    <Text style={styles.brgyName}>{bName}</Text>
+                    <Text style={styles.brgyDesc}>{Object.keys(groupedSchedules[bName]).length} Streets/Routes</Text>
                   </View>
-                ))}
-              </View>
-
-              <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }]}>
-                <MaterialIcons name="local-shipping" size={16} color="#6B7280" />
-                <View>
-                  <Text style={styles.truckName}>{row.truck}</Text>
-                  <Text style={styles.truckDesc}>Assigned</Text>
                 </View>
-              </View>
-
-              <View style={[styles.td, { flex: 1.5 }]}>
-                <View style={[styles.statusBadge, { backgroundColor: (row.statusColor || '#6B7280') + '20' }]}>
-                  <Text style={[styles.statusText, { color: row.statusColor || '#6B7280' }]}>{row.wasteCategory || 'GENERAL'}</Text>
+                <View style={[styles.td, { flex: 1.5, alignItems: 'flex-end' }]}>
+                  <MaterialIcons name={expandedBarangay === bName ? "expand-less" : "expand-more"} size={24} color="#6B7280" />
                 </View>
-              </View>
+              </TouchableOpacity>
 
-              <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
-                <View>
-                  <MaterialIcons name="chevron-right" size={20} color="#6B7280" />
+              {/* Streets List */}
+              {expandedBarangay === bName && (
+                <View style={styles.accordionBody}>
+                  {Object.keys(groupedSchedules[bName]).map((streetName, j) => (
+                    <View key={streetName || j} style={styles.streetContainer}>
+                      {/* Street Header */}
+                      <TouchableOpacity 
+                        style={styles.streetRow}
+                        onPress={() => {
+                          const fullId = `${bName}-${streetName}`;
+                          setExpandedStreet(expandedStreet === fullId ? null : fullId);
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialIcons name="map" size={18} color="#4B5563" />
+                          <Text style={styles.streetNameText}>{streetName}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={styles.streetDescText}>{groupedSchedules[bName][streetName].length} Schedules</Text>
+                          <MaterialIcons name={expandedStreet === `${bName}-${streetName}` ? "expand-less" : "expand-more"} size={20} color="#6B7280" />
+                        </View>
+                      </TouchableOpacity>
+
+                      {/* Schedules List */}
+                      {expandedStreet === `${bName}-${streetName}` && (
+                        <View style={styles.schedulesBody}>
+                          {groupedSchedules[bName][streetName].map((row, k) => (
+                            <TouchableOpacity 
+                              key={row.id || k} 
+                              style={styles.scheduleItemRow}
+                              onPress={() => {
+                                setSelectedBarangay(row);
+                                setDetailsModalVisible(true);
+                              }}
+                            >
+                              <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 4, flexWrap: 'wrap' }]}>
+                                {(row.days || []).map((day: string, dIdx: number) => (
+                                  <View key={`d-${dIdx}`} style={[styles.dayBadge, day === 'DAILY SERVICE' && { backgroundColor: '#2E8B57' }]}>
+                                    <Text style={[styles.dayText, day === 'DAILY SERVICE' && { color: '#fff' }]}>{day}</Text>
+                                  </View>
+                                ))}
+                                {(row.specificSchedules || []).map((ss: any, idx: number) => (
+                                  <View key={`ss-${idx}`} style={[styles.dayBadge, { backgroundColor: '#E0E7FF', borderColor: '#C7D2FE', borderWidth: 1 }]}>
+                                    <Text style={[styles.dayText, { color: '#4338CA' }]}>{ss.date} {ss.time}</Text>
+                                  </View>
+                                ))}
+                              </View>
+
+                              <View style={[styles.td, { flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }]}>
+                                <MaterialIcons name="local-shipping" size={16} color="#6B7280" />
+                                <Text style={styles.truckName}>{row.truck}</Text>
+                              </View>
+
+                              <View style={[styles.td, { flex: 1.5 }]}>
+                                {(() => {
+                                  const catName = row.wasteCategory || 'BIODEGRADABLE';
+                                  const catColor = CATEGORIES.find(c => c.name === catName)?.color || '#059669';
+                                  return (
+                                    <View style={[styles.statusBadge, { backgroundColor: catColor + '20' }]}>
+                                      <Text style={[styles.statusText, { color: catColor }]}>{catName}</Text>
+                                    </View>
+                                  );
+                                })()}
+                              </View>
+
+                              <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
+                                <MaterialIcons name="edit" size={18} color="#6B7280" />
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                  
+                  {/* Add New Schedule Button for this Barangay */}
+                  <TouchableOpacity 
+                    style={styles.addStreetBtn}
+                    onPress={() => {
+                      setBarangayName(bName);
+                      setStreetName('');
+                      setModalVisible(true);
+                    }}
+                  >
+                    <MaterialIcons name="add-circle-outline" size={18} color="#2E8B57" />
+                    <Text style={styles.addStreetBtnText}>Add Route to {bName}</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            </TouchableOpacity>
+              )}
+            </View>
           ))
         )}
 
@@ -437,6 +517,14 @@ export default function CollectionSchedulerTab() {
                 onChangeText={setBarangayName}
               />
             )}
+
+            <Text style={styles.inputLabel}>Street Name (Optional)</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g., Rizal Street or leave blank for Whole Barangay"
+              value={streetName}
+              onChangeText={setStreetName}
+            />
 
             <Text style={styles.inputLabel}>Assigned Truck / Driver</Text>
             <TextInput
@@ -676,4 +764,67 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#4B5563', fontWeight: '600', fontSize: 14 },
   modalSaveBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#2E8B57', minWidth: 100, alignItems: 'center' },
   modalSaveText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  // NEW ACCORDION STYLES
+  accordionContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  accordionBody: {
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  streetContainer: {
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  streetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F3F4F6',
+  },
+  streetNameText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  streetDescText: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  schedulesBody: {
+    padding: 8,
+  },
+  scheduleItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  addStreetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2E8B57',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    marginTop: 8,
+    backgroundColor: '#EDFBE8',
+  },
+  addStreetBtnText: {
+    color: '#2E8B57',
+    fontWeight: '600',
+    fontSize: 14,
+  },
 });
