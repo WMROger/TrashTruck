@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -38,6 +39,10 @@ export default function SelectTruckScreen() {
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
+
+  // Confirmation modal
+  const [confirmTruck, setConfirmTruck] = useState<Truck | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Fetch all trucks in real-time
   useEffect(() => {
@@ -161,19 +166,14 @@ export default function SelectTruckScreen() {
 
   const handleSelectTruck = (truck: Truck) => {
     if (!user) return;
+    setConfirmTruck(truck);
+    setShowConfirmModal(true);
+  };
 
-    Alert.alert(
-      'Confirm Truck Selection',
-      `Are you sure you want to select truck "${truck.plateNumber}" (${truck.type}) for today's shift?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          style: 'default',
-          onPress: () => assignTruck(truck),
-        },
-      ]
-    );
+  const handleConfirmAssignment = () => {
+    if (!confirmTruck) return;
+    setShowConfirmModal(false);
+    assignTruck(confirmTruck);
   };
 
   const assignTruck = async (truck: Truck) => {
@@ -198,12 +198,7 @@ export default function SelectTruckScreen() {
         currentTruckPlate: truck.plateNumber,
       });
 
-      Alert.alert('Truck Assigned', `You have been assigned to ${truck.plateNumber}.`, [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/(driver)'),
-        },
-      ]);
+      router.replace('/(driver)');
     } catch (error) {
       console.error('Failed to assign truck:', error);
       Alert.alert('Error', 'Failed to assign truck. Please try again.');
@@ -353,13 +348,93 @@ export default function SelectTruckScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* ── Confirmation Modal ── */}
+      <Modal
+        visible={showConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, isDark && styles.modalCardDark]}>
+            {/* Modal Header Icon */}
+            <View style={styles.modalIconCircle}>
+              <MaterialIcons name="local-shipping" size={36} color="#FFFFFF" />
+            </View>
+
+            <Text style={[styles.modalTitle, isDark && styles.textLight]}>
+              Confirm Truck Selection
+            </Text>
+            <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
+              You're about to start your shift with this truck
+            </Text>
+
+            {/* Truck Detail Card */}
+            {confirmTruck && (
+              <View style={[styles.modalDetailCard, isDark && { backgroundColor: '#1F2937', borderColor: '#374151' }]}>
+                <View style={styles.modalDetailRow}>
+                  <View style={styles.modalDetailLabel}>
+                    <MaterialIcons name="confirmation-number" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Plate Number</Text>
+                  </View>
+                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.plateNumber}</Text>
+                </View>
+
+                <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
+
+                <View style={styles.modalDetailRow}>
+                  <View style={styles.modalDetailLabel}>
+                    <MaterialIcons name="category" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Type</Text>
+                  </View>
+                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.type}</Text>
+                </View>
+
+                <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
+
+                <View style={styles.modalDetailRow}>
+                  <View style={styles.modalDetailLabel}>
+                    <MaterialIcons name="fitness-center" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Capacity</Text>
+                  </View>
+                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.capacity} Tons</Text>
+                </View>
+              </View>
+            )}
+
+            {/* Action Buttons */}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, isDark && { backgroundColor: '#374151', borderColor: '#4B5563' }]}
+                onPress={() => setShowConfirmModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalCancelText, isDark && { color: '#D1D5DB' }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleConfirmAssignment}
+                activeOpacity={0.85}
+              >
+                <MaterialIcons name="play-arrow" size={20} color="#FFFFFF" />
+                <Text style={styles.modalConfirmText}>Start Shift</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Assigning Overlay */}
       {assigning && (
         <View style={styles.overlay}>
           <View style={[styles.overlayContent, isDark && styles.overlayContentDark]}>
             <ActivityIndicator size="large" color={isDark ? '#86EFAC' : '#4E6C50'} />
             <Text style={[styles.overlayText, isDark && styles.textLight]}>
-              Assigning truck...
+              Starting your shift...
+            </Text>
+            <Text style={[styles.overlaySubtext, isDark && styles.textMuted]}>
+              Assigning truck and preparing dashboard
             </Text>
           </View>
         </View>
@@ -558,18 +633,144 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  // ── Confirmation Modal ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  modalCardDark: {
+    backgroundColor: '#111827',
+  },
+  modalIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#2E8B57',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#2E8B57',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalDetailCard: {
+    width: '100%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 24,
+  },
+  modalDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  modalDetailLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalDetailLabelText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  modalDetailValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  modalConfirmBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#2E8B57',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#2E8B57',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalConfirmText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
   // Overlay
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
   },
   overlayContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 32,
+    borderRadius: 24,
+    padding: 40,
     alignItems: 'center',
     gap: 16,
     shadowColor: '#000',
@@ -577,13 +778,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 10,
+    minWidth: 260,
   },
   overlayContentDark: {
     backgroundColor: '#1F2937',
   },
   overlayText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#1F2937',
+  },
+  overlaySubtext: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });

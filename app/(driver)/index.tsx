@@ -4,7 +4,7 @@ import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Linking, Modal } from 'react-native';
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
@@ -45,6 +45,8 @@ export default function DriverIndex() {
   // Modal states
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
+  const [showEndShiftModal, setShowEndShiftModal] = useState(false);
+  const [showActiveShiftModal, setShowActiveShiftModal] = useState(false);
   const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
 
   // Current truck assignment
@@ -216,45 +218,41 @@ export default function DriverIndex() {
   };
 
   const handleEndShift = () => {
-    Alert.alert(
-      'End Shift',
-      `Are you sure you want to end your shift${currentTruck ? ` and release ${currentTruck.plateNumber}` : ''}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'End Shift',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              if (currentTruck && user?.uid) {
-                // Unassign driver from truck
-                await updateDoc(doc(db, 'trucks', currentTruck.id), {
-                  assignedDriverId: null,
-                  assignedDriverName: null,
-                  shiftStartedAt: null,
-                  updatedAt: serverTimestamp(),
-                });
-                // Clear truck from user profile
-                await updateDoc(doc(db, 'users', user.uid), {
-                  currentTruckId: null,
-                  currentTruckPlate: null,
-                });
-              }
-              setIsShiftActive(false);
-              setCurrentTruck(null);
-              // Navigate back to user portal
-              router.replace('/(tabs)/home');
-            } catch (e) {
-              console.error('End shift error:', e);
-              Alert.alert('Error', 'Failed to end shift. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    setShowEndShiftModal(true);
+  };
+
+  const confirmEndShift = async () => {
+    try {
+      if (currentTruck && user?.uid) {
+        // Unassign driver from truck
+        await updateDoc(doc(db, 'trucks', currentTruck.id), {
+          assignedDriverId: null,
+          assignedDriverName: null,
+          shiftStartedAt: null,
+          updatedAt: serverTimestamp(),
+        });
+        // Clear truck from user profile
+        await updateDoc(doc(db, 'users', user.uid), {
+          currentTruckId: null,
+          currentTruckPlate: null,
+        });
+      }
+      setIsShiftActive(false);
+      setCurrentTruck(null);
+      setShowEndShiftModal(false);
+      // Navigate back to user portal
+      router.replace('/(tabs)/home');
+    } catch (e) {
+      console.error('End shift error:', e);
+      Alert.alert('Error', 'Failed to end shift. Please try again.');
+    }
   };
 
   const handleBackToUserPortal = () => {
+    if (currentTruck) {
+      setShowActiveShiftModal(true);
+      return;
+    }
     router.replace('/(tabs)/home');
   };
 
@@ -481,6 +479,80 @@ export default function DriverIndex() {
           }}
         />
       )}
+
+      {/* ── End Shift Confirmation Modal ── */}
+      <Modal
+        visible={showEndShiftModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEndShiftModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, isDark && styles.modalCardDark]}>
+            <View style={[styles.modalIconCircle, { backgroundColor: '#FEE2E2', shadowColor: '#EF4444' }]}>
+              <MaterialIcons name="power-settings-new" size={36} color="#DC2626" />
+            </View>
+
+            <Text style={[styles.modalTitle, isDark && styles.textLight]}>
+              End Your Shift
+            </Text>
+            <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
+              Are you sure you want to end your shift{currentTruck ? ` and release ${currentTruck.plateNumber}` : ''}?
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, isDark && { backgroundColor: '#374151', borderColor: '#4B5563' }]}
+                onPress={() => setShowEndShiftModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalCancelText, isDark && { color: '#D1D5DB' }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: '#DC2626', shadowColor: '#DC2626' }]}
+                onPress={confirmEndShift}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>End Shift</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Active Shift Warning Modal ── */}
+      <Modal
+        visible={showActiveShiftModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActiveShiftModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, isDark && styles.modalCardDark]}>
+            <View style={[styles.modalIconCircle, { backgroundColor: '#FEF3C7', shadowColor: '#F59E0B' }]}>
+              <MaterialIcons name="warning" size={36} color="#D97706" />
+            </View>
+
+            <Text style={[styles.modalTitle, isDark && styles.textLight]}>
+              Active Shift
+            </Text>
+            <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
+              You need to end your shift before switching to the user app. End your shift first to release the truck.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: '#F59E0B', shadowColor: '#F59E0B' }]}
+                onPress={() => setShowActiveShiftModal(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -959,5 +1031,94 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 4,
     textAlign: 'center',
+  },
+  
+  // ── Modal Styles ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  modalCardDark: {
+    backgroundColor: '#111827',
+  },
+  modalIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalConfirmText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

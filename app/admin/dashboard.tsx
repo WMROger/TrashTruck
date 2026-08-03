@@ -19,6 +19,8 @@ import {
   ServiceFeedbackTab,
   RouteOptimizationTab,
   TruckInventoryTab,
+  DriverAccountsTab,
+  AnnouncementsTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
@@ -498,10 +500,14 @@ export default function AdminDashboard() {
         return <TruckInventoryTab />;
       case 'driver-onboarding':
         return <DriverOnboardingTab />;
+      case 'driver-accounts':
+        return <DriverAccountsTab />;
       case 'collection-scheduler':
         return <CollectionSchedulerTab />;
       case 'operational-overrides':
         return <OperationalOverridesTab />;
+      case 'announcements':
+        return <AnnouncementsTab />;
       case 'add-barangay':
         return <AddNewBarangayTab />;
       case 'coordinators':

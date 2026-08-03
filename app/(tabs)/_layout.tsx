@@ -44,6 +44,13 @@ export default function TabLayout() {
           }
           // Drivers stay on the regular user portal but have access to driver features
           setRole(userData.role || null);
+
+          // If driver has an active shift (truck assigned), redirect to driver portal
+          if (userData.role === 'driver' && userData.currentTruckId) {
+            console.log('Tabs layout: Driver on active shift, redirecting to driver portal');
+            router.replace('/(driver)');
+            return;
+          }
         }
         setIsAdmin(false);
       } catch (error) {

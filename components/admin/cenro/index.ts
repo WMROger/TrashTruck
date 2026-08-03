@@ -9,3 +9,5 @@ export { default as TrashReportsTab } from './TrashReportsTab';
 export { default as ServiceFeedbackTab } from './ServiceFeedbackTab';
 export { default as RouteOptimizationTab } from './RouteOptimizationTab';
 export { default as TruckInventoryTab } from './TruckInventoryTab';
+export { default as DriverAccountsTab } from './DriverAccountsTab';
+export { default as AnnouncementsTab } from './AnnouncementsTab';

@@ -128,5 +128,5 @@ let storage: any = null;
 
   console.log('Firebase: Initialization complete. auth:', auth ? 'OK' : 'NULL');
 
-export { auth, db, functions, storage };
+export { auth, db, functions, storage, firebaseConfig };
 export default app;

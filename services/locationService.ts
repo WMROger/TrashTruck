@@ -5,6 +5,8 @@ import { db } from '@/config/firebase';
 class LocationService {
   private locationSubscription: Location.LocationSubscription | null = null;
   private isTracking = false;
+  private retryTimeout: ReturnType<typeof setTimeout> | null = null;
+  private maxRetries = 3;
 
   async startTracking(driverId: string, truckId: string = 'truck-1') {
     if (this.isTracking) return;
@@ -12,19 +14,39 @@ class LocationService {
     try {
       const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
       if (foregroundStatus !== 'granted') {
-        console.error('Permission to access location was denied');
+        console.warn('Location permission denied — GPS tracking not started.');
+        return;
+      }
+
+      // Check if location services are enabled
+      const isEnabled = await Location.hasServicesEnabledAsync();
+      if (!isEnabled) {
+        console.warn('Location services are disabled. GPS tracking will retry when available.');
+        this.scheduleRetry(driverId, truckId, 0);
         return;
       }
 
       this.isTracking = true;
 
-      // Initial location update
-      const initialLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      await this.updateLocationInFirestore(driverId, truckId, initialLocation.coords);
+      // Try to get initial location with fallback
+      try {
+        const initialLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        await this.updateLocationInFirestore(driverId, truckId, initialLocation.coords);
+      } catch (initialError) {
+        console.warn('getCurrentPositionAsync failed, trying getLastKnownPositionAsync...');
+        try {
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (lastKnown) {
+            await this.updateLocationInFirestore(driverId, truckId, lastKnown.coords);
+          }
+        } catch (fallbackError) {
+          console.warn('getLastKnownPositionAsync also failed — will rely on watchPosition updates.');
+        }
+      }
 
-      // Start watching location
+      // Start watching location — this is more resilient than getCurrentPositionAsync
       this.locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -40,10 +62,32 @@ class LocationService {
     } catch (error) {
       console.error('Error starting location tracking:', error);
       this.isTracking = false;
+      // Schedule a retry
+      this.scheduleRetry(driverId, truckId, 0);
     }
   }
 
+  private scheduleRetry(driverId: string, truckId: string, attempt: number) {
+    if (attempt >= this.maxRetries) {
+      console.warn(`GPS tracking: gave up after ${this.maxRetries} retries.`);
+      return;
+    }
+    
+    const delay = Math.min(5000 * Math.pow(2, attempt), 30000); // 5s, 10s, 20s
+    console.log(`GPS tracking: retrying in ${delay / 1000}s (attempt ${attempt + 1}/${this.maxRetries})`);
+    
+    this.retryTimeout = setTimeout(() => {
+      this.startTracking(driverId, truckId);
+    }, delay);
+  }
+
   async stopTracking(driverId: string) {
+    // Cancel any pending retry
+    if (this.retryTimeout) {
+      clearTimeout(this.retryTimeout);
+      this.retryTimeout = null;
+    }
+
     if (this.locationSubscription) {
       this.locationSubscription.remove();
       this.locationSubscription = null;
