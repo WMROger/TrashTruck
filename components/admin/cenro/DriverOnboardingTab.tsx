@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { db, firebaseConfig } from '@/config/firebase';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, functions } from '@/config/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 export default function DriverOnboardingTab() {
   const [mode, setMode] = useState<'create' | 'upgrade'>('create');
@@ -19,7 +18,6 @@ export default function DriverOnboardingTab() {
   // Upgrade State
   const [searchEmail, setSearchEmail] = useState('');
   const [foundUser, setFoundUser] = useState<any>(null);
-  const [isSearching, setIsSearching] = useState(false);
   const [residentsList, setResidentsList] = useState<any[]>([]);
 
   // Common State
@@ -31,11 +29,6 @@ export default function DriverOnboardingTab() {
   const [availableTrucks, setAvailableTrucks] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
-  // Initialize Secondary App for auth creation (prevents admin logout)
-  const secondaryApp = getApps().find(app => app.name === 'SecondaryApp') 
-    || initializeApp(firebaseConfig, 'SecondaryApp');
-  const secondaryAuth = getAuth(secondaryApp);
 
   useEffect(() => {
     if (!db) return;
@@ -69,36 +62,6 @@ export default function DriverOnboardingTab() {
     };
   }, []);
 
-  const handleSearchResident = async () => {
-    if (!searchEmail) {
-      Alert.alert('Error', 'Please enter an email to search.');
-      return;
-    }
-    setIsSearching(true);
-    setFoundUser(null);
-    try {
-      const q = query(collection(db, 'users'), where('email', '==', searchEmail.toLowerCase().trim()));
-      const snap = await getDocs(q);
-      
-      if (snap.empty) {
-        Alert.alert('Not Found', 'No resident found with that email.');
-      } else {
-        const userDoc = snap.docs[0];
-        const data = userDoc.data();
-        if (data.role === 'driver' || data.role === 'admin') {
-          Alert.alert('Notice', 'User already has an elevated role.');
-        } else {
-          setFoundUser({ id: userDoc.id, ...data });
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to search for user.');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   const handleCompleteOnboarding = async () => {
     if (!employeeId || !licenseNumber) {
       Alert.alert('Validation Error', 'Please fill in the Employee ID and License Number.');
@@ -107,67 +70,33 @@ export default function DriverOnboardingTab() {
 
     setIsSubmitting(true);
     try {
-      let targetUserId = '';
-      let targetUserName = '';
-
       if (mode === 'create') {
         if (!newEmail || !newPassword || !newFullName) {
           Alert.alert('Validation Error', 'Please fill in Email, Password, and Full Name for the new driver.');
           setIsSubmitting(false);
           return;
         }
-
-        // Create Auth Account in secondary app
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newEmail.trim(), newPassword);
-        targetUserId = userCredential.user.uid;
-        targetUserName = newFullName;
-
-        // Create Firestore doc
-        await setDoc(doc(db, 'users', targetUserId), {
-          email: newEmail.toLowerCase().trim(),
-          displayName: newFullName,
-          contactInfo: newContact,
-          employeeId,
-          licenseNumber,
-          role: 'driver',
-          createdAt: serverTimestamp(),
-        });
-        
       } else {
         if (!foundUser) {
           Alert.alert('Validation Error', 'Please search and select a resident to upgrade.');
           setIsSubmitting(false);
           return;
         }
-
-        targetUserId = foundUser.id;
-        targetUserName = foundUser.displayName || 'Unknown';
-
-        // Update existing Firestore doc
-        await updateDoc(doc(db, 'users', targetUserId), {
-          employeeId,
-          licenseNumber,
-          role: 'driver',
-          updatedAt: serverTimestamp(),
-        });
       }
 
-      // Assign truck if selected
-      if (selectedTruckId) {
-        // Update Truck
-        await updateDoc(doc(db, 'trucks', selectedTruckId), {
-          assignedDriverId: targetUserId,
-          assignedDriverName: targetUserName,
-          updatedAt: serverTimestamp(),
-        });
-
-        // Update User with truck info
-        const selectedTruck = availableTrucks.find(t => t.id === selectedTruckId);
-        await updateDoc(doc(db, 'users', targetUserId), {
-          currentTruckId: selectedTruckId,
-          currentTruckPlate: selectedTruck?.plateNumber,
-        });
-      }
+      if (!functions) throw new Error('Firebase Functions is unavailable.');
+      const provisionDriver = httpsCallable(functions, 'provisionDriver');
+      await provisionDriver({
+        mode,
+        email: newEmail,
+        password: mode === 'create' ? newPassword : undefined,
+        fullName: mode === 'create' ? newFullName : foundUser?.displayName,
+        contactInfo: mode === 'create' ? newContact : foundUser?.contactInfo,
+        existingUserId: mode === 'upgrade' ? foundUser?.id : undefined,
+        employeeId,
+        licenseNumber,
+        truckId: selectedTruckId || undefined,
+      });
 
       Alert.alert('Success', `Driver successfully ${mode === 'create' ? 'created' : 'upgraded'}.`);
       
@@ -324,6 +253,7 @@ export default function DriverOnboardingTab() {
                   onChangeText={setNewPassword} 
                   secureTextEntry={!showPassword} 
                 />
+                <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 5 }}>Use at least 12 characters.</Text>
                 <TouchableOpacity 
                   style={styles.eyeIcon} 
                   onPress={() => setShowPassword(!showPassword)}

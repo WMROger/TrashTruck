@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { collection, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 
 interface Truck {
@@ -26,6 +26,13 @@ export default function TruckInventoryTab() {
   const [capacity, setCapacity] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // History Modal State
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<'week' | 'month' | 'all'>('week');
+  const [truckHistory, setTruckHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     if (!db) return;
@@ -130,6 +137,69 @@ export default function TruckInventoryTab() {
   const maintenanceCount = trucks.filter(t => t.status === 'maintenance').length;
   const outCount = trucks.filter(t => t.status === 'out_of_service').length;
   const deployedCount = trucks.filter(t => t.assignedDriverId).length;
+
+  useEffect(() => {
+    async function fetchHistory() {
+      if (!selectedTruck || !db) return;
+      setLoadingHistory(true);
+      
+      try {
+        const ref = collection(db, 'schedules');
+        // Schedules usually store the truck plate or name in the 'truck' field
+        const qy = query(ref, where('truck', '==', selectedTruck.plateNumber));
+        const snap = await getDocs(qy);
+        
+        let allHist = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        
+        // Client-side sort to avoid index requirements
+        allHist.sort((a, b) => {
+          const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return bTime - aTime;
+        });
+        
+        // Filter by time
+        const now = new Date();
+        let cutoff = new Date(0); // All time
+        
+        if (historyFilter === 'week') {
+          cutoff = new Date();
+          cutoff.setDate(now.getDate() - 7);
+        } else if (historyFilter === 'month') {
+          cutoff = new Date();
+          cutoff.setMonth(now.getMonth() - 1);
+        }
+        
+        const filtered = allHist.filter((r) => {
+          if (!r.createdAt) return false;
+          const createdMs = r.createdAt?.toDate ? r.createdAt.toDate().getTime() : new Date(r.createdAt).getTime();
+          return createdMs >= cutoff.getTime() && ['completed', 'issue', 'resolved', 'done'].includes((r.status || '').toLowerCase());
+        });
+        
+        // Map to display format
+        const formatted = filtered.map(item => {
+           const d = item.createdAt?.toDate ? item.createdAt.toDate() : (item.createdAt ? new Date(item.createdAt) : new Date());
+           return {
+             id: item.id,
+             date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+             time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+             driver: item.driver || 'Unknown Driver',
+             route: item.barangayName || item.streetName || 'Unknown Route',
+             status: (item.status === 'issue') ? 'issue' : 'completed'
+           };
+        });
+        
+        setTruckHistory(formatted);
+      } catch (err) {
+        console.error("Error fetching truck history:", err);
+        setTruckHistory([]);
+      } finally {
+        setLoadingHistory(false);
+      }
+    }
+    
+    fetchHistory();
+  }, [selectedTruck, historyFilter]);
 
   if (loading) {
     return (
@@ -339,6 +409,9 @@ export default function TruckInventoryTab() {
                 </View>
                 
                 <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
+                  <TouchableOpacity onPress={() => { setSelectedTruck(truck); setHistoryModalVisible(true); }} style={styles.actionBtn}>
+                    <MaterialIcons name="history" size={20} color="#4B5563" />
+                  </TouchableOpacity>
                   {truck.assignedDriverId && (
                     <TouchableOpacity onPress={() => handleUnassignDriver(truck.id)} style={styles.actionBtn}>
                       <MaterialIcons name="person-remove" size={18} color="#7C3AED" />
@@ -367,6 +440,77 @@ export default function TruckInventoryTab() {
       </View>
 
       <View style={{ height: 40 }} />
+      
+      {/* Truck History Modal */}
+      <Modal visible={historyModalVisible} transparent animationType="fade" onRequestClose={() => setHistoryModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {selectedTruck && (
+              <>
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>{selectedTruck.plateNumber} History</Text>
+                    <Text style={styles.modalSubtitle}>{selectedTruck.type} • {selectedTruck.capacity} Tons</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setHistoryModalVisible(false)} style={styles.modalCloseBtn}>
+                    <MaterialIcons name="close" size={24} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Filters */}
+                <View style={styles.filterRow}>
+                  {['week', 'month', 'all'].map((f) => (
+                    <TouchableOpacity 
+                      key={f} 
+                      style={[styles.filterChip, historyFilter === f && styles.filterChipActive]}
+                      onPress={() => setHistoryFilter(f as any)}
+                    >
+                      <Text style={[styles.filterChipText, historyFilter === f && styles.filterChipTextActive]}>
+                        {f === 'week' ? 'Past Week' : f === 'month' ? 'Past Month' : 'All Time'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <ScrollView style={styles.historyList}>
+                  {loadingHistory ? (
+                    <ActivityIndicator size="small" color="#2E8B57" style={{ marginTop: 20 }} />
+                  ) : truckHistory.length === 0 ? (
+                    <Text style={{ textAlign: 'center', color: '#6B7280', marginTop: 20 }}>No completed routes found for this period.</Text>
+                  ) : (
+                    truckHistory.map((item) => (
+                      <View key={item.id} style={styles.historyItem}>
+                      <View style={styles.historyTimeCol}>
+                        <Text style={styles.historyDate}>{item.date}</Text>
+                        <Text style={styles.historyTime}>{item.time}</Text>
+                      </View>
+                      
+                      <View style={styles.historyDivider}>
+                        <View style={[styles.historyDot, item.status === 'issue' && {backgroundColor: '#ef4444'}]} />
+                        <View style={styles.historyLine} />
+                      </View>
+                      
+                      <View style={styles.historyDetails}>
+                        <Text style={styles.historyDriver}>
+                          <MaterialIcons name="person" size={14} color="#6B7280" /> {item.driver}
+                        </Text>
+                        <Text style={styles.historyRoute}>
+                          <MaterialIcons name="place" size={14} color="#6B7280" /> {item.route}
+                        </Text>
+                        <View style={[styles.historyStatus, item.status === 'issue' ? styles.statusOut : styles.statusActive]}>
+                          <Text style={[styles.statusText, item.status === 'issue' ? {color: '#DC2626'} : {color: '#059669'}]}>
+                            {item.status === 'issue' ? 'Issue Reported' : 'Completed'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  )))}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -433,4 +577,30 @@ const styles = StyleSheet.create({
 
   emptyTable: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#9CA3AF', fontSize: 14 },
+  
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '90%', maxWidth: 600, backgroundColor: '#FFF', borderRadius: 16, padding: 24, maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#111827' },
+  modalSubtitle: { fontSize: 14, color: '#6B7280', marginTop: 4 },
+  modalCloseBtn: { padding: 4 },
+  
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  filterChipActive: { backgroundColor: '#E8F5E9', borderColor: '#2E8B57' },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: '#4B5563' },
+  filterChipTextActive: { color: '#2E8B57' },
+  
+  historyList: { flex: 1 },
+  historyItem: { flexDirection: 'row', marginBottom: 16 },
+  historyTimeCol: { width: 90, alignItems: 'flex-end', paddingTop: 2 },
+  historyDate: { fontSize: 13, fontWeight: '700', color: '#111827' },
+  historyTime: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  historyDivider: { width: 30, alignItems: 'center', marginHorizontal: 8 },
+  historyDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#2E8B57', zIndex: 1 },
+  historyLine: { width: 2, flex: 1, backgroundColor: '#E5E7EB', position: 'absolute', top: 12, bottom: -16 },
+  historyDetails: { flex: 1, backgroundColor: '#F9FAFB', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
+  historyDriver: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  historyRoute: { fontSize: 13, color: '#4B5563', marginBottom: 8 },
+  historyStatus: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
 });

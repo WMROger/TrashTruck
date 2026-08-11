@@ -6,10 +6,12 @@ import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
+import { writeAuditLog } from '@/services/auditLogService';
+import { setFcmPushEnabled } from '@/services/pushTokenService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
-import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,7 +55,45 @@ export default function SettingsPage() {
   const [feedbackText, setFeedbackText] = useState('');
   const [pushEnabled, setPushEnabled] = useState(true);
   const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reportUpdatesEnabled, setReportUpdatesEnabled] = useState(true);
+  const [announcementNotificationsEnabled, setAnnouncementNotificationsEnabled] = useState(true);
+  const [proximityAlertsEnabled, setProximityAlertsEnabled] = useState(true);
+  const [proximityRadiusMeters, setProximityRadiusMeters] = useState(500);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    getDoc(doc(db, 'user_settings', user.uid)).then(snapshot => {
+      const preferences = snapshot.data()?.notificationPreferences;
+      if (!preferences) return;
+      setPushEnabled(preferences.pushEnabled !== false);
+      setReminderEnabled(preferences.pickupReminders !== false);
+      setReportUpdatesEnabled(preferences.reportUpdates !== false);
+      setAnnouncementNotificationsEnabled(preferences.announcements !== false);
+      setProximityAlertsEnabled(preferences.proximityAlerts !== false);
+      setProximityRadiusMeters([250, 500, 1000].includes(preferences.proximityRadiusMeters) ? preferences.proximityRadiusMeters : 500);
+    }).catch(error => console.warn('Unable to load notification preferences:', error));
+  }, [user?.uid]);
+
+  const saveNotificationPreferences = async () => {
+    if (!user?.uid || !db) return;
+    const notificationPreferences = {
+      pushEnabled,
+      pickupReminders: reminderEnabled,
+      reportUpdates: reportUpdatesEnabled,
+      announcements: announcementNotificationsEnabled,
+      proximityAlerts: proximityAlertsEnabled,
+      proximityRadiusMeters,
+    };
+    try {
+      await setDoc(doc(db, 'user_settings', user.uid), { notificationPreferences, updatedAt: serverTimestamp() }, { merge: true });
+      await setFcmPushEnabled(user.uid, pushEnabled);
+      await writeAuditLog('notification.preferences_updated', 'user', user.uid, notificationPreferences);
+      setShowNotificationsModal(false);
+    } catch {
+      Alert.alert('Unable to save', 'Notification preferences could not be updated. Check your connection and try again.');
+    }
+  };
 
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
@@ -517,56 +557,63 @@ export default function SettingsPage() {
       </View>
 
       <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 100 }}>
-        {isEditMode && (
-          <View style={[styles.profileCard, { backgroundColor: colors.surface, marginHorizontal: 20, marginBottom: 20 }]}>
-            <TouchableOpacity 
-              style={styles.avatarContainer} 
-              onPress={pickImage} 
-              activeOpacity={0.7}
-            >
-              {editPhotoURL ? (
-                <Image source={{ uri: editPhotoURL }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                  <IconSymbol name="person.fill" size={40} color={colors.surface} />
-                </View>
-              )}
-              <Text style={styles.avatarEditText}>Tap to change photo</Text>
-            </TouchableOpacity>
-            
-            <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              style={[styles.editNameInput, { color: colors.textPrimary, backgroundColor: colors.background }]}
-              placeholder="Enter your name"
-              placeholderTextColor={colors.textTertiary}
-            />
-            
-            <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
-              {user?.email || 'No email'}
-            </Text>
+        <Modal
+          visible={isEditMode}
+          transparent
+          animationType="slide"
+          onRequestClose={handleCancelEdit}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.profileCard, { backgroundColor: colors.surface, marginHorizontal: 20, width: '90%', borderRadius: 16 }]}>
+              <TouchableOpacity 
+                style={styles.avatarContainer} 
+                onPress={pickImage} 
+                activeOpacity={0.7}
+              >
+                {editPhotoURL ? (
+                  <Image source={{ uri: editPhotoURL }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+                    <IconSymbol name="person.fill" size={40} color={colors.surface} />
+                  </View>
+                )}
+                <Text style={styles.avatarEditText}>Tap to change photo</Text>
+              </TouchableOpacity>
+              
+              <TextInput
+                value={editName}
+                onChangeText={setEditName}
+                style={[styles.editNameInput, { color: colors.textPrimary, backgroundColor: colors.background }]}
+                placeholder="Enter your name"
+                placeholderTextColor={colors.textTertiary}
+              />
+              
+              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
+                {user?.email || 'No email'}
+              </Text>
 
-            <TouchableOpacity 
-              style={[styles.saveButton, { backgroundColor: colors.primary }]} 
-              onPress={handleSaveProfile}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <ActivityIndicator color={colors.surface} />
-              ) : (
-                <Text style={[styles.saveButtonText, { color: colors.surface }]}>
-                  Save Changes
-                </Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={{ marginTop: 12, paddingVertical: 8 }} 
-              onPress={handleCancelEdit}
-            >
-              <Text style={{ color: colors.textSecondary, textAlign: 'center', fontWeight: '600' }}>Cancel</Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.saveButton, { backgroundColor: colors.primary, width: '100%' }]} 
+                onPress={handleSaveProfile}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>
+                    Save Changes
+                  </Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ marginTop: 16, paddingVertical: 8 }} 
+                onPress={handleCancelEdit}
+              >
+                <Text style={{ color: colors.textSecondary, textAlign: 'center', fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
+        </Modal>
 
         {/* EnviroHero Badges */}
         <View style={styles.sectionHeaderRow}>
@@ -683,8 +730,32 @@ export default function SettingsPage() {
             <View style={styles.settingsTextContainer}>
               <Text style={styles.settingsRowTitle}>Theme Preferences</Text>
             </View>
-            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+            <IconSymbol name={preferencesExpanded ? "chevron.down" : "chevron.right"} size={20} color="#9E9E9E" />
           </TouchableOpacity>
+          {preferencesExpanded && (
+            <View style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.background, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '500' }}>Dark Mode</Text>
+              <TouchableOpacity 
+                onPress={toggleTheme}
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: theme === 'dark' ? colors.primary : '#E5E5E5',
+                  justifyContent: 'center',
+                  paddingHorizontal: 2
+                }}
+              >
+                <View style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: '#fff',
+                  transform: [{ translateX: theme === 'dark' ? 20 : 0 }]
+                }} />
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={styles.divider} />
           <TouchableOpacity style={styles.settingsRow} onPress={handleLogout}>
             <View style={[styles.settingsIconBg, { backgroundColor: '#FFEBEE' }]}>
@@ -772,14 +843,49 @@ export default function SettingsPage() {
                   </View>
                   <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
                 </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Report Status Updates</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Receive acknowledgement, dispatch, and resolution updates.</Text>
+                  </View>
+                  <Switch value={reportUpdatesEnabled} onValueChange={setReportUpdatesEnabled} disabled={!pushEnabled} />
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Announcements</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Receive new CENRO announcement alerts.</Text>
+                  </View>
+                  <Switch value={announcementNotificationsEnabled} onValueChange={setAnnouncementNotificationsEnabled} disabled={!pushEnabled} />
+                </View>
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Truck Proximity Alerts</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Notify me once when my assigned collection truck enters the selected radius.</Text>
+                    </View>
+                    <Switch value={proximityAlertsEnabled} onValueChange={setProximityAlertsEnabled} disabled={!pushEnabled} />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    {[250, 500, 1000].map(radius => (
+                      <TouchableOpacity
+                        key={radius}
+                        onPress={() => setProximityRadiusMeters(radius)}
+                        disabled={!pushEnabled || !proximityAlertsEnabled}
+                        style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1, borderColor: proximityRadiusMeters === radius ? colors.primary : colors.border, backgroundColor: proximityRadiusMeters === radius ? `${colors.primary}18` : colors.surface }}
+                      >
+                        <Text style={{ color: proximityRadiusMeters === radius ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>{radius} m</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               </View>
 
               <View style={[styles.modalActions, { marginTop: 16 }]}>
                 <TouchableOpacity 
                   style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
-                  onPress={() => setShowNotificationsModal(false)}
+                  onPress={saveNotificationPreferences}
                 >
-                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Done</Text>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Save Preferences</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -976,7 +1082,7 @@ export default function SettingsPage() {
         >
           <View style={styles.modalOverlay}>
             <View style={[styles.feedbackModalContainer, { backgroundColor: colors.background }]}>
-              <View style={styles.passwordHeader}>
+              <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Send Feedback</Text>
                 <TouchableOpacity onPress={() => setShowFeedbackModal(false)} style={styles.closeButton}>
                   <IconSymbol name="xmark" size={24} color={colors.icon} />
@@ -1002,7 +1108,7 @@ export default function SettingsPage() {
                     onPress={() => setFeedbackSelected(reaction.id)}
                   >
                     <Text style={{ fontSize: 24, marginBottom: 4 }}>{reaction.emoji}</Text>
-                    <Text style={[styles.feedbackReactionText, { color: feedbackSelected === reaction.id ? reaction.color : '#757575' }]}>
+                    <Text style={[styles.feedbackReactionLabel, { color: feedbackSelected === reaction.id ? reaction.color : '#757575' }]}>
                       {reaction.label}
                     </Text>
                   </TouchableOpacity>
@@ -1017,17 +1123,6 @@ export default function SettingsPage() {
                 numberOfLines={4}
                 value={feedbackText}
                 onChangeText={setFeedbackText}
-                multiline
-                placeholder="Please leave your feedback here..."
-                placeholderTextColor={colors.textTertiary}
-                style={[
-                  styles.feedbackInput, 
-                  { 
-                    backgroundColor: colors.background, 
-                    borderColor: colors.border, 
-                    color: colors.textPrimary 
-                  }
-                ]}
               />
 
               <View style={styles.modalActions}>
@@ -1062,7 +1157,7 @@ export default function SettingsPage() {
         >
           <View style={styles.modalOverlay}>
             <View style={[styles.passwordModalContainer, { backgroundColor: colors.background }]}>
-              <View style={styles.passwordHeader}>
+              <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Select Barangay</Text>
                 <TouchableOpacity onPress={() => setShowBarangayModal(false)} style={styles.closeButton}>
                   <IconSymbol name="xmark" size={24} color={colors.icon} />
@@ -1106,14 +1201,14 @@ export default function SettingsPage() {
               </View>
 
               <TouchableOpacity 
-                style={styles.savePasswordBtn}
+                style={[styles.saveButton, { backgroundColor: colors.primary }]}
                 onPress={handleSaveBarangay}
                 disabled={isSaving}
               >
                 {isSaving ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.savePasswordBtnText}>Save Preferences</Text>
+                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>Save Preferences</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -1152,6 +1247,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
     paddingTop: 20,
@@ -1286,10 +1384,6 @@ const styles = StyleSheet.create({
   // Gamified Settings Styles
   backButton: {
     padding: 8,
-    position: 'absolute',
-    left: 16,
-    bottom: 12,
-    zIndex: 10,
   },
   sectionHeaderRow: {
     flexDirection: 'row',

@@ -4,6 +4,7 @@ import { db, storage } from "@/config/firebase";
 import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { NotificationService } from "@/services/notificationService";
+import { formatAdaptiveMassFromMetricTons } from "@/utils/wasteUnits";
 import { MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -24,7 +25,8 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  Alert
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -55,6 +57,15 @@ export default function HomePage() {
   const [lastAnnouncementId, setLastAnnouncementId] = useState<string | null>(
     null
   );
+  const [announcementNotificationsEnabled, setAnnouncementNotificationsEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    getDoc(doc(db, 'user_settings', user.uid)).then(snapshot => {
+      const preferences = snapshot.data()?.notificationPreferences;
+      setAnnouncementNotificationsEnabled(preferences?.pushEnabled !== false && preferences?.announcements !== false);
+    }).catch(() => setAnnouncementNotificationsEnabled(false));
+  }, [user?.uid]);
 
   // Notifications inbox state
   const [notifications, setNotifications] = useState<
@@ -83,7 +94,7 @@ export default function HomePage() {
   // Gamification states
   const [userReports, setUserReports] = useState<any[]>([]);
   const totalPoints = userReports.length * 50; // 50 points per report
-  const trashCollectedWeight = userReports.length * 2.5; // Mock 2.5kg per report
+  const trashCollectedTons = userReports.length * 0.0025; // Existing 2.5 kg-per-report estimate, normalized in metric tons.
 
   // Next Collection state
   const [userBarangay, setUserBarangay] = useState<string>('');
@@ -314,15 +325,14 @@ export default function HomePage() {
             // Initial load - don't spam a notification on login, just set the ID
             setLastAnnouncementId(latestAnnouncement.id);
           } else if (lastAnnouncementId !== latestAnnouncement.id) {
-            // New announcement detected while app is running, send notification
-            try {
-              await NotificationService.scheduleAnnouncementNotification(
-                latestAnnouncement
-              );
-              setLastAnnouncementId(latestAnnouncement.id);
-            } catch (error) {
-              // Error sending announcement notification
+            if (announcementNotificationsEnabled) {
+              try {
+                await NotificationService.scheduleAnnouncementNotification(latestAnnouncement);
+              } catch {
+                // Keep the announcement visible even when local scheduling fails.
+              }
             }
+            setLastAnnouncementId(latestAnnouncement.id);
           }
         }
 
@@ -337,7 +347,7 @@ export default function HomePage() {
       // Cleaning up home announcements listener
       unsubscribe();
     };
-  }, [lastAnnouncementId]);
+  }, [lastAnnouncementId, announcementNotificationsEnabled]);
 
   // Subscribe to user reports for gamification
   useEffect(() => {
@@ -591,7 +601,7 @@ export default function HomePage() {
 
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{trashCollectedWeight} kg</Text>
+                <Text style={styles.statValue}>{formatAdaptiveMassFromMetricTons(trashCollectedTons)}</Text>
                 <Text style={styles.statLabel}>Trash Collected</Text>
               </View>
               <View style={styles.statDivider} />
@@ -713,14 +723,14 @@ export default function HomePage() {
             </TouchableOpacity>
           ))
         ) : (
-          <View style={styles.updateCard}>
+          <TouchableOpacity style={styles.updateCard} onPress={() => router.push('/my-reports')}>
             <View style={styles.updateTextContent}>
               <Text style={styles.updateDesc}>No reports submitted yet.</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
         
-        <TouchableOpacity style={styles.quickActionCard}>
+        <TouchableOpacity style={styles.quickActionCard} onPress={() => Alert.alert('Coming Soon', 'Redeem Points feature is not yet available.')}>
           <IconSymbol name="gift" size={20} color="#4A6741" />
           <Text style={styles.quickActionText}>Redeem Points</Text>
         </TouchableOpacity>

@@ -16,6 +16,11 @@ const BREAKPOINT = 900;
 const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOpen = false, onClose }) => {
   const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
   const slideAnim = useState(new Animated.Value(-SIDEBAR_WIDTH))[0];
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    'CORE OPERATIONS': true,
+    'FLEET & DRIVERS': true,
+    'SYSTEM & COMMUNICATIONS': true,
+  });
 
   const isNarrow = windowWidth < BREAKPOINT;
 
@@ -37,19 +42,34 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
     }).start();
   }, [isOpen]);
 
-  const navigationItems = [
-    { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view' },
-    { id: 'trash-reports', label: 'TRASH REPORTS', icon: 'assignment' },
-    { id: 'service-feedback', label: 'SERVICE FEEDBACK', icon: 'rate-review' },
-    { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route' },
-    { id: 'truck-inventory', label: 'FLEET INVENTORY', icon: 'local-shipping' },
-    { id: 'driver-onboarding', label: 'DRIVER ONBOARDING', icon: 'person-add' },
-    { id: 'driver-accounts', label: 'DRIVER DIRECTORY', icon: 'recent-actors' },
-    { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note' },
-    { id: 'announcements', label: 'ANNOUNCEMENTS', icon: 'campaign' },
-    { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people' },
-    { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem' },
-    { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart' },
+  const navigationGroups = [
+    {
+      title: 'CORE OPERATIONS',
+      items: [
+        { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view' },
+        { id: 'trash-reports', label: 'TRASH REPORTS', icon: 'assignment' },
+        { id: 'service-feedback', label: 'SERVICE FEEDBACK', icon: 'rate-review' },
+      ]
+    },
+    {
+      title: 'FLEET & DRIVERS',
+      items: [
+        { id: 'truck-inventory', label: 'FLEET INVENTORY', icon: 'local-shipping' },
+        { id: 'driver-onboarding', label: 'DRIVER ONBOARDING', icon: 'person-add' },
+        { id: 'driver-accounts', label: 'ACCOUNTS DIRECTORY', icon: 'recent-actors' },
+        { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route' },
+        { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note' },
+      ]
+    },
+    {
+      title: 'SYSTEM & COMMUNICATIONS',
+      items: [
+        { id: 'announcements', label: 'ANNOUNCEMENTS', icon: 'campaign' },
+        { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people' },
+        { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem' },
+        { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart' },
+      ]
+    }
   ];
 
   const handleItemPress = (id: string) => {
@@ -64,31 +84,51 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
         <Text style={styles.headerSubtitle}>CITY GOVT PORTAL</Text>
       </View>
 
-      <ScrollView style={styles.navigation} showsVerticalScrollIndicator={false}>
-        {navigationItems.map((item) => {
-          const isActive = activeTab === item.id;
+      <ScrollView style={styles.navigation} showsVerticalScrollIndicator={true}>
+        {navigationGroups.map((group, groupIndex) => {
+          const isExpanded = expandedGroups[group.title] !== false; // default true
           return (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.navItem,
-                isActive && styles.activeNavItem
-              ]}
-              onPress={() => handleItemPress(item.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={item.icon as any}
-                size={20}
-                color={isActive ? '#FFFFFF' : '#4B5563'}
-              />
-              <Text style={[
-                styles.navText,
-                isActive && styles.activeNavText
-              ]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
+            <View key={group.title} style={groupIndex > 0 ? { marginTop: 8 } : {}}>
+              <TouchableOpacity 
+                style={styles.navGroupHeader} 
+                onPress={() => setExpandedGroups(prev => ({ ...prev, [group.title]: !isExpanded }))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.navGroupTitle}>{group.title}</Text>
+                <MaterialIcons name={isExpanded ? "keyboard-arrow-down" : "keyboard-arrow-right"} size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+              
+              {isExpanded && (
+                <View style={styles.navGroupItems}>
+                  {group.items.map((item) => {
+                    const isActive = activeTab === item.id;
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[
+                          styles.navItem,
+                          isActive && styles.activeNavItem
+                        ]}
+                        onPress={() => handleItemPress(item.id)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons
+                          name={item.icon as any}
+                          size={18}
+                          color={isActive ? '#FFFFFF' : '#6B7280'}
+                        />
+                        <Text style={[
+                          styles.navText,
+                          isActive && styles.activeNavText
+                        ]}>
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           );
         })}
       </ScrollView>
@@ -179,28 +219,46 @@ const styles = StyleSheet.create({
   },
   navigation: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
+  },
+  navGroupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  navGroupTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    letterSpacing: 1,
+  },
+  navGroupItems: {
+    paddingLeft: 4,
+    marginBottom: 8,
   },
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   activeNavItem: {
     backgroundColor: '#4b6354',
   },
   navText: {
-    fontSize: 12,
-    marginLeft: 16,
-    fontWeight: '700',
+    fontSize: 11,
+    marginLeft: 12,
+    fontWeight: '600',
     color: '#4B5563',
     letterSpacing: 0.5,
   },
   activeNavText: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
 
   bottomSection: {

@@ -2,29 +2,43 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import React, { useState } from 'react';
-import { ActivityIndicator, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
+import { ActivityIndicator, Alert, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { submitPickupCompletion } from '@/services/driverOfflineQueue';
+import { formatAdaptiveMassFromMetricTons } from '@/utils/wasteUnits';
+
+type MeasurementUnit = 'ton';
+
+export type PickupCompletionData = {
+  imageUrl: string;
+  location: { lat: number; lng: number };
+  description: string;
+  measurement: { value: number; unit: MeasurementUnit; bagCount: number | null };
+};
 
 interface CompletePickupModalProps {
   visible: boolean;
+  scheduleId: string;
   onClose: () => void;
-  onComplete: (data: { imageUrl: string; location: { lat: number; lng: number }; description: string }) => void;
+  onSubmit?: (data: PickupCompletionData) => void;
   location?: string;
   wasteType?: string;
 }
 
 export default function CompletePickupModal({ 
   visible, 
+  scheduleId,
   onClose, 
-  onComplete,
-  location = 'House #23, Mabini St.',
-  wasteType = 'Biodegradable'
+  onSubmit,
+  location = 'Scheduled pickup',
+  wasteType = 'Not specified'
 }: CompletePickupModalProps) {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [measurementValue, setMeasurementValue] = useState('');
+  const [bagCount, setBagCount] = useState('');
 
   const handleTakePhoto = async () => {
     try {
@@ -69,18 +83,28 @@ export default function CompletePickupModal({
             }
           } catch (fallbackErr) {
             console.warn("Failed to get fallback location:", fallbackErr);
-            Alert.alert("Location Error", "Could not get your exact location. Are you on an emulator?");
+            setErrorMsg('Photo captured, but GPS is unavailable. Enable location services and retake the photo.');
           }
         }
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Error capturing photo or location.');
     }
   };
 
   const handleSubmit = async () => {
     if (!imageUri || !geoCoords) {
-      setErrorMsg('Please take a photo to verify the pickup.');
+      setErrorMsg('A completion photo with GPS coordinates is required.');
+      return;
+    }
+    const numericMeasurement = Number(measurementValue);
+    const numericBagCount = bagCount.trim() ? Number(bagCount) : null;
+    if (!Number.isFinite(numericMeasurement) || numericMeasurement <= 0) {
+      setErrorMsg('Enter the actual collected weight in kilograms.');
+      return;
+    }
+    if (numericBagCount !== null && (!Number.isInteger(numericBagCount) || numericBagCount < 0)) {
+      setErrorMsg('Bag/bin count must be a whole number or left blank.');
       return;
     }
 
@@ -88,22 +112,31 @@ export default function CompletePickupModal({
     setErrorMsg('');
 
     try {
-      const uploadResult = await cloudinaryService.uploadImage(imageUri, { folder: UPLOAD_FOLDERS.REPORTS });
-      
-      if (uploadResult.success && uploadResult.url) {
-        onComplete({
-          imageUrl: uploadResult.url,
+      const metricTons = numericMeasurement / 1000;
+      const result = await submitPickupCompletion({
+        scheduleId,
+        imageUri,
+        location: geoCoords,
+        description: description.trim(),
+        measurement: { value: metricTons, unit: 'ton', bagCount: numericBagCount },
+      });
+      {
+        const completionData: PickupCompletionData = {
+          imageUrl: result.imageUrl || '',
           location: geoCoords,
           description: description.trim(),
-        });
+          measurement: { value: metricTons, unit: 'ton', bagCount: numericBagCount },
+        };
+        onSubmit?.(completionData);
+        if (result.queued) Alert.alert('Saved offline', 'Completion evidence will upload automatically when internet access returns.');
         // Reset states
         setImageUri(null);
         setDescription('');
         setGeoCoords(null);
-      } else {
-        setErrorMsg('Failed to upload image. Please try again.');
+        setMeasurementValue('');
+        setBagCount('');
       }
-    } catch (error) {
+    } catch {
       setErrorMsg('An error occurred during submission.');
     } finally {
       setIsUploading(false);
@@ -114,6 +147,8 @@ export default function CompletePickupModal({
     setImageUri(null);
     setDescription('');
     setGeoCoords(null);
+    setMeasurementValue('');
+    setBagCount('');
     setErrorMsg('');
     onClose();
   };
@@ -159,6 +194,39 @@ export default function CompletePickupModal({
               <Text style={styles.uploadSubtext}>(Requires Camera & Location)</Text>
             </TouchableOpacity>
           )}
+
+          <View style={styles.measurementRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Collected weight *</Text>
+              <View style={styles.measurementInputWrap}>
+                <TextInput
+                  style={styles.measurementInput}
+                  value={measurementValue}
+                  onChangeText={setMeasurementValue}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 125"
+                />
+                <View style={styles.fixedUnitBadge}>
+                  <Text style={styles.fixedUnitText}>kg</Text>
+                </View>
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Bags/bins (optional)</Text>
+              <TextInput
+                style={styles.compactInput}
+                value={bagCount}
+                onChangeText={setBagCount}
+                keyboardType="number-pad"
+                placeholder="e.g. 12"
+              />
+            </View>
+          </View>
+          <Text style={styles.measurementHint}>
+            {Number.isFinite(Number(measurementValue)) && Number(measurementValue) > 0
+              ? `Displayed as ${formatAdaptiveMassFromMetricTons(Number(measurementValue) / 1000)}`
+              : 'At 1,000 kg, the system automatically displays the weight as 1 t.'}
+          </Text>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Add Description (Optional):</Text>
@@ -297,6 +365,13 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 24,
   },
+  measurementRow: { flexDirection: 'row', gap: 12, marginBottom: 10 },
+  compactInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, backgroundColor: '#FFFFFF' },
+  measurementInputWrap: { flexDirection: 'row', borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, backgroundColor: '#FFFFFF', overflow: 'hidden' },
+  measurementInput: { flex: 1, minWidth: 70, paddingHorizontal: 12, paddingVertical: 12 },
+  fixedUnitBadge: { justifyContent: 'center', paddingHorizontal: 10, backgroundColor: '#E8F5E9', borderLeftWidth: 1, borderLeftColor: '#C8D8CA' },
+  fixedUnitText: { color: '#3B5241', fontSize: 10, fontWeight: '800' },
+  measurementHint: { color: '#6B7280', fontSize: 11, marginBottom: 18 },
   label: {
     fontSize: 12,
     fontWeight: 'bold',

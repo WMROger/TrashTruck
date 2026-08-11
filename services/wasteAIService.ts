@@ -162,14 +162,14 @@ STEP 2: If the image IS waste-related, classify it:
    - "Hazardous Waste" (batteries, chemicals, electronics, paint, medical waste)
    - "Cannot determine (enclosed in bag)" (if contents are hidden inside an opaque bag)
 
-2. **Estimated Weight**: Based on visual size, estimate in kg (e.g., "2.5 kg"). A single trash bag is usually 3-8 kg, a small pile 10-30 kg.
+2. **Estimated Weight**: Based on visual size, estimate in kilograms (e.g., "2.5 kg"). A single trash bag is usually 3-8 kg, while a small pile is roughly 10-30 kg. If the estimate reaches 1,000 kg, express it in metric tons instead (e.g., "1.2 t").
 
 3. **Confidence**: "high", "medium", or "low". Use "low" if the image is blurry or unclear.
 
 4. **Details**: One brief sentence about what you see.
 
 Respond ONLY with valid JSON, no markdown, no code fences:
-{"wasteType": "...", "estimatedWeight": "... kg", "confidence": "high|medium|low|none", "details": "..."}`;
+{"wasteType": "...", "estimatedWeight": "2.5 kg", "confidence": "high|medium|low|none", "details": "..."}`;
 
     console.log('🌐 Sending analysis request to Gemini API...');
     const startTime = Date.now();

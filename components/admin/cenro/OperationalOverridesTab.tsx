@@ -1,8 +1,136 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { db, auth } from '../../../config/firebase';
+import { doc, getDoc, setDoc, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 
 export default function OperationalOverridesTab() {
+  const [settings, setSettings] = useState({
+    forcePauseCollection: false,
+    activateBackupFleet: true,
+  });
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Listen to overrides doc
+    const docRef = doc(db, 'system_settings', 'overrides');
+    const unsubDoc = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setSettings(snap.data() as any);
+      } else {
+        // Initialize if not exists
+        setDoc(docRef, settings).catch(e => console.error("Error init settings:", e));
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching system_settings:", error);
+      setLoading(false);
+    });
+
+    // Listen to activity logs
+    const logsRef = collection(db, 'system_settings', 'overrides', 'activity_logs');
+    const qLogs = query(logsRef, orderBy('timestamp', 'desc'), limit(10));
+    const unsubLogs = onSnapshot(qLogs, (snap) => {
+      const fetchedLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setLogs(fetchedLogs);
+    }, (error) => {
+      console.error("Error fetching activity_logs:", error);
+    });
+
+    return () => {
+      unsubDoc();
+      unsubLogs();
+    };
+  }, []);
+
+  const handleToggle = async (key: string, value: boolean) => {
+    // Optimistic update
+    setSettings(prev => ({ ...prev, [key]: value }));
+    
+    try {
+      await setDoc(doc(db, 'system_settings', 'overrides'), { [key]: value }, { merge: true });
+      
+      // Add log
+      const logsRef = collection(db, 'system_settings', 'overrides', 'activity_logs');
+      await addDoc(logsRef, {
+        timestamp: serverTimestamp(),
+        source: auth.currentUser?.email || 'Admin',
+        action: `${key === 'forcePauseCollection' ? 'Force Pause Collection' : 'Backup Fleet'} turned ${value ? 'ON' : 'OFF'}`,
+        confidence: 'Manual'
+      });
+    } catch (err) {
+      console.error('Error toggling override:', err);
+      Alert.alert('Error', 'Failed to update system setting.');
+    }
+  };
+
+  const handleEmergencyBroadcast = async () => {
+    const executeBroadcast = async () => {
+      try {
+        await addDoc(collection(db, 'announcements'), {
+          title: "EMERGENCY ALERT: System Override",
+          description: "Waste collection services are experiencing a major disruption. Please secure your waste bins and wait for further instructions.",
+          priority: "High",
+          category: "Alert",
+          isPublished: true,
+          createdAt: serverTimestamp(),
+          createdBy: auth.currentUser?.email || 'Admin'
+        });
+
+        // Add log
+        const logsRef = collection(db, 'system_settings', 'overrides', 'activity_logs');
+        await addDoc(logsRef, {
+          timestamp: serverTimestamp(),
+          source: auth.currentUser?.email || 'Admin',
+          action: `Emergency Broadcast Sent`,
+          confidence: 'Manual'
+        });
+
+        if (Platform.OS === 'web') {
+          window.alert("Emergency broadcast sent.");
+        } else {
+          Alert.alert("Success", "Emergency broadcast sent.");
+        }
+      } catch (err) {
+        console.error("Broadcast error:", err);
+        if (Platform.OS === 'web') {
+          window.alert("Failed to send broadcast.");
+        } else {
+          Alert.alert("Error", "Failed to send broadcast.");
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm("Emergency Broadcast: Send an urgent push announcement to all residents?");
+      if (confirmed) {
+        executeBroadcast();
+      }
+    } else {
+      Alert.alert(
+        "Emergency Broadcast",
+        "Send an urgent push announcement to all residents?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Send Now", 
+            style: "destructive",
+            onPress: executeBroadcast
+          }
+        ]
+      );
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#2E8B57" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.headerRow}>
@@ -12,7 +140,7 @@ export default function OperationalOverridesTab() {
             Configure emergency responses based on real-time environmental hazards and logistical obstructions.
           </Text>
         </View>
-        <TouchableOpacity style={styles.dangerBtn}>
+        <TouchableOpacity style={styles.dangerBtn} onPress={handleEmergencyBroadcast}>
           <MaterialIcons name="emergency" size={18} color="#fff" />
           <Text style={styles.dangerBtnText}>Emergency Broadcast</Text>
         </TouchableOpacity>
@@ -75,7 +203,11 @@ export default function OperationalOverridesTab() {
                 <MaterialIcons name="pause-circle-outline" size={20} color="#374151" />
                 <Text style={styles.controlText}>Force Pause Collection</Text>
               </View>
-              <Switch value={false} trackColor={{ false: '#E5E7EB', true: '#2E8B57' }} />
+              <Switch 
+                value={settings.forcePauseCollection} 
+                onValueChange={(val) => handleToggle('forcePauseCollection', val)}
+                trackColor={{ false: '#E5E7EB', true: '#2E8B57' }} 
+              />
             </View>
             <View style={styles.divider} />
             <View style={styles.controlRow}>
@@ -83,7 +215,11 @@ export default function OperationalOverridesTab() {
                 <MaterialIcons name="local-shipping" size={20} color="#374151" />
                 <Text style={styles.controlText}>Activate Backup Fleet</Text>
               </View>
-              <Switch value={true} trackColor={{ false: '#E5E7EB', true: '#2E8B57' }} />
+              <Switch 
+                value={settings.activateBackupFleet} 
+                onValueChange={(val) => handleToggle('activateBackupFleet', val)}
+                trackColor={{ false: '#E5E7EB', true: '#2E8B57' }} 
+              />
             </View>
           </View>
 
@@ -101,18 +237,20 @@ export default function OperationalOverridesTab() {
               <Text style={[styles.th, { flex: 1 }]}>CONFIDENCE</Text>
             </View>
             
-            {[
-              { time: '08:42:15 AM', source: 'MET-Station Alpha', action: 'Rainfall protocol initiated automatically', conf: '98.4%', sourceColor: '#4B5563', confColor: '#374151' },
-              { time: '08:45:02 AM', source: 'Admin (A. Reyes)', action: 'Backup Fleet deployment manual override', conf: 'Manual', sourceColor: '#4B5563', confColor: '#374151' },
-              { time: '09:12:30 AM', source: 'Hazard Sensor', action: 'Sto. Nino Central: Waste runoff alert', conf: '82.1%', sourceColor: '#ef4444', confColor: '#ef4444' },
-            ].map((row, i) => (
-              <View key={i} style={styles.tableRow}>
-                <Text style={[styles.td, { flex: 1, color: '#6B7280', fontSize: 12 }]}>{row.time}</Text>
-                <Text style={[styles.td, { flex: 1.5, color: row.sourceColor, fontWeight: row.sourceColor === '#ef4444' ? '600' : '400' }]}>{row.source}</Text>
-                <Text style={[styles.td, { flex: 2, color: '#111827' }]}>{row.action}</Text>
-                <Text style={[styles.td, { flex: 1, color: row.confColor, fontWeight: '600' }]}>{row.conf}</Text>
-              </View>
-            ))}
+            {logs.length === 0 ? (
+              <Text style={{ padding: 16, color: '#6B7280', textAlign: 'center' }}>No recent activity logs.</Text>
+            ) : (
+              logs.map((row, i) => (
+                <View key={i} style={styles.tableRow}>
+                  <Text style={[styles.td, { flex: 1, color: '#6B7280', fontSize: 12 }]}>
+                    {row.timestamp ? new Date(row.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}
+                  </Text>
+                  <Text style={[styles.td, { flex: 1.5, color: '#4B5563' }]}>{row.source}</Text>
+                  <Text style={[styles.td, { flex: 2, color: '#111827' }]}>{row.action}</Text>
+                  <Text style={[styles.td, { flex: 1, color: row.confidence === 'Manual' ? '#374151' : '#ef4444', fontWeight: '600' }]}>{row.confidence}</Text>
+                </View>
+              ))
+            )}
           </View>
         </View>
 

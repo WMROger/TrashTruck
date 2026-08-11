@@ -1,38 +1,42 @@
 import { Feather } from '@expo/vector-icons';
-import React from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
+import { useAuthContext } from '@/components/AuthContext';
+import { db } from '@/config/firebase';
+import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+
+type DriverNotification = { id: string; type: string; title: string; body: string; read: boolean; createdAt: any };
 
 export default function DriverInbox() {
   const { theme } = useTheme();
+  const { user } = useAuthContext();
   const isDark = theme === 'dark';
+  const [notifications, setNotifications] = useState<DriverNotification[]>([]);
 
-  const notifications = [
-    {
-      id: 'notif-1',
-      type: 'pickup',
-      title: 'New Pickup Assigned',
-      isNew: true,
-      body: 'Zone 4: 12 units of recyclable plastic ready for collection at Sector B. Priority high.',
-      time: '2 MINUTES AGO'
-    },
-    {
-      id: 'notif-2',
-      type: 'route',
-      title: 'Route Update',
-      isNew: false,
-      body: 'Traffic delay on Main St. Optimized route available via 5th Avenue to save 12 mins.',
-      time: '18 MINUTES AGO'
-    },
-    {
-      id: 'notif-3',
-      type: 'maintenance',
-      title: 'Vehicle Maintenance Alert',
-      isNew: false,
-      body: 'Tire pressure low in rear-left axle. Please visit the depot for a check-up post-shift.',
-      time: '1 HOUR AGO'
-    }
-  ];
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    const notificationsQuery = query(collection(db, 'userNotifications'), where('userId', '==', user.uid));
+    return onSnapshot(notificationsQuery, snapshot => {
+      const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as DriverNotification));
+      rows.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      setNotifications(rows);
+    });
+  }, [user?.uid]);
+
+  const markRead = (id: string) => updateDoc(doc(db, 'userNotifications', id), { read: true, readAt: serverTimestamp() });
+  const markAllRead = async () => {
+    const unread = notifications.filter(item => !item.read);
+    if (!unread.length) return;
+    const batch = writeBatch(db);
+    unread.forEach(item => batch.update(doc(db, 'userNotifications', item.id), { read: true, readAt: serverTimestamp() }));
+    await batch.commit();
+  };
+
+  const formatTime = (value: any) => {
+    const date = value?.toDate?.();
+    return date ? date.toLocaleString() : 'Recently';
+  };
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -63,6 +67,7 @@ export default function DriverInbox() {
       
       <View style={styles.header}>
         <Text style={[styles.headerTitle, isDark && styles.textLight]}>Notifications</Text>
+        {notifications.some(item => !item.read) && <TouchableOpacity onPress={markAllRead}><Text style={[styles.markAllText, isDark && { color: '#86EFAC' }]}>Mark all read</Text></TouchableOpacity>}
       </View>
 
       <Text style={[styles.statusFeed, isDark && {color: '#86EFAC'}]}>STATUS FEED</Text>
@@ -71,12 +76,13 @@ export default function DriverInbox() {
       <View style={styles.notificationList}>
         {notifications.length > 0 ? (
           notifications.map(notif => (
-            <View 
+            <TouchableOpacity
               key={notif.id} 
+              onPress={() => !notif.read && markRead(notif.id)}
               style={[
                 styles.notificationCard, 
                 isDark && styles.cardDark,
-                { backgroundColor: getCardBgColor(notif.type, notif.isNew) }
+                { backgroundColor: getCardBgColor(notif.type, !notif.read) }
               ]}
             >
               <View style={styles.cardHeader}>
@@ -85,7 +91,7 @@ export default function DriverInbox() {
                 </View>
                 <View style={styles.titleWrapper}>
                   <Text style={[styles.cardTitle, isDark && styles.textLight]}>{notif.title}</Text>
-                  {notif.isNew && (
+                  {!notif.read && (
                     <View style={styles.newBadge}>
                       <Text style={styles.newBadgeText}>NEW</Text>
                     </View>
@@ -93,8 +99,8 @@ export default function DriverInbox() {
                 </View>
               </View>
               <Text style={[styles.cardBody, isDark && styles.textMuted]}>{notif.body}</Text>
-              <Text style={styles.cardTime}>{notif.time}</Text>
-            </View>
+              <Text style={styles.cardTime}>{formatTime(notif.createdAt)}</Text>
+            </TouchableOpacity>
           ))
         ) : (
           <View style={[styles.emptyCard, isDark && styles.emptyCardDark]}>
@@ -129,6 +135,7 @@ const styles = StyleSheet.create({
     marginTop: 60,
     marginBottom: 24,
   },
+  markAllText: { color: '#2E8B57', fontSize: 13, fontWeight: '700', marginTop: 8 },
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',

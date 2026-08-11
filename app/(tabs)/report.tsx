@@ -27,6 +27,7 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker } from "@/components/MapView";
+import { formatWasteAmount } from '@/utils/wasteUnits';
 
 export default function ReportScreen() {
   const insets = useSafeAreaInsets();
@@ -630,7 +631,7 @@ export default function ReportScreen() {
                 <Text style={styles.aiCardLabel}>Estimated Weight</Text>
                 <View style={styles.aiCardValueRow}>
                   <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
-                  <Text style={styles.aiCardValue}>{aiResult.estimatedWeight}</Text>
+                  <Text style={styles.aiCardValue}>{formatWasteAmount(aiResult.estimatedWeight)}</Text>
                 </View>
               </View>
             </View>

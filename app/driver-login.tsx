@@ -1,19 +1,50 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { Dimensions, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { ActivityIndicator, Alert, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 
-const { width } = Dimensions.get('window');
+import { auth, db } from '@/config/firebase';
 
 export default function DriverLoginScreen() {
   const router = useRouter();
-  const [fullName, setFullName] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
-  const handleLogin = () => {
-    // For now, bypass real authentication and route directly to driver home
-    console.log('Driver Login:', fullName, employeeId);
-    router.replace('/(driver)');
+  const handleLogin = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      Alert.alert('Missing credentials', 'Enter the email and password issued by CENRO.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      const profileSnapshot = await getDoc(doc(db, 'users', credential.user.uid));
+      const profile = profileSnapshot.exists() ? profileSnapshot.data() : null;
+
+      if (!profile || profile.role !== 'driver' || profile.disabled === true || profile.status === 'disabled') {
+        await signOut(auth);
+        Alert.alert('Driver access denied', 'This account is not an active driver account. Contact CENRO for assistance.');
+        return;
+      }
+
+      router.replace('/(driver)');
+    } catch (error: any) {
+      const invalidCredentials = error?.code === 'auth/invalid-credential' ||
+        error?.code === 'auth/user-not-found' || error?.code === 'auth/wrong-password';
+      Alert.alert(
+        'Unable to sign in',
+        invalidCredentials
+          ? 'The email or password is incorrect.'
+          : 'Driver sign-in could not be completed. Check your connection and try again.'
+      );
+    } finally {
+      setIsSigningIn(false);
+    }
   };
 
   return (
@@ -72,32 +103,37 @@ export default function DriverLoginScreen() {
             {/* Inputs */}
             <View style={styles.inputSection}>
               <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>FULL NAME</Text>
+                <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
                 <View style={styles.inputContainer}>
                   <MaterialIcons name="person-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. John Doe"
+                    placeholder="driver@cenro.gov.ph"
                     placeholderTextColor="#9CA3AF"
-                    value={fullName}
-                    onChangeText={setFullName}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
                     autoCorrect={false}
+                    editable={!isSigningIn}
                   />
                 </View>
               </View>
 
               <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>EMPLOYEE ID</Text>
+                <Text style={styles.inputLabel}>PASSWORD</Text>
                 <View style={styles.inputContainer}>
-                  <MaterialIcons name="badge" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <MaterialIcons name="lock-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="CENRO-2024-XXXX"
+                    placeholder="Enter your password"
                     placeholderTextColor="#9CA3AF"
-                    value={employeeId}
-                    onChangeText={setEmployeeId}
-                    autoCapitalize="characters"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoCapitalize="none"
                     autoCorrect={false}
+                    editable={!isSigningIn}
                   />
                 </View>
               </View>
@@ -105,12 +141,19 @@ export default function DriverLoginScreen() {
 
             {/* Login Button */}
             <TouchableOpacity 
-              style={styles.loginButton} 
+              style={[styles.loginButton, isSigningIn && { opacity: 0.65 }]}
               onPress={handleLogin}
+              disabled={isSigningIn}
               activeOpacity={0.85}
             >
-              <Text style={styles.loginButtonText}>Sign In to Fleet</Text>
-              <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon}/>
+              {isSigningIn ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text style={styles.loginButtonText}>Sign In to Fleet</Text>
+                  <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon}/>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>

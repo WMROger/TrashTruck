@@ -5,7 +5,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useTheme } from '@/hooks/useTheme';
 import { ScheduleData, ScheduleNotificationService } from '@/services/scheduleNotificationService';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -20,7 +20,12 @@ export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
 
-  type RawSchedule = ScheduleData;
+  type RawSchedule = ScheduleData & {
+    days?: string[];
+    specificSchedules?: { date?: string; dateText?: string; wasteCategory?: string; timeText?: string }[];
+    streetName?: string;
+    barangayName?: string;
+  };
 
   const [currentMonth, setCurrentMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -31,6 +36,7 @@ export default function ScheduleScreen() {
   const [selectedPickup, setSelectedPickup] = useState<RawSchedule | null>(null);
   const [showMapZoom, setShowMapZoom] = useState(false);
   const [truckLocations, setTruckLocations] = useState<any[]>([]);
+  const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(false);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -166,8 +172,6 @@ export default function ScheduleScreen() {
   // Subscribe to user profile to get realtime barangay updates
   useEffect(() => {
     if (!db || !user?.uid) return;
-    const { doc, onSnapshot } = require('firebase/firestore');
-    
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap: any) => {
       if (docSnap.exists()) {
         setUserBarangay(docSnap.data().barangay || '');
@@ -178,6 +182,20 @@ export default function ScheduleScreen() {
     
     return () => unsubUser();
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    getDoc(doc(db, 'user_settings', user.uid)).then(snapshot => {
+      const preferences = snapshot.data()?.notificationPreferences;
+      setPickupRemindersEnabled(preferences?.pushEnabled !== false && preferences?.pickupReminders !== false);
+    }).catch(() => setPickupRemindersEnabled(false));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!rawSchedules.length) return;
+    if (pickupRemindersEnabled) rawSchedules.forEach(schedule => ScheduleNotificationService.upsertScheduleNotifications(schedule));
+    else ScheduleNotificationService.cancelScheduleNotifications(rawSchedules.map(schedule => schedule.id));
+  }, [pickupRemindersEnabled, rawSchedules]);
 
   // Subscribe to schedules based on user's current barangay
   useEffect(() => {
@@ -200,8 +218,17 @@ export default function ScheduleScreen() {
       const trucks: any[] = [];
       snap.forEach(doc => {
         const data = doc.data();
-        if (data.location) {
-           trucks.push({ id: doc.id, ...data });
+        const latitude = data.location?.latitude ?? data.lat;
+        const longitude = data.location?.longitude ?? data.lng;
+        const lastUpdatedAt = data.lastUpdate?.toDate?.() || data.timestamp?.toDate?.() || null;
+        if (data.status === 'active' && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+           trucks.push({
+             id: doc.id,
+             ...data,
+             location: { latitude, longitude },
+             lastUpdatedAt,
+             isStale: !lastUpdatedAt || Date.now() - lastUpdatedAt.getTime() > 120000,
+           });
         }
       });
       setTruckLocations(trucks);
@@ -212,6 +239,16 @@ export default function ScheduleScreen() {
       unsubTrucks();
     };
   }, [userBarangay]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTruckLocations(current => current.map(truck => ({
+        ...truck,
+        isStale: !truck.lastUpdatedAt || Date.now() - truck.lastUpdatedAt.getTime() > 120000,
+      })));
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Expand recurring schedules for current month
   useEffect(() => {
@@ -446,9 +483,9 @@ export default function ScheduleScreen() {
                     longitude: truck.location?.longitude || 124.0253 
                   }}
                   title={truck.driverName || "Trash Truck"}
-                  description={`Last updated: ${truck.timestamp ? new Date(truck.timestamp.toDate()).toLocaleTimeString() : 'Recently'}`}
+                  description={truck.isStale ? `Stale location · last update ${truck.lastUpdatedAt?.toLocaleTimeString() || 'unknown'}` : `Last updated: ${truck.lastUpdatedAt?.toLocaleTimeString() || 'just now'}`}
                 >
-                  <View style={{ backgroundColor: colors.primary, padding: 6, borderRadius: 20 }}>
+                  <View style={{ backgroundColor: truck.isStale ? '#F59E0B' : colors.primary, padding: 6, borderRadius: 20 }}>
                     <IconSymbol name="car.fill" size={24} color="white" />
                   </View>
                 </Marker>
@@ -473,7 +510,7 @@ export default function ScheduleScreen() {
                   <Text style={styles.liveText}>LIVE</Text>
                 </View>
                 <View style={styles.etaContainer}>
-                  <Text style={styles.mapEtaText}>{truckLocations.length} Truck(s) Active</Text>
+                  <Text style={styles.mapEtaText}>{truckLocations.filter(truck => !truck.isStale).length} live · {truckLocations.filter(truck => truck.isStale).length} stale</Text>
                 </View>
               </>
             ) : (
@@ -632,9 +669,9 @@ export default function ScheduleScreen() {
                     longitude: truck.location?.longitude || 124.0253 
                   }}
                   title={truck.driverName || "Trash Truck"}
-                  description={`Last updated: ${truck.timestamp ? new Date(truck.timestamp.toDate()).toLocaleTimeString() : 'Recently'}`}
+                  description={truck.isStale ? `Stale location · last update ${truck.lastUpdatedAt?.toLocaleTimeString() || 'unknown'}` : `Last updated: ${truck.lastUpdatedAt?.toLocaleTimeString() || 'just now'}`}
                 >
-                  <View style={{ backgroundColor: colors.primary, padding: 8, borderRadius: 20 }}>
+                  <View style={{ backgroundColor: truck.isStale ? '#F59E0B' : colors.primary, padding: 8, borderRadius: 20 }}>
                     <IconSymbol name="car.fill" size={28} color="white" />
                   </View>
                 </Marker>
@@ -664,7 +701,7 @@ export default function ScheduleScreen() {
                   <Text style={styles.liveText}>LIVE</Text>
                 </View>
                 <View style={styles.etaContainer}>
-                  <Text style={styles.mapEtaText}>{truckLocations.length} Truck(s) Active</Text>
+                  <Text style={styles.mapEtaText}>{truckLocations.filter(truck => !truck.isStale).length} live · {truckLocations.filter(truck => truck.isStale).length} stale</Text>
                 </View>
               </>
             ) : (

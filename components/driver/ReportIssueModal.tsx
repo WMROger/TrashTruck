@@ -2,23 +2,25 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import React, { useState } from 'react';
-import { ActivityIndicator, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
+import { ActivityIndicator, Alert, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { submitPickupIssue } from '@/services/driverOfflineQueue';
 
 interface ReportIssueModalProps {
   visible: boolean;
+  scheduleId: string;
   onClose: () => void;
-  onSubmit: (data: { imageUrl: string; location: { lat: number; lng: number }; description: string }) => void;
+  onSubmit?: (data: { imageUrl: string; location: { lat: number; lng: number }; description: string }) => void;
   location?: string;
   wasteType?: string;
 }
 
 export default function ReportIssueModal({ 
   visible, 
+  scheduleId,
   onClose, 
   onSubmit,
-  location = 'House #23, Mabini St.',
-  wasteType = 'Biodegradable'
+  location = 'Scheduled pickup',
+  wasteType = 'Not specified'
 }: ReportIssueModalProps) {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -69,11 +71,11 @@ export default function ReportIssueModal({
             }
           } catch (fallbackErr) {
             console.warn("Failed to get fallback location:", fallbackErr);
-            Alert.alert("Location Error", "Could not get your exact location. Are you on an emulator?");
+            setErrorMsg('Photo captured, but GPS is unavailable. Enable location services and retake the photo.');
           }
         }
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Error capturing photo or location.');
     }
   };
@@ -92,22 +94,21 @@ export default function ReportIssueModal({
     setErrorMsg('');
 
     try {
-      const uploadResult = await cloudinaryService.uploadImage(imageUri, { folder: UPLOAD_FOLDERS.REPORTS });
-      
-      if (uploadResult.success && uploadResult.url) {
-        onSubmit({
-          imageUrl: uploadResult.url,
+      const result = await submitPickupIssue({ scheduleId, imageUri, location: geoCoords, description: description.trim() });
+      {
+        const issueData = {
+          imageUrl: result.imageUrl || '',
           location: geoCoords,
           description: description.trim(),
-        });
+        };
+        onSubmit?.(issueData);
+        if (result.queued) Alert.alert('Saved offline', 'The issue report will upload automatically when internet access returns.');
         
         setImageUri(null);
         setDescription('');
         setGeoCoords(null);
-      } else {
-        setErrorMsg('Failed to upload image. Please try again.');
       }
-    } catch (error) {
+    } catch {
       setErrorMsg('An error occurred during submission.');
     } finally {
       setIsUploading(false);

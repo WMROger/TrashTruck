@@ -226,8 +226,11 @@ export default function CollectionSchedulerTab() {
       setIsSavingDetail(false);
     }
   };
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const handleDeleteSchedule = async (scheduleId: string) => {
     const doDelete = async () => {
+      setIsDeleting(true);
       try {
         await deleteDoc(doc(db, 'barangay_schedules', scheduleId));
         if (selectedBarangay?.id === scheduleId) {
@@ -240,6 +243,8 @@ export default function CollectionSchedulerTab() {
         } else {
           Alert.alert("Error", "Could not delete schedule.");
         }
+      } finally {
+        setIsDeleting(false);
       }
     };
 
@@ -267,22 +272,43 @@ export default function CollectionSchedulerTab() {
   const handleDeleteSpecificSchedule = async (scheduleIndex: number) => {
     if (!selectedBarangay || !selectedBarangay.specificSchedules) return;
     
-    try {
-      const updatedSchedules = [...selectedBarangay.specificSchedules];
-      updatedSchedules.splice(scheduleIndex, 1);
-      
-      const docRef = doc(db, 'barangay_schedules', selectedBarangay.id);
-      await updateDoc(docRef, {
-        specificSchedules: updatedSchedules
-      });
-      
-      setSelectedBarangay({
-        ...selectedBarangay,
-        specificSchedules: updatedSchedules
-      });
-    } catch (error) {
-      console.error('Error deleting specific schedule:', error);
-      Alert.alert('Error', 'Could not delete specific schedule.');
+    const doDeleteSpecific = async () => {
+      setIsDeleting(true);
+      try {
+        const updatedSchedules = [...selectedBarangay.specificSchedules];
+        updatedSchedules.splice(scheduleIndex, 1);
+        
+        const docRef = doc(db, 'barangay_schedules', selectedBarangay.id);
+        await updateDoc(docRef, {
+          specificSchedules: updatedSchedules
+        });
+        
+        setSelectedBarangay({
+          ...selectedBarangay,
+          specificSchedules: updatedSchedules
+        });
+      } catch (error) {
+        console.error('Error deleting specific schedule:', error);
+        Alert.alert('Error', 'Could not delete specific schedule.');
+      } finally {
+        setIsDeleting(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm("Are you sure you want to remove this specific pickup?");
+      if (confirmed) {
+        await doDeleteSpecific();
+      }
+    } else {
+      Alert.alert(
+        "Delete Pickup",
+        "Are you sure you want to remove this specific pickup?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete", style: "destructive", onPress: doDeleteSpecific }
+        ]
+      );
     }
   };
 
@@ -504,7 +530,9 @@ export default function CollectionSchedulerTab() {
                     'Looc', 'Magtagobtob', 'Malapoc', 'Manlayag', 'Mantija', 'Masaba', 'Maslog', 'Nangka', 'Oguis', 
                     'Pili', 'Poblacion', 'Quisol', 'Sabang', 'Sacsac', 'Sandayong Norte', 'Sandayong Sur', 'Santa Rosa', 
                     'Santican', 'Sibacan', 'Suba', 'Taboc', 'Taytay', 'Togonon', 'Tuburan Sur'
-                  ].map(b => (
+                  ]
+                  .filter(b => !schedules.some(s => s.barangayName === b))
+                  .map(b => (
                     <option key={b} value={b} />
                   ))}
                 </datalist>
@@ -562,10 +590,10 @@ export default function CollectionSchedulerTab() {
                     <Text style={styles.brgyDesc}>Specific Dates & Times</Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <TouchableOpacity onPress={() => handleDeleteSchedule(selectedBarangay.id)} style={{ marginRight: 24 }}>
-                      <MaterialIcons name="delete-outline" size={26} color="#ef4444" />
+                    <TouchableOpacity onPress={() => handleDeleteSchedule(selectedBarangay.id)} style={{ marginRight: 24 }} disabled={isDeleting}>
+                      {isDeleting ? <ActivityIndicator size="small" color="#ef4444" /> : <MaterialIcons name="delete-outline" size={26} color="#ef4444" />}
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setDetailsModalVisible(false)}>
+                    <TouchableOpacity onPress={() => setDetailsModalVisible(false)} disabled={isDeleting}>
                       <MaterialIcons name="close" size={26} color="#6B7280" />
                     </TouchableOpacity>
                   </View>
@@ -582,8 +610,8 @@ export default function CollectionSchedulerTab() {
                           <Text style={{ fontWeight: '600', color: '#111827' }}>{ss.date} at {ss.time}</Text>
                           <Text style={{ fontSize: 12, color: CATEGORIES.find(c => c.name === ss.category)?.color || '#2E8B57', fontWeight: '700' }}>{ss.category}</Text>
                         </View>
-                        <TouchableOpacity onPress={() => handleDeleteSpecificSchedule(idx)} style={{ padding: 4 }}>
-                          <MaterialIcons name="close" size={20} color="#ef4444" />
+                        <TouchableOpacity onPress={() => handleDeleteSpecificSchedule(idx)} style={{ padding: 4 }} disabled={isDeleting}>
+                          {isDeleting ? <ActivityIndicator size="small" color="#ef4444" /> : <MaterialIcons name="close" size={20} color="#ef4444" />}
                         </TouchableOpacity>
                       </View>
                     ))

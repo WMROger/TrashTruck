@@ -8,7 +8,11 @@ class LocationService {
   private retryTimeout: ReturnType<typeof setTimeout> | null = null;
   private maxRetries = 3;
 
-  async startTracking(driverId: string, truckId: string = 'truck-1') {
+  async startTracking(driverId: string, truckId: string) {
+    if (!driverId || !truckId) {
+      console.warn('GPS tracking requires both an authenticated driver and an assigned truck.');
+      return;
+    }
     if (this.isTracking) return;
 
     try {
@@ -34,14 +38,14 @@ class LocationService {
           accuracy: Location.Accuracy.Balanced,
         });
         await this.updateLocationInFirestore(driverId, truckId, initialLocation.coords);
-      } catch (initialError) {
+      } catch {
         console.warn('getCurrentPositionAsync failed, trying getLastKnownPositionAsync...');
         try {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (lastKnown) {
             await this.updateLocationInFirestore(driverId, truckId, lastKnown.coords);
           }
-        } catch (fallbackError) {
+        } catch {
           console.warn('getLastKnownPositionAsync also failed — will rely on watchPosition updates.');
         }
       }
@@ -89,7 +93,11 @@ class LocationService {
     }
 
     if (this.locationSubscription) {
-      this.locationSubscription.remove();
+      try {
+        this.locationSubscription.remove();
+      } catch (e) {
+        console.warn('Failed to remove location subscription safely:', e);
+      }
       this.locationSubscription = null;
     }
     this.isTracking = false;

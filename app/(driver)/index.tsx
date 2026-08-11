@@ -2,9 +2,9 @@ import { useAuthContext } from '@/components/AuthContext';
 import { auth, db } from '@/config/firebase';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Linking, Modal } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
@@ -59,10 +59,11 @@ export default function DriverIndex() {
     }
 
     const currentUser = auth.currentUser;
-    const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
-    
     // Fetch Next Pickup & Live Dispatches
-    const nextPickupQuery = query(collection(db, 'schedules'));
+    const nextPickupQuery = query(
+      collection(db, 'schedules'),
+      where('assignedDriverId', '==', currentUser.uid)
+    );
     const unsubscribeNextPickup = onSnapshot(nextPickupQuery, (snapshot) => {
       let todayPickups: NextPickup[] = [];
       let liveDispatchesData: NextPickup[] = [];
@@ -71,13 +72,7 @@ export default function DriverIndex() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        const isDriverMatch = 
-          data.driver === driverName ||
-          data.driver === currentUser.email ||
-          data.assignedDriverName === driverName ||
-          data.assignedDriverId === currentUser.uid;
-          
-        if (isDriverMatch && (data.status === 'pending' || !data.status)) {
+        if (data.status === 'pending' || !data.status) {
           if (data.isLiveDispatch) {
             liveDispatchesData.push({
               id: doc.id,
@@ -113,6 +108,7 @@ export default function DriverIndex() {
     // Fetch History
     const historyQuery = query(
       collection(db, 'schedules'),
+      where('assignedDriverId', '==', currentUser.uid),
       where('status', 'in', ['completed', 'issue'])
     );
 
@@ -122,24 +118,16 @@ export default function DriverIndex() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        const isDriverMatch = 
-          data.driver === driverName ||
-          data.driver === currentUser.email ||
-          data.assignedDriverName === driverName ||
-          data.assignedDriverId === currentUser.uid;
-          
-        if (isDriverMatch) {
-          const isIssue = data.status === 'issue';
+        const isIssue = data.status === 'issue';
           const combinedTimestamp = data.completedAt || data.issueReportedAt || new Date();
-          historyList.push({
+        historyList.push({
             id: doc.id,
             street: data.street || 'Unknown Street',
             wasteCategory: data.wasteCategory || 'General',
             completedAt: combinedTimestamp,
             status: isIssue ? 'issue' : 'completed',
             completionImage: (isIssue ? data.issueImage : data.completionImage) || null
-          });
-        }
+        });
       });
       
       const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
@@ -199,10 +187,8 @@ export default function DriverIndex() {
     setShowIssueModal(true);
   };
 
-  const handleNavigate = (street: string) => {
-    const queryStr = encodeURIComponent(`${street}, Philippines`);
-    const url = `https://www.google.com/maps/search/?api=1&query=${queryStr}`;
-    Linking.openURL(url).catch(err => console.error("An error occurred", err));
+  const handleNavigate = (scheduleId: string) => {
+    router.push({ pathname: '/(driver)/route-map', params: { scheduleId } });
   };
 
   const handleSeeAllSchedule = () => {
@@ -341,7 +327,7 @@ export default function DriverIndex() {
                   <Text style={[styles.alertType, isDark && styles.textMuted]}>{dispatch.wasteCategory}</Text>
                   
                   <View style={styles.alertActions}>
-                    <TouchableOpacity style={styles.navigateBtn} onPress={() => handleNavigate(dispatch.street)}>
+                    <TouchableOpacity style={styles.navigateBtn} onPress={() => handleNavigate(dispatch.id)}>
                       <MaterialIcons name="navigation" size={14} color="#FFF" />
                       <Text style={styles.navigateBtnText}>Navigate</Text>
                     </TouchableOpacity>
@@ -382,7 +368,7 @@ export default function DriverIndex() {
         <View style={[styles.pickupCard, isDark && styles.pickupCardDark]}>
           <View style={styles.pickupCardHeader}>
             <Text style={styles.pickupBarangay}>Scheduled Collection</Text>
-            <TouchableOpacity style={styles.navOutlineBtn} onPress={() => handleNavigate(nextPickup.street)}>
+            <TouchableOpacity style={styles.navOutlineBtn} onPress={() => handleNavigate(nextPickup.id)}>
               <MaterialIcons name="directions" size={16} color="#FFF" />
             </TouchableOpacity>
           </View>
@@ -431,10 +417,13 @@ export default function DriverIndex() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyScroll}>
             {historyItems.map((item) => (
               <View key={item.id} style={[styles.historyCard, isDark && styles.cardDark]}>
-                <Image 
-                  source={{ uri: item.completionImage || 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=400&q=80' }} 
-                  style={styles.historyImage} 
-                />
+                {item.completionImage ? (
+                  <Image source={{ uri: item.completionImage }} style={styles.historyImage} />
+                ) : (
+                  <View style={[styles.historyImage, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' }]}>
+                    <Feather name="image" size={24} color="#9CA3AF" />
+                  </View>
+                )}
                 <View style={styles.historyContent}>
                   <Text style={[styles.historyStreet, isDark && styles.textLight]} numberOfLines={1}>{item.street}</Text>
                   <Text style={[styles.historyType, isDark && styles.textMuted]}>{item.wasteCategory}</Text>

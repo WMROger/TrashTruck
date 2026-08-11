@@ -1,6 +1,6 @@
 import { auth, db } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -36,9 +36,10 @@ export default function DriverSchedulePage() {
     }
 
     const currentUser = auth.currentUser;
-    const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
-    
-    const allSchedulesQuery = query(collection(db, 'schedules'));
+    const allSchedulesQuery = query(
+      collection(db, 'schedules'),
+      where('assignedDriverId', '==', currentUser.uid)
+    );
     
     const unsubscribe = onSnapshot(allSchedulesQuery, (snapshot) => {
       let todayList: ScheduleItem[] = [];
@@ -54,13 +55,7 @@ export default function DriverSchedulePage() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        const isDriverMatch = 
-          data.driver === driverName ||
-          data.driver === currentUser.email ||
-          data.assignedDriverName === driverName ||
-          data.assignedDriverId === currentUser.uid;
-          
-        if (isDriverMatch && (data.status === 'pending' || !data.status)) {
+        if (data.status === 'pending' || !data.status) {
           const item = {
             id: doc.id,
             street: data.street || 'Unknown Street',

@@ -16,6 +16,7 @@ import { useRouter, Stack } from 'expo-router';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { formatWasteAmount } from '@/utils/wasteUnits';
 
 interface Report {
   id: string;
@@ -373,7 +374,7 @@ export default function MyReportsScreen() {
                       </View>
                       <View style={styles.aiGridItem}>
                         <Text style={styles.aiGridLabel}>Est. Weight</Text>
-                        <Text style={styles.aiGridValue}>{selectedReport.aiAnalysis.estimatedWeight}</Text>
+                        <Text style={styles.aiGridValue}>{formatWasteAmount(selectedReport.aiAnalysis.estimatedWeight)}</Text>
                       </View>
                     </View>
                     {selectedReport.aiAnalysis.details ? (

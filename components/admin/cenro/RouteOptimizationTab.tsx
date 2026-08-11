@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, Platform, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
-import { db } from '../../../config/firebase';
-import { sendTestNotification as sendTestNotificationHelper } from '../../../app/(tabs)/home.notifications';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { auth, db } from '../../../config/firebase';
+import { MapCoordinate, optimizeRoadRoute } from '../../../services/roadRouteOptimizationService';
+import { writeAuditLog } from '../../../services/auditLogService';
+import { formatWasteAmount } from '../../../utils/wasteUnits';
 
 interface Report {
   id: string;
@@ -16,6 +18,7 @@ interface Report {
   createdAt: any;
   userEmail: string;
   userId: string;
+  location?: { lat?: number; lng?: number; latitude?: number; longitude?: number } | null;
   aiAnalysis?: {
     wasteType: string;
     estimatedWeight: string;
@@ -28,6 +31,7 @@ interface Driver {
   id: string;
   displayName: string;
   email: string;
+  currentTruckId?: string;
 }
 
 export default function RouteOptimizationTab() {
@@ -38,10 +42,30 @@ export default function RouteOptimizationTab() {
   const [selectedDriver, setSelectedDriver] = useState<string>('');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizedRoute, setOptimizedRoute] = useState<Report[]>([]);
+  const [routeSummary, setRouteSummary] = useState<{
+    distanceKm: number;
+    durationMinutes: number | null;
+    geocodedStops: number;
+    unlocatedStops: number;
+    method: string;
+    provider: string;
+    roadPolyline: MapCoordinate[];
+    fallbackReason?: string;
+  } | null>(null);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [locationFilter, setLocationFilter] = useState<'all' | 'gps' | 'missing'>('all');
+  const [reportSearch, setReportSearch] = useState('');
+
+  const visibleReports = reports.filter(report => {
+    const hasGps = Number.isFinite(report.location?.lat ?? report.location?.latitude) && Number.isFinite(report.location?.lng ?? report.location?.longitude);
+    if (locationFilter === 'gps' && !hasGps) return false;
+    if (locationFilter === 'missing' && hasGps) return false;
+    const search = reportSearch.trim().toLowerCase();
+    return !search || `${report.street} ${report.barangay} ${report.description}`.toLowerCase().includes(search);
+  });
 
   useEffect(() => {
     if (!db) return;
@@ -69,8 +93,8 @@ export default function RouteOptimizationTab() {
         const driverList: Driver[] = [];
         snap.forEach(d => {
           const u = d.data();
-          if (u.role === 'driver' || u.role === 'admin') { // include admin for testing
-            driverList.push({ id: d.id, displayName: u.displayName || u.email || 'Unknown', email: u.email });
+          if (u.role === 'driver' && u.disabled !== true && u.status !== 'disabled') {
+            driverList.push({ id: d.id, displayName: u.displayName || u.email || 'Unknown', email: u.email, currentTruckId: u.currentTruckId || undefined });
           }
         });
         setDrivers(driverList);
@@ -97,11 +121,11 @@ export default function RouteOptimizationTab() {
   };
 
   const selectAll = () => {
-    const newSet = new Set(reports.map(r => r.id));
+    const newSet = new Set(visibleReports.map(r => r.id));
     setSelectedReports(newSet);
   };
 
-  const handleOptimizeRoute = () => {
+  const handleOptimizeRoute = async () => {
     if (selectedReports.size === 0) {
       Alert.alert('Selection Empty', 'Please select at least one report to route.');
       return;
@@ -113,22 +137,25 @@ export default function RouteOptimizationTab() {
 
     setIsOptimizing(true);
     
-    // Simulate AI Optimization logic (Delay + Greedy Sort by Barangay grouping)
-    setTimeout(() => {
+    try {
       const selectedData = reports.filter(r => selectedReports.has(r.id));
-      
-      // Simulated Routing Algorithm: Group by Barangay, then order by creation date
-      selectedData.sort((a, b) => {
-        if (a.barangay === b.barangay) {
-          return a.createdAt - b.createdAt;
-        }
-        return a.barangay.localeCompare(b.barangay);
-      });
-
-      setOptimizedRoute(selectedData);
-      setIsOptimizing(false);
+      const driverLocationSnapshot = await getDoc(doc(db, 'truck_locations', selectedDriver));
+      const locationData = driverLocationSnapshot.data();
+      const latitude = locationData?.lat ?? locationData?.location?.latitude;
+      const longitude = locationData?.lng ?? locationData?.location?.longitude;
+      const truckOrigin = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? { latitude: Number(latitude), longitude: Number(longitude) }
+        : null;
+      const result = await optimizeRoadRoute(selectedData, truckOrigin);
+      setOptimizedRoute(result.orderedStops);
+      setRouteSummary(result);
       setShowDispatchModal(true);
-    }, 1500);
+    } catch (error) {
+      console.error('Route generation failed:', error);
+      Alert.alert('Route unavailable', 'The route could not be generated. Please check the selected reports and try again.');
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   const handleDispatch = async () => {
@@ -138,6 +165,12 @@ export default function RouteOptimizationTab() {
       const driverName = driverObj?.displayName || 'Assigned Driver';
       const today = new Date();
       const dateText = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const allowsNotification = async (userId: string) => {
+        if (!userId) return false;
+        const settings = await getDoc(doc(db, 'user_settings', userId));
+        const preferences = settings.data()?.notificationPreferences;
+        return preferences?.pushEnabled !== false && preferences?.reportUpdates !== false;
+      };
       
       for (let i = 0; i < optimizedRoute.length; i++) {
         const report = optimizedRoute[i];
@@ -152,9 +185,23 @@ export default function RouteOptimizationTab() {
           status: 'pending',
           driver: driverName,
           assignedDriverId: selectedDriver,
+          truckId: driverObj?.currentTruckId || null,
           reportId: report.id,
+          userId: report.userId,
+          location: report.location || null,
           routeOrder: i + 1,
+          routeOptimization: routeSummary ? {
+            method: routeSummary.method,
+            estimatedDistanceKm: routeSummary.distanceKm,
+            estimatedDurationMinutes: routeSummary.durationMinutes,
+            geocodedStops: routeSummary.geocodedStops,
+            unlocatedStops: routeSummary.unlocatedStops,
+            provider: routeSummary.provider,
+            roadPolyline: routeSummary.roadPolyline,
+            fallbackReason: routeSummary.fallbackReason || null,
+          } : null,
           isLiveDispatch: true,
+          createdByUid: auth.currentUser?.uid || null,
           createdAt: serverTimestamp(),
         });
 
@@ -174,15 +221,34 @@ export default function RouteOptimizationTab() {
         });
 
         // 3. Notify the resident
-        await addDoc(collection(db, 'notifications'), {
-          userId: report.userId,
-          title: 'Report Dispatched',
-          body: `Your report at ${report.street} has been dispatched to a collection truck.`,
-          type: 'report_update',
+        if (await allowsNotification(report.userId)) {
+          await addDoc(collection(db, 'userNotifications'), {
+            userId: report.userId,
+            title: 'Report Dispatched',
+            body: `Your report at ${report.street} has been dispatched to a collection truck.`,
+            type: 'report_update',
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+
+      if (await allowsNotification(selectedDriver)) {
+        await addDoc(collection(db, 'userNotifications'), {
+          userId: selectedDriver,
+          title: 'New Route Assigned',
+          body: `${optimizedRoute.length} collection stop${optimizedRoute.length === 1 ? '' : 's'} assigned for today.`,
+          type: 'route',
           read: false,
           createdAt: serverTimestamp(),
         });
       }
+
+      await writeAuditLog('route.dispatched', 'driver', selectedDriver, {
+        stopCount: optimizedRoute.length,
+        reportIds: optimizedRoute.map(report => report.id),
+        routeSummary,
+      });
 
       Alert.alert('Dispatch Successful', `Successfully dispatched ${optimizedRoute.length} locations to ${driverName}.`);
       setShowDispatchModal(false);
@@ -208,8 +274,8 @@ export default function RouteOptimizationTab() {
     <ScrollView style={styles.container}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.headerTitle}>AI Route Optimization</Text>
-          <Text style={styles.headerDesc}>Generate and dispatch efficient routes for verified citizen reports.</Text>
+          <Text style={styles.headerTitle}>Automatic Route Optimization</Text>
+          <Text style={styles.headerDesc}>Optimize GPS-tagged reports on drivable roads, then dispatch the route directly to the driver’s in-app map.</Text>
         </View>
       </View>
 
@@ -224,14 +290,26 @@ export default function RouteOptimizationTab() {
               </TouchableOpacity>
             </View>
 
-            {reports.length === 0 ? (
+            <TextInput style={styles.searchInput} value={reportSearch} onChangeText={setReportSearch} placeholder="Search street, barangay, or description" autoCorrect={false} />
+            <View style={styles.filterRow}>
+              {(['all', 'gps', 'missing'] as const).map(filter => (
+                <TouchableOpacity key={filter} style={[styles.filterChip, locationFilter === filter && styles.filterChipActive]} onPress={() => setLocationFilter(filter)}>
+                  <Text style={[styles.filterChipText, locationFilter === filter && styles.filterChipTextActive]}>
+                    {filter === 'all' ? 'All reports' : filter === 'gps' ? 'With GPS' : 'Missing GPS'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {visibleReports.length === 0 ? (
               <View style={styles.emptyBox}>
-                <MaterialIcons name="done-all" size={32} color="#9CA3AF" />
-                <Text style={styles.emptyText}>No pending reports to route.</Text>
+                <MaterialIcons name="search-off" size={32} color="#9CA3AF" />
+                <Text style={styles.emptyText}>{reports.length === 0 ? 'No acknowledged reports to route.' : 'No reports match the selected filters.'}</Text>
               </View>
             ) : (
-              reports.map((report) => {
+              visibleReports.map((report) => {
                 const isSelected = selectedReports.has(report.id);
+                const hasGps = Number.isFinite(report.location?.lat ?? report.location?.latitude) && Number.isFinite(report.location?.lng ?? report.location?.longitude);
                 return (
                   <TouchableOpacity 
                     key={report.id} 
@@ -251,6 +329,7 @@ export default function RouteOptimizationTab() {
                     <View style={styles.reportContent}>
                       <Text style={styles.reportStreet}>{report.street}, {report.barangay}</Text>
                       <Text style={styles.reportDesc} numberOfLines={1}>{report.description}</Text>
+                      {!hasGps && <Text style={styles.missingGpsText}>GPS missing — placed after geotagged stops</Text>}
                     </View>
                     <View style={[styles.badge, { backgroundColor: report.status === 'pending' ? '#FEF3C7' : '#DBEAFE' }]}>
                       <Text style={[styles.badgeText, { color: report.status === 'pending' ? '#D97706' : '#2563EB' }]}>
@@ -332,8 +411,8 @@ export default function RouteOptimizationTab() {
           <View style={styles.infoBox}>
             <MaterialIcons name="auto-awesome" size={20} color="#2563EB" style={{ marginTop: 2 }} />
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.infoTitle}>AI Optimization</Text>
-              <Text style={styles.infoDesc}>The routing engine considers geographic proximity, truck capacity, and priority to generate the most fuel-efficient collection path.</Text>
+              <Text style={styles.infoTitle}>Road-aware with offline fallback</Text>
+              <Text style={styles.infoDesc}>Google Routes optimizes travel time, distance, and turns. If it is unavailable, nearest-neighbor with 2-opt keeps dispatch functional.</Text>
             </View>
           </View>
         </View>
@@ -352,6 +431,14 @@ export default function RouteOptimizationTab() {
 
             <ScrollView style={styles.modalBody}>
               <Text style={styles.modalSubtitle}>Optimized Collection Sequence:</Text>
+              {routeSummary && (
+                <Text style={[styles.infoDesc, { marginBottom: 12 }]}>
+                  {routeSummary.provider} · {routeSummary.distanceKm.toFixed(2)} km{routeSummary.durationMinutes ? ` · ${routeSummary.durationMinutes} min driving` : ''} · {routeSummary.unlocatedStops} without GPS
+                </Text>
+              )}
+              {routeSummary?.fallbackReason && (
+                <Text style={[styles.missingGpsText, { marginBottom: 12 }]}>Fallback active: {routeSummary.fallbackReason}</Text>
+              )}
               {optimizedRoute.map((report, idx) => (
                 <View key={report.id} style={styles.routeItem}>
                   <View style={styles.routeNumberBg}>
@@ -443,7 +530,7 @@ export default function RouteOptimizationTab() {
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                       <Text style={{ fontSize: 13, color: '#6B8C72' }}>Est. Weight:</Text>
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{viewingReport.aiAnalysis.estimatedWeight}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{formatWasteAmount(viewingReport.aiAnalysis.estimatedWeight)}</Text>
                     </View>
                     <Text style={{ fontSize: 12, color: '#4A6741', fontStyle: 'italic' }}>
                       {viewingReport.aiAnalysis.details}
@@ -518,6 +605,12 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 20 },
   cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 16 },
+  searchInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, color: '#111827' },
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  filterChip: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#FFFFFF' },
+  filterChipActive: { borderColor: '#2E8B57', backgroundColor: '#E8F5E9' },
+  filterChipText: { color: '#6B7280', fontSize: 12, fontWeight: '600' },
+  filterChipTextActive: { color: '#166534' },
   
   textBtn: { padding: 4 },
   textBtnText: { color: '#2E8B57', fontWeight: '600', fontSize: 13 },
@@ -534,6 +627,7 @@ const styles = StyleSheet.create({
   reportContent: { flex: 1 },
   reportStreet: { fontSize: 14, fontWeight: '600', color: '#111827' },
   reportDesc: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  missingGpsText: { color: '#B45309', fontSize: 11, fontWeight: '600', marginTop: 3 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 10, fontWeight: '700' },
 

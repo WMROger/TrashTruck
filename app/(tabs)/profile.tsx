@@ -1,14 +1,17 @@
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { db } from '@/config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { formatAdaptiveMassFromMetricTons } from '@/utils/wasteUnits';
 
 export default function ProfilePage() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
+  const router = useRouter();
   
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<{ rank: number, points: number, pointsToNext: number }>({ rank: 0, points: 0, pointsToNext: 0 });
@@ -20,58 +23,29 @@ export default function ProfilePage() {
       if (!db || !user?.uid) return;
       
       try {
-        // Fetch all reports to compute points for all users
-        const reportsSnap = await getDocs(collection(db, "reports"));
-        const userPoints: Record<string, number> = {};
+        // Security rules expose only the signed-in resident's reports. Community
+        // rankings should eventually come from a server-generated public summary.
+        const reportsSnap = await getDocs(query(
+          collection(db, "reports"),
+          where('userId', '==', user.uid)
+        ));
         const myReports: any[] = [];
         
         reportsSnap.forEach(doc => {
           const data = doc.data();
-          if (data.userId) {
-             userPoints[data.userId] = (userPoints[data.userId] || 0) + 50; // 50 pts per report
-             if (data.userId === user.uid) {
-               myReports.push(data);
-             }
-          }
+          myReports.push(data);
         });
         
-        // Fetch all users to construct leaderboard
-        const usersSnap = await getDocs(collection(db, "users"));
-        const usersList: any[] = [];
-        let myBarangay = "";
-        usersSnap.forEach(doc => {
-           const data = doc.data();
-           if (doc.id === user.uid && data.barangay) {
-              myBarangay = data.barangay;
-           }
-           usersList.push({
-             id: doc.id,
-             displayName: data.displayName || "Unknown Resident",
-             points: userPoints[doc.id] || 0
-           });
-        });
-        
-        setUserBarangay(myBarangay);
-
-        // Sort and rank
-        usersList.sort((a, b) => b.points - a.points);
-        setLeaderboard(usersList.slice(0, 3));
-        
-        // Find current user's rank
-        const myIndex = usersList.findIndex(u => u.id === user.uid);
-        if (myIndex !== -1) {
-          const myPoints = usersList[myIndex].points;
-          const nextPoints = myIndex > 0 ? usersList[myIndex - 1].points : myPoints;
-          setUserRank({
-             rank: myIndex + 1,
-             points: myPoints,
-             pointsToNext: myIndex > 0 ? nextPoints - myPoints : 0
-          });
-        } else {
-          // If the user hasn't been created in users collection yet for some reason
-          const myPoints = userPoints[user.uid] || 0;
-          setUserRank({ rank: usersList.length + 1, points: myPoints, pointsToNext: 0 });
-        }
+        const profileSnapshot = await getDoc(doc(db, 'users', user.uid));
+        const profile = profileSnapshot.data();
+        const myPoints = myReports.length * 50;
+        setUserBarangay(profile?.barangay || '');
+        setLeaderboard([{
+          id: user.uid,
+          displayName: profile?.displayName || user.displayName || 'Resident',
+          points: myPoints,
+        }]);
+        setUserRank({ rank: 1, points: myPoints, pointsToNext: 0 });
         
         // Find recent activity from already fetched reports (client-side sort to avoid index errors)
         if (myReports.length > 0) {
@@ -84,13 +58,13 @@ export default function ProfilePage() {
     };
     
     fetchLeaderboardData();
-  }, [user?.uid]);
+  }, [user?.displayName, user?.uid]);
   
   // Dynamic data mapping
   const userName = user?.displayName || "Resident";
   const userLevel = `LEVEL ${Math.floor(userRank.points / 500) + 1}`;
   const tagline = "Eco-Conscious Resident";
-  const wasteDiverted = `${(userRank.points / 50 * 2.5).toFixed(1)}kg Waste Diverted`;
+  const wasteDiverted = `${formatAdaptiveMassFromMetricTons(userRank.points / 50 * 0.0025)} Waste Diverted`;
   const userLocation = userBarangay ? `Barangay ${userBarangay}` : "Local Community";
   const impactGoal = userRank.pointsToNext > 0 ? Math.floor(100 - (userRank.pointsToNext / 500) * 100) : 100;
 
@@ -134,26 +108,24 @@ export default function ProfilePage() {
           </View>
         </View>
 
-        {/* Community Leaderboard */}
+        {/* Privacy-safe personal impact summary */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Community Leaderboard</Text>
-          <TouchableOpacity>
-            <Text style={styles.viewAllText}>View Full Leaderboard</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Your Eco Impact</Text>
+          <Text style={styles.viewAllText}>Private summary</Text>
         </View>
 
           <View style={styles.rankCard}>
             <View style={styles.rankCardTop}>
               <View style={styles.rankNumberBadge}>
-                <Text style={styles.rankNumberText}>#{userRank.rank}</Text>
+                <Text style={styles.rankNumberText}>★</Text>
               </View>
               <View style={styles.rankDetails}>
-                <Text style={styles.rankLabel}>YOUR CURRENT RANK</Text>
+                <Text style={styles.rankLabel}>YOUR IMPACT POINTS</Text>
                 <Text style={styles.rankPoints}>{userRank.points.toLocaleString()} pts</Text>
               </View>
               <View style={styles.nextRankDetails}>
-                <Text style={styles.nextRankLabel}>NEXT RANK: #{Math.max(1, userRank.rank - 1)}</Text>
-                <Text style={styles.pointsToGo}>{userRank.pointsToNext.toLocaleString()} pts to go</Text>
+                <Text style={styles.nextRankLabel}>VERIFIED ACTIVITY</Text>
+                <Text style={styles.pointsToGo}>{Math.floor(userRank.points / 50)} report(s)</Text>
               </View>
             </View>
             <View style={styles.rankProgressBarContainer}>
@@ -203,11 +175,11 @@ export default function ProfilePage() {
               </View>
             </TouchableOpacity>
           ) : (
-            <View style={styles.activityCard}>
+            <TouchableOpacity style={styles.activityCard} onPress={() => router.push('/my-reports')}>
               <View style={styles.activityDetails}>
                 <Text style={styles.activityDate}>No recent activity yet.</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           )}
 
       </ScrollView>

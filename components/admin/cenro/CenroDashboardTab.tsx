@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, getDocs, onSnapshot, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import { formatAdaptiveMassFromMetricTons, parseWasteAmountToMetricTons } from '../../../utils/wasteUnits';
 
 interface DashboardStats {
   totalWaste: number;
@@ -73,11 +74,9 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
         if (data.status === 'pending' || data.status === 'acknowledged') pendingCount++;
         
         // Sum waste if resolved/in-progress
-        if (data.status === 'resolved' || data.status === 'in progress') {
+        if (['resolved', 'in progress', 'in-progress'].includes(data.status)) {
           if (data.aiAnalysis && data.aiAnalysis.estimatedWeight) {
-            // Parse "0.1 kg" -> 0.1
-            const num = parseFloat(data.aiAnalysis.estimatedWeight.replace(/[^\d.-]/g, ''));
-            if (!isNaN(num)) wasteSum += num;
+            wasteSum += parseWasteAmountToMetricTons(data.aiAnalysis.estimatedWeight) || 0;
           }
         }
 
@@ -184,9 +183,9 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
           <View style={styles.cardIconWrapper}>
             <MaterialIcons name="delete-outline" size={24} color="#2E8B57" />
           </View>
-          <Text style={styles.cardTitle}>Total Waste Collected</Text>
-          <Text style={styles.cardValue}>{stats.totalWaste.toFixed(1)} <Text style={styles.cardUnit}>kg</Text></Text>
-          <Text style={styles.cardTrend}>From AI estimations</Text>
+          <Text style={styles.cardTitle}>AI-Estimated Waste</Text>
+          <Text style={styles.cardValue}>{formatAdaptiveMassFromMetricTons(stats.totalWaste)}</Text>
+          <Text style={styles.cardTrend}>Resolved and active reports</Text>
         </View>
 
         <View style={styles.card}>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator, Platform, TouchableWithoutFeedback, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db } from '../../../config/firebase';
 import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy, arrayUnion } from 'firebase/firestore';
+import { formatWasteAmount } from '../../../utils/wasteUnits';
 
 type ReportStatus = 'pending' | 'acknowledged' | 'in-progress' | 'resolved';
 
@@ -42,6 +43,7 @@ export default function TrashReportsTab() {
   // Modal state
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [updating, setUpdating] = useState(false);
 
@@ -122,6 +124,7 @@ export default function TrashReportsTab() {
     setSelectedReport(report);
     setAdminNotes('');
     setIsModalVisible(true);
+    setIsImageViewerVisible(false);
   };
 
   const handleUpdateStatus = async (newStatus: ReportStatus) => {
@@ -220,6 +223,43 @@ export default function TrashReportsTab() {
     );
   };
 
+  const exportCsv = () => {
+    const dataToExport = activeTab === 'active' ? activeReports : historyReports;
+    if (dataToExport.length === 0) {
+      alert('No reports to export in this tab.');
+      return;
+    }
+
+    const header = ['Title', 'Description', 'Reporter Email', 'Barangay', 'Street', 'Waste Type', 'Status', 'Date'];
+    const rowsCsv = dataToExport.map((r) => [
+      (r.title || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      (r.description || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      (r.userEmail || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      (r.barangay || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      (r.street || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      (r.aiAnalysis?.wasteType || 'Unknown').toString().replace(/\n|\r|,/g, ' '),
+      (r.status || 'N/A').toString().replace(/\n|\r|,/g, ' '),
+      formatDate(r.createdAt).replace(/\n|\r|,/g, ' '),
+    ].join(','));
+
+    const csv = [header.join(','), ...rowsCsv].join('\n');
+    const filename = `trash_reports_${activeTab}_${new Date().toISOString().split('T')[0]}.csv`;
+
+    if (Platform.OS === 'web') {
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } else {
+      alert('CSV export is currently available on web.');
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -229,7 +269,7 @@ export default function TrashReportsTab() {
           <Text style={styles.headerDesc}>Manage and track citizen-reported waste issues.</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.outlineBtn}>
+          <TouchableOpacity style={styles.outlineBtn} onPress={exportCsv}>
             <MaterialIcons name="file-download" size={18} color="#374151" />
             <Text style={styles.outlineBtnText}>Export CSV</Text>
           </TouchableOpacity>
@@ -344,10 +384,11 @@ export default function TrashReportsTab() {
 
       {/* Report Detail Modal */}
       {isModalVisible && selectedReport && (
-        <Modal transparent visible={isModalVisible} animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
+        <Modal transparent visible={isModalVisible} animationType="fade" onRequestClose={() => { setIsModalVisible(false); setIsImageViewerVisible(false); }}>
+          <Pressable style={[styles.modalOverlay, { cursor: 'default' } as any]} onPress={() => setIsModalVisible(false)}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.modalContent, { cursor: 'default' } as any]}>
+                <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Report Details</Text>
                 <TouchableOpacity onPress={() => setIsModalVisible(false)}>
                   <MaterialIcons name="close" size={24} color="#6B7280" />
@@ -358,7 +399,9 @@ export default function TrashReportsTab() {
                 <View style={styles.modalBody}>
                   <View style={styles.modalLeft}>
                     {selectedReport.imageURL ? (
-                      <Image source={{ uri: selectedReport.imageURL }} style={styles.reportImage} />
+                      <TouchableOpacity onPress={() => setIsImageViewerVisible(true)}>
+                        <Image source={{ uri: selectedReport.imageURL }} style={styles.reportImage} />
+                      </TouchableOpacity>
                     ) : (
                       <View style={styles.noImagePlaceholder}>
                         <MaterialIcons name="image-not-supported" size={40} color="#9CA3AF" />
@@ -402,7 +445,7 @@ export default function TrashReportsTab() {
                       <View style={styles.aiCard}>
                         <Text style={styles.aiCardTitle}>AI Analysis</Text>
                         <Text style={styles.aiDetail}>Type: <Text style={{fontWeight: 'bold'}}>{selectedReport.aiAnalysis.wasteType}</Text></Text>
-                        <Text style={styles.aiDetail}>Est. Weight: {selectedReport.aiAnalysis.estimatedWeight}</Text>
+                        <Text style={styles.aiDetail}>Est. Weight: {formatWasteAmount(selectedReport.aiAnalysis.estimatedWeight)}</Text>
                         <Text style={styles.aiDetail}>Confidence: {selectedReport.aiAnalysis.confidence}</Text>
                       </View>
                     )}
@@ -443,7 +486,22 @@ export default function TrashReportsTab() {
                 </View>
               </ScrollView>
             </View>
-          </View>
+          </TouchableWithoutFeedback>
+          </Pressable>
+
+          {/* Full Screen Image Viewer inside the main Modal for correct layering but unnested from the background Pressable */}
+          {isImageViewerVisible && (
+            <Pressable style={[styles.imageViewerOverlay, { cursor: 'default' } as any]} onPress={() => setIsImageViewerVisible(false)}>
+              <TouchableOpacity style={styles.imageViewerCloseBtn} onPress={() => setIsImageViewerVisible(false)}>
+                <MaterialIcons name="close" size={32} color="#FFF" />
+              </TouchableOpacity>
+              {selectedReport?.imageURL && (
+                <TouchableWithoutFeedback>
+                  <Image source={{ uri: selectedReport.imageURL }} style={[styles.fullScreenImage, { cursor: 'default' } as any]} resizeMode="contain" />
+                </TouchableWithoutFeedback>
+              )}
+            </Pressable>
+          )}
         </Modal>
       )}
     </View>
@@ -531,4 +589,8 @@ const styles = StyleSheet.create({
   notesInput: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, padding: 12, minHeight: 80, textAlignVertical: 'top', marginBottom: 12, fontSize: 14 },
   actionBtn: { paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   actionBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+
+  imageViewerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', zIndex: 9999 },
+  imageViewerCloseBtn: { position: 'absolute', top: 40, right: 20, zIndex: 10000, padding: 8 },
+  fullScreenImage: { width: '100%', height: '100%' },
 });

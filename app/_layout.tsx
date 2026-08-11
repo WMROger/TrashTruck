@@ -2,6 +2,7 @@ import { AuthProvider, useAuthContext } from '@/components/AuthContext';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { ThemeProvider, useTheme } from '@/hooks/useTheme';
+import '@/services/notificationService';
 import { getTransitionConfig } from '@/utils/transitions';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
