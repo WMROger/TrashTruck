@@ -1,13 +1,14 @@
 import { useAuthContext } from '@/components/AuthContext';
-import DriverProfilePage from '@/components/driver/DriverProfilePage';
 import { auth, db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
-import { useTheme } from '@/hooks/useTheme';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
+
+import CompletePickupModal from '@/components/driver/CompletePickupModal';
+import ReportIssueModal from '@/components/driver/ReportIssueModal';
+import { useTheme } from '@/hooks/useTheme';
 
 interface NextPickup {
   id: string;
@@ -16,6 +17,8 @@ interface NextPickup {
   timeText: string;
   dateText: string;
   status: string;
+  isLiveDispatch?: boolean;
+  routeOrder?: number;
 }
 
 interface HistoryItem {
@@ -31,14 +34,24 @@ export default function DriverIndex() {
   const router = useRouter();
   const { user } = useAuthContext();
   const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
+  const isDark = theme === 'dark';
+
   const [nextPickup, setNextPickup] = useState<NextPickup | null>(null);
+  const [liveDispatches, setLiveDispatches] = useState<NextPickup[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  const [isShiftActive, setIsShiftActive] = useState(false);
+  
+  // Modal states
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [showEndShiftModal, setShowEndShiftModal] = useState(false);
+  const [showActiveShiftModal, setShowActiveShiftModal] = useState(false);
+  const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
 
-  // Fetch driver data
+  // Current truck assignment
+  const [currentTruck, setCurrentTruck] = useState<{ id: string; plateNumber: string; type: string } | null>(null);
+
   useEffect(() => {
     if (!db || !auth?.currentUser) {
       setLoading(false);
@@ -46,148 +59,57 @@ export default function DriverIndex() {
     }
 
     const currentUser = auth.currentUser;
-    const driverName = currentUser.displayName || currentUser.email || 'Unknown Driver';
-    
-    // Fetch next pickup (pending status for today) - use same approach as schedule page
-    const today = new Date();
-    const todayString = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-    
-    // Get all schedules first, then filter manually (same as schedule page)
-    const nextPickupQuery = query(collection(db, 'schedules'));
-
+    // Fetch Next Pickup & Live Dispatches
+    const nextPickupQuery = query(
+      collection(db, 'schedules'),
+      where('assignedDriverId', '==', currentUser.uid)
+    );
     const unsubscribeNextPickup = onSnapshot(nextPickupQuery, (snapshot) => {
-      console.log('=== HOME PAGE DEBUG ===');
-      console.log('Total schedules in database:', snapshot.docs.length);
-      console.log('Current driver:', driverName);
-      console.log('Current user email:', currentUser.email);
-      console.log('Current user UID:', currentUser.uid);
-      console.log('Today string:', todayString);
-      console.log('Today date:', today.toLocaleDateString());
       let todayPickups: NextPickup[] = [];
+      let liveDispatchesData: NextPickup[] = [];
+      const todayString = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
       
       snapshot.forEach((doc) => {
         const data = doc.data();
-        console.log('--- Checking Schedule ---');
-        console.log('Schedule ID:', doc.id);
-        console.log('Street:', data.street);
-        console.log('Status:', data.status);
-        console.log('Date Text:', data.dateText);
-        console.log('Driver fields:', {
-          driver: data.driver,
-          assignedDriverName: data.assignedDriverName,
-          assignedDriverId: data.assignedDriverId,
-          driverName: data.driverName
-        });
         
-        // Check if this schedule is assigned to current driver
-        const isDriverMatch = 
-          data.driver === driverName ||
-          data.driver === currentUser.email ||
-          data.assignedDriverName === driverName ||
-          data.assignedDriverName === currentUser.email ||
-          data.assignedDriverId === currentUser.uid ||
-          data.driverName === driverName ||
-          data.driverName === currentUser.email;
-          
-        console.log('Driver match result:', isDriverMatch);
-        console.log('Driver match details:', {
-          'data.driver === driverName': data.driver === driverName,
-          'data.driver === currentUser.email': data.driver === currentUser.email,
-          'data.assignedDriverName === driverName': data.assignedDriverName === driverName,
-          'data.assignedDriverName === currentUser.email': data.assignedDriverName === currentUser.email,
-          'data.assignedDriverId === currentUser.uid': data.assignedDriverId === currentUser.uid,
-          'data.driverName === driverName': data.driverName === driverName,
-          'data.driverName === currentUser.email': data.driverName === currentUser.email
-        });
-          
-        if (isDriverMatch && (data.status === 'pending' || data.status === undefined || data.status === '')) {
-          // Check if this is today's schedule - use more flexible date matching
-          const scheduleDate = data.dateText || data.date;
-          
-          // More flexible date matching - check if it's today
-          const isToday = scheduleDate && (
-            scheduleDate.includes(todayString) ||
-            scheduleDate.includes(today.toLocaleDateString()) ||
-            scheduleDate.includes(today.toDateString()) ||
-            scheduleDate.includes(`${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`) ||
-            scheduleDate.includes(`${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`) ||
-            // Handle "October 19, 2025" format
-            scheduleDate.includes(`October ${today.getDate()}, ${today.getFullYear()}`) ||
-            scheduleDate.includes(`Oct ${today.getDate()}, ${today.getFullYear()}`) ||
-            // Also check if the date is close to today (within 1 day)
-            (() => {
-              try {
-                const scheduleDateObj = new Date(scheduleDate);
-                const todayObj = new Date();
-                const diffTime = Math.abs(scheduleDateObj.getTime() - todayObj.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays <= 1;
-              } catch {
-                return false;
-              }
-            })()
-          );
-          
-          console.log('Date check details:', {
-            scheduleDate,
-            todayString,
-            'today.toLocaleDateString()': today.toLocaleDateString(),
-            'today.toDateString()': today.toDateString(),
-            isToday,
-            status: data.status
-          });
-          console.log('Date matching results:', {
-            'scheduleDate.includes(todayString)': scheduleDate && scheduleDate.includes(todayString),
-            'scheduleDate.includes(today.toLocaleDateString())': scheduleDate && scheduleDate.includes(today.toLocaleDateString()),
-            'scheduleDate.includes(today.toDateString())': scheduleDate && scheduleDate.includes(today.toDateString()),
-            'scheduleDate.includes(October format)': scheduleDate && scheduleDate.includes(`October ${today.getDate()}, ${today.getFullYear()}`),
-            'Date object comparison': (() => {
-              try {
-                const scheduleDateObj = new Date(scheduleDate);
-                const todayObj = new Date();
-                const diffTime = Math.abs(scheduleDateObj.getTime() - todayObj.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays <= 1;
-              } catch {
-                return false;
-              }
-            })()
-          });
-          
-          if (isToday) {
-            console.log('🎉 FOUND TODAY\'S PICKUP!', {
-              street: data.street,
-              date: data.dateText,
-              status: data.status,
-              driver: data.driver
+        if (data.status === 'pending' || !data.status) {
+          if (data.isLiveDispatch) {
+            liveDispatchesData.push({
+              id: doc.id,
+              street: data.street || 'Unknown Street',
+              wasteCategory: data.wasteCategory || 'General',
+              timeText: data.timeText || 'ASAP',
+              dateText: data.dateText || 'Unknown Date',
+              status: data.status || 'pending',
+              isLiveDispatch: true,
+              routeOrder: data.routeOrder || 0
             });
+          } else if (data.dateText === todayString || data.dateText === 'Today') {
             todayPickups.push({
               id: doc.id,
               street: data.street || 'Unknown Street',
               wasteCategory: data.wasteCategory || 'General',
               timeText: data.timeText || 'Unknown Time',
               dateText: data.dateText || 'Unknown Date',
-              status: data.status || 'pending'
+              status: data.status || 'pending',
+              isLiveDispatch: false,
             });
           }
         }
       });
       
-      // Sort by time and get the next one
-      todayPickups.sort((a, b) => {
-        // Simple time comparison (you might want to improve this)
-        return a.timeText.localeCompare(b.timeText);
-      });
-      
-      const nextPickup = todayPickups.length > 0 ? todayPickups[0] : null;
-      console.log('Today\'s pickups found:', todayPickups.length, 'Next pickup:', nextPickup);
-      setNextPickup(nextPickup);
+      todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
+      setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
+
+      liveDispatchesData.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
+      setLiveDispatches(liveDispatchesData);
     });
 
-  // Fetch recent history (completed and issue status, limit to 2 most recent)
+    // Fetch History
     const historyQuery = query(
       collection(db, 'schedules'),
-    where('status', 'in', ['completed', 'issue'])
+      where('assignedDriverId', '==', currentUser.uid),
+      where('status', 'in', ['completed', 'issue'])
     );
 
     const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
@@ -196,42 +118,22 @@ export default function DriverIndex() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        // Check if this schedule is assigned to current driver
-        const isDriverMatch = 
-          data.driver === driverName ||
-          data.driver === currentUser.email ||
-          data.assignedDriverName === driverName ||
-          data.assignedDriverName === currentUser.email ||
-          data.assignedDriverId === currentUser.uid ||
-          data.driverName === driverName ||
-          data.driverName === currentUser.email;
-          
-        if (isDriverMatch) {
-          const isIssue = data.status === 'issue';
-          const combinedTimestamp = data.completedAt || data.issueReportedAt || data.updatedAt || data.createdAt || new Date();
-          historyList.push({
+        const isIssue = data.status === 'issue';
+          const combinedTimestamp = data.completedAt || data.issueReportedAt || new Date();
+        historyList.push({
             id: doc.id,
             street: data.street || 'Unknown Street',
             wasteCategory: data.wasteCategory || 'General',
             completedAt: combinedTimestamp,
-            status: isIssue ? 'issue' : (data.status || 'completed'),
+            status: isIssue ? 'issue' : 'completed',
             completionImage: (isIssue ? data.issueImage : data.completionImage) || null
-          });
-        }
+        });
       });
       
-      // Sort by completion/issue date (robust) and take only 2 most recent
-      const toMillis = (ts: any) => {
-        if (!ts) return 0;
-        try {
-          return ts.toMillis ? ts.toMillis() : (ts.toDate ? ts.toDate().getTime() : new Date(ts).getTime());
-        } catch {
-          return 0;
-        }
-      };
+      const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
       historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
       
-      setHistoryItems(historyList.slice(0, 2));
+      setHistoryItems(historyList.slice(0, 5));
       setLoading(false);
     });
 
@@ -241,237 +143,702 @@ export default function DriverIndex() {
     };
   }, [user]);
 
-  // Handle complete/issue from Home by opening the same modal on Schedule page
-  const handleCompletePickup = async () => {
-    if (!nextPickup) return;
-    setProcessing(true);
-    try {
-      // Navigate to Schedule page and auto-open the Complete modal for this pickup
-      router.push({ pathname: '/(driver)/pages/DriverSchedulePage', params: { open: 'complete', pickupId: nextPickup.id } });
-    } finally {
-      setProcessing(false);
-    }
+  // Listen for current truck assignment
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.currentTruckId) {
+          // Listen to the truck document for real-time info
+          const unsubTruck = onSnapshot(doc(db, 'trucks', data.currentTruckId), (truckSnap) => {
+            if (truckSnap.exists()) {
+              const truckData = truckSnap.data();
+              setCurrentTruck({
+                id: truckSnap.id,
+                plateNumber: truckData.plateNumber || 'Unknown',
+                type: truckData.type || 'Truck',
+              });
+              setIsShiftActive(true);
+            } else {
+              setCurrentTruck(null);
+              setIsShiftActive(false);
+            }
+          });
+          return () => unsubTruck();
+        } else {
+          setCurrentTruck(null);
+          setIsShiftActive(false);
+        }
+      }
+    });
+
+    return () => unsubUser();
+  }, [user]);
+
+  const handleCompletePickup = (id: string) => {
+    setSelectedPickupId(id);
+    setShowCompleteModal(true);
   };
 
-  const handleIssuePickup = async () => {
-    if (!nextPickup) return;
-    setProcessing(true);
-    try {
-      // Navigate to Schedule page and auto-open the Issue modal for this pickup
-      router.push({ pathname: '/(driver)/pages/DriverSchedulePage', params: { open: 'issue', pickupId: nextPickup.id } });
-    } finally {
-      setProcessing(false);
-    }
+  const handleIssuePickup = (id: string) => {
+    setSelectedPickupId(id);
+    setShowIssueModal(true);
   };
 
-  // Navigate to schedule page
+  const handleNavigate = (scheduleId: string) => {
+    router.push({ pathname: '/(driver)/route-map', params: { scheduleId } });
+  };
+
   const handleSeeAllSchedule = () => {
     router.push('/(driver)/pages/DriverSchedulePage');
   };
 
-  // Navigate to history page
   const handleSeeAllHistory = () => {
     router.push('/(driver)/pages/DriverHistoryPage');
   };
 
-  // Navigate to driver settings/profile
-  const handleDriverSettings = () => {
-    setShowProfile(true);
+  const handleProfileSettings = () => {
+    router.push('/(driver)/profile');
+  };
+
+  const handleEndShift = () => {
+    setShowEndShiftModal(true);
+  };
+
+  const confirmEndShift = async () => {
+    try {
+      if (currentTruck && user?.uid) {
+        // Unassign driver from truck
+        await updateDoc(doc(db, 'trucks', currentTruck.id), {
+          assignedDriverId: null,
+          assignedDriverName: null,
+          shiftStartedAt: null,
+          updatedAt: serverTimestamp(),
+        });
+        // Clear truck from user profile
+        await updateDoc(doc(db, 'users', user.uid), {
+          currentTruckId: null,
+          currentTruckPlate: null,
+        });
+      }
+      setIsShiftActive(false);
+      setCurrentTruck(null);
+      setShowEndShiftModal(false);
+      // Navigate back to user portal
+      router.replace('/(tabs)/home');
+    } catch (e) {
+      console.error('End shift error:', e);
+      Alert.alert('Error', 'Failed to end shift. Please try again.');
+    }
+  };
+
+  const handleBackToUserPortal = () => {
+    if (currentTruck) {
+      setShowActiveShiftModal(true);
+      return;
+    }
+    router.replace('/(tabs)/home');
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading driver data...</Text>
-      </View>
-    );
-  }
-
-  if (showProfile) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.profileHeader, { backgroundColor: colors.background }]}>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => setShowProfile(false)}
-          >
-            <MaterialIcons name="arrow-back" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={[styles.profileHeaderTitle, { color: colors.textPrimary }]}>Driver Profile</Text>
-          <View style={styles.profileHeaderSpacer} />
-        </View>
-        <DriverProfilePage />
+      <View style={[styles.container, isDark && styles.containerDark, styles.center]}>
+        <ActivityIndicator size="large" color={isDark ? "#86EFAC" : "#4E6C50"} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+    <ScrollView style={[styles.container, isDark && styles.containerDark]} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#111827" : "#F4FBF1"} />
       
-      {/* Header with TrashTrack Logo */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../../assets/images/trashtrack_logo_driver.png')} 
-            style={styles.logoImage}
+            source={require('@/assets/images/trashtrack_logo_driver.png')}
+            style={styles.logoIcon}
             resizeMode="contain"
           />
+          <Text style={[styles.logoText, isDark && styles.textLight]}>TrashTrack</Text>
         </View>
         
-        <TouchableOpacity style={[styles.profileButton, { backgroundColor: colors.surfaceVariant }]} onPress={handleDriverSettings}>
-          <MaterialIcons name="person" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleProfileSettings}>
+            <Image source={{ uri: user?.photoURL || 'https://i.pravatar.cc/100?img=33' }} style={styles.avatar} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Welcome Message */}
-      <View style={styles.welcomeSection}>
-        <Text style={[styles.welcomeText, { color: colors.textSecondary }]}>Good day and welcome back, {user?.displayName || 'Driver'}</Text>
-        <Text style={[styles.statusText, { color: colors.textPrimary }]}>Ready to Work!</Text>
+      {/* Welcome & Shift Section */}
+      <View style={[styles.welcomeSection, isDark && styles.cardDark]}>
+        <View style={styles.welcomeLeft}>
+          <Text style={[styles.welcomeText, isDark && styles.textMuted]}>Welcome back, {user?.displayName || 'Driver'}</Text>
+          <Text style={[styles.statusText, { color: isShiftActive ? (isDark ? '#86EFAC' : '#2E8B57') : (isDark ? '#6B7280' : '#9CA3AF') }]}>
+            {isShiftActive ? 'Active Shift' : 'Off Duty'}
+          </Text>
+          {currentTruck && (
+            <View style={styles.truckBadgeRow}>
+              <MaterialIcons name="local-shipping" size={14} color={isDark ? '#86EFAC' : '#2E8B57'} />
+              <Text style={[styles.truckBadgeText, isDark && { color: '#86EFAC' }]}>{currentTruck.plateNumber} • {currentTruck.type}</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.shiftActions}>
+          {isShiftActive && (
+            <TouchableOpacity onPress={handleEndShift} style={styles.endShiftBtn}>
+              <MaterialIcons name="power-settings-new" size={18} color="#DC2626" />
+              <Text style={styles.endShiftText}>End Shift</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={handleBackToUserPortal} style={styles.backToPortalBtn}>
+            <Feather name="arrow-left" size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+            <Text style={[styles.backToPortalText, isDark && { color: '#9CA3AF' }]}>User App</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Next Pickup Section */}
+      {/* Live Dispatches (AI Optimized Routes) */}
+      {isShiftActive && liveDispatches.length > 0 && (
+        <View style={[styles.alertsContainer, isDark && styles.alertsContainerDark]}>
+          <View style={styles.alertHeader}>
+            <View style={styles.liveIndicator}>
+              <View style={styles.pulsingDot} />
+              <Text style={[styles.alertTitle, isDark && {color: '#C4B5FD'}]}>LIVE ROUTE DISPATCH ({liveDispatches.length})</Text>
+            </View>
+            <Text style={[styles.alertSubtitle, isDark && {color: '#A78BFA'}]}>AI Optimized Collection Path</Text>
+          </View>
+          
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            style={styles.alertsScroll}
+            contentContainerStyle={{ paddingRight: 32 }}
+          >
+            {liveDispatches.map((dispatch, index) => (
+              <View key={dispatch.id} style={[styles.alertCard, isDark && styles.alertCardDark]}>
+                <View style={styles.alertRouteBadge}>
+                  <Text style={styles.alertRouteNumber}>{index + 1}</Text>
+                </View>
+                <View style={styles.alertCardContent}>
+                  <Text style={[styles.alertStreet, isDark && styles.textLight]} numberOfLines={1}>{dispatch.street}</Text>
+                  <Text style={[styles.alertType, isDark && styles.textMuted]}>{dispatch.wasteCategory}</Text>
+                  
+                  <View style={styles.alertActions}>
+                    <TouchableOpacity style={styles.navigateBtn} onPress={() => handleNavigate(dispatch.id)}>
+                      <MaterialIcons name="navigation" size={14} color="#FFF" />
+                      <Text style={styles.navigateBtnText}>Navigate</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.completeIconBtn} onPress={() => handleCompletePickup(dispatch.id)}>
+                      <MaterialIcons name="check" size={16} color="#FFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {isShiftActive && liveDispatches.length === 0 && (
+        <View style={[styles.emptyAlertsCard, isDark && styles.emptyDashedDark]}>
+          <MaterialIcons name="radar" size={24} color={isDark ? "#6B7280" : "#9CA3AF"} />
+          <Text style={[styles.emptyAlertsText, isDark && styles.textMuted]}>Waiting for CENRO dispatch...</Text>
+        </View>
+      )}
+
+      {!isShiftActive && (
+        <View style={[styles.offlineCard, isDark && styles.emptyDashedDark]}>
+          <Feather name="moon" size={24} color={isDark ? "#6B7280" : "#6B7280"} />
+          <Text style={[styles.offlineText, isDark && styles.textMuted]}>Start your shift to receive live routes.</Text>
+        </View>
+      )}
+
+      {/* Next Scheduled Pickup */}
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Next Pickup</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Next Scheduled Pickup</Text>
         <TouchableOpacity onPress={handleSeeAllSchedule}>
-          <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
+          <Text style={[styles.seeAllText, isDark && {color: '#86EFAC'}]}>See all</Text>
         </TouchableOpacity>
       </View>
 
       {nextPickup ? (
-        <View style={[styles.nextPickupCard, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.pickupLocation, { color: colors.surface }]}>{nextPickup.street}</Text>
+        <View style={[styles.pickupCard, isDark && styles.pickupCardDark]}>
+          <View style={styles.pickupCardHeader}>
+            <Text style={styles.pickupBarangay}>Scheduled Collection</Text>
+            <TouchableOpacity style={styles.navOutlineBtn} onPress={() => handleNavigate(nextPickup.id)}>
+              <MaterialIcons name="directions" size={16} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.pickupDetails}>
             <View style={styles.detailRow}>
-              <MaterialIcons name="location-on" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Street: {nextPickup.street}</Text>
+              <View style={styles.dotRed} />
+              <Text style={styles.detailText}>Location: {nextPickup.street}</Text>
             </View>
             <View style={styles.detailRow}>
-              <MaterialIcons name="access-time" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Time: {nextPickup.timeText}</Text>
+              <Feather name="clock" size={12} color="#E5E7EB" style={styles.detailIcon} />
+              <Text style={styles.detailText}>Time: {nextPickup.timeText}</Text>
             </View>
             <View style={styles.detailRow}>
-              <MaterialIcons name="recycling" size={16} color={colors.surface} />
-              <Text style={[styles.detailText, { color: colors.surface }]}>Type: {nextPickup.wasteCategory}</Text>
+              <Text style={styles.detailTextType}>Type: {nextPickup.wasteCategory}</Text>
             </View>
           </View>
           
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.completeButton, processing && styles.disabledButton, { backgroundColor: colors.surface }]} 
-              onPress={handleCompletePickup}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={[styles.completeButtonText, { color: colors.primary }]}>Complete</Text>
-              )}
+            <TouchableOpacity style={styles.completeBtn} onPress={() => handleCompletePickup(nextPickup.id)}>
+              <Text style={styles.completeBtnText}>Complete</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.issueButton, processing && styles.disabledButton, { backgroundColor: colors.warning }]} 
-              onPress={handleIssuePickup}
-              disabled={processing}
-            >
-              {processing ? (
-                <ActivityIndicator size="small" color={colors.surface} />
-              ) : (
-                <Text style={[styles.issueButtonText, { color: colors.surface }]}>Issue</Text>
-              )}
+            <TouchableOpacity style={styles.issueBtn} onPress={() => handleIssuePickup(nextPickup.id)}>
+              <Text style={styles.issueBtnText}>Issue</Text>
             </TouchableOpacity>
           </View>
         </View>
       ) : (
-        <View style={[styles.noPickupCard, { backgroundColor: colors.surfaceVariant }]}>
-          <MaterialIcons name="check-circle" size={48} color={colors.primary} />
-          <Text style={[styles.noPickupText, { color: colors.primary }]}>No pending pickups</Text>
-          <Text style={[styles.noPickupSubtext, { color: colors.textSecondary }]}>You're all caught up!</Text>
-          <Text style={[styles.debugText, { color: colors.textTertiary }]}>Debug: Loading={loading.toString()}, NextPickup={nextPickup ? 'Found' : 'None'}, Today={new Date().toLocaleDateString()}</Text>
+        <View style={[styles.emptyCard, isDark && styles.emptyDashedDark]}>
+          <Feather name="check-circle" size={48} color={isDark ? "#4B5563" : "#9CA3AF"} />
+          <Text style={[styles.emptyText, isDark && styles.textLight]}>No pending schedules</Text>
+          <Text style={[styles.emptySubtext, isDark && styles.textMuted]}>You are all caught up for today!</Text>
         </View>
       )}
 
-      {/* Your History Section */}
+      {/* Your History */}
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Your History</Text>
+        <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Recent Activity</Text>
         <TouchableOpacity onPress={handleSeeAllHistory}>
-          <Text style={[styles.seeAllText, { color: colors.primary }]}>See all</Text>
+          <Text style={[styles.seeAllText, isDark && {color: '#86EFAC'}]}>See all</Text>
         </TouchableOpacity>
       </View>
 
-      {historyItems.length > 0 ? (
-        <View style={styles.historyCards}>
-          {historyItems.map((item, index) => (
-            <View key={item.id} style={[styles.historyCard, { backgroundColor: colors.surface }]}>
-              <View style={[styles.historyImage, { backgroundColor: colors.surfaceVariant }]}>
+      <View style={styles.historyContainer}>
+        {historyItems.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyScroll}>
+            {historyItems.map((item) => (
+              <View key={item.id} style={[styles.historyCard, isDark && styles.cardDark]}>
                 {item.completionImage ? (
-                  <Image 
-                    source={{ uri: item.completionImage }} 
-                    style={styles.historyImageContent}
-                    resizeMode="cover"
-                  />
+                  <Image source={{ uri: item.completionImage }} style={styles.historyImage} />
                 ) : (
-                  <MaterialIcons name="recycling" size={40} color={colors.primary} />
+                  <View style={[styles.historyImage, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' }]}>
+                    <Feather name="image" size={24} color="#9CA3AF" />
+                  </View>
                 )}
+                <View style={styles.historyContent}>
+                  <Text style={[styles.historyStreet, isDark && styles.textLight]} numberOfLines={1}>{item.street}</Text>
+                  <Text style={[styles.historyType, isDark && styles.textMuted]}>{item.wasteCategory}</Text>
+                  <View style={[styles.completedBadge, isDark && {backgroundColor: '#374151'}]}>
+                    <Text style={[styles.completedBadgeText, isDark && {color: '#D1D5DB'}]}>
+                      {item.status === 'issue' ? 'Issue Reported' : 'Completed'}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[styles.historyStreet, { color: colors.textSecondary }]}>Street: {item.street}</Text>
-              <Text style={[styles.historyType, { color: colors.textSecondary }]}>Type: {item.wasteCategory}</Text>
-              <Text style={[
-                styles.completedLabel,
-                { color: (item.status?.toLowerCase?.() === 'issue') ? colors.warning : colors.success }
-              ]}>
-                {(item.status?.toLowerCase?.() === 'issue') ? 'Issue' : 'Completed'}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={[styles.noHistoryCard, { backgroundColor: colors.surfaceVariant }]}>
-          <MaterialIcons name="history" size={48} color={colors.textTertiary} />
-          <Text style={[styles.noHistoryText, { color: colors.textSecondary }]}>No completed pickups yet</Text>
-          <Text style={[styles.noHistorySubtext, { color: colors.textTertiary }]}>Your completed pickups will appear here</Text>
-        </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={[styles.emptyHistoryCard, isDark && styles.emptyDashedDark]}>
+            <Feather name="clock" size={32} color={isDark ? "#4B5563" : "#D1D5DB"} />
+            <Text style={[styles.emptyText, isDark && styles.textLight]}>No recent history</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={{ height: 40 }} />
+
+      {selectedPickupId && (
+        <CompletePickupModal
+          visible={showCompleteModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowCompleteModal(false)}
+          onSubmit={() => {
+            setShowCompleteModal(false);
+          }}
+        />
       )}
-    </View>
+
+      {selectedPickupId && (
+        <ReportIssueModal
+          visible={showIssueModal}
+          scheduleId={selectedPickupId}
+          onClose={() => setShowIssueModal(false)}
+          onSubmit={() => {
+            setShowIssueModal(false);
+            console.log('Submit issue action for', selectedPickupId);
+          }}
+        />
+      )}
+
+      {/* ── End Shift Confirmation Modal ── */}
+      <Modal
+        visible={showEndShiftModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEndShiftModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, isDark && styles.modalCardDark]}>
+            <View style={[styles.modalIconCircle, { backgroundColor: '#FEE2E2', shadowColor: '#EF4444' }]}>
+              <MaterialIcons name="power-settings-new" size={36} color="#DC2626" />
+            </View>
+
+            <Text style={[styles.modalTitle, isDark && styles.textLight]}>
+              End Your Shift
+            </Text>
+            <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
+              Are you sure you want to end your shift{currentTruck ? ` and release ${currentTruck.plateNumber}` : ''}?
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, isDark && { backgroundColor: '#374151', borderColor: '#4B5563' }]}
+                onPress={() => setShowEndShiftModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalCancelText, isDark && { color: '#D1D5DB' }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: '#DC2626', shadowColor: '#DC2626' }]}
+                onPress={confirmEndShift}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>End Shift</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Active Shift Warning Modal ── */}
+      <Modal
+        visible={showActiveShiftModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActiveShiftModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, isDark && styles.modalCardDark]}>
+            <View style={[styles.modalIconCircle, { backgroundColor: '#FEF3C7', shadowColor: '#F59E0B' }]}>
+              <MaterialIcons name="warning" size={36} color="#D97706" />
+            </View>
+
+            <Text style={[styles.modalTitle, isDark && styles.textLight]}>
+              Active Shift
+            </Text>
+            <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
+              You need to end your shift before switching to the user app. End your shift first to release the truck.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: '#F59E0B', shadowColor: '#F59E0B' }]}
+                onPress={() => setShowActiveShiftModal(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 40,
+    backgroundColor: '#F4FBF1',
     paddingHorizontal: 20,
+  },
+  containerDark: {
+    backgroundColor: '#111827',
+  },
+  textLight: {
+    color: '#F9FAFB',
+  },
+  textMuted: {
+    color: '#9CA3AF',
+  },
+  cardDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  emptyDashedDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  pickupCardDark: {
+    backgroundColor: '#1C2920',
+  },
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginTop: 60,
+    marginBottom: 20,
   },
   logoContainer: {
-    flex: 1,
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  logoImage: {
-    width: 120,
-    height: 60,
-    left:-30,
+  logoIcon: {
+    width: 32,
+    height: 32,
+    marginRight: 8,
   },
-  profileButton: {
-    padding: 8,
-    borderRadius: 20,
+  logoText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1A3B2B',
+    letterSpacing: -0.5,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#4E6C50',
   },
   welcomeSection: {
-    marginBottom: 30,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  welcomeLeft: {
+    flex: 1,
   },
   welcomeText: {
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 2,
   },
   statusText: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '800',
   },
+  shiftToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shiftToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  truckBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  truckBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2E8B57',
+  },
+  shiftActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  endShiftBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  endShiftText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  backToPortalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  backToPortalText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  
+  // Alerts
+  alertsContainer: {
+    marginBottom: 24,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  alertsContainerDark: {
+    backgroundColor: '#1E1B4B', // Dark deep purple
+    borderColor: '#4C1D95',
+  },
+  alertHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pulsingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8B5CF6',
+  },
+  alertTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.5,
+  },
+  alertSubtitle: {
+    fontSize: 11,
+    color: '#7C3AED',
+    marginTop: 2,
+    marginLeft: 16,
+  },
+  alertsScroll: {
+    paddingLeft: 16,
+  },
+  alertCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    width: 240,
+    marginRight: 12,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  alertCardDark: {
+    backgroundColor: '#2E1065',
+    borderColor: '#5B21B6',
+  },
+  alertRouteBadge: {
+    backgroundColor: '#8B5CF6',
+    width: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  alertRouteNumber: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  alertCardContent: {
+    flex: 1,
+    padding: 12,
+  },
+  alertStreet: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  alertType: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  alertActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  navigateBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  navigateBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  completeIconBtn: {
+    width: 32,
+    backgroundColor: '#059669',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  emptyAlertsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  emptyAlertsText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  offlineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  offlineText: {
+    fontSize: 13,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -479,168 +846,268 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
+    color: '#1F2937',
   },
   seeAllText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#4E6C50',
   },
-  nextPickupCard: {
-    borderRadius: 12,
+  pickupCard: {
+    backgroundColor: '#58715B',
+    borderRadius: 20,
     padding: 20,
     marginBottom: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  pickupLocation: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  pickupCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  pickupBarangay: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  navOutlineBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pickupDetails: {
     marginBottom: 20,
+    gap: 6,
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+  },
+  dotRed: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444',
+    marginRight: 8,
+    marginLeft: 3,
+  },
+  detailIcon: {
+    marginRight: 8,
   },
   detailText: {
-    fontSize: 14,
-    marginLeft: 8,
+    fontSize: 13,
+    color: '#E5E7EB',
+  },
+  detailTextType: {
+    fontSize: 13,
+    color: '#E5E7EB',
+    marginLeft: 14,
   },
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
   },
-  completeButton: {
-    paddingHorizontal: 20,
+  completeBtn: {
+    backgroundColor: '#95C596',
+    borderRadius: 20,
     paddingVertical: 10,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  completeButtonText: {
-    fontWeight: '600',
-    fontSize: 14,
+  completeBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
-  issueButton: {
-    paddingHorizontal: 20,
+  issueBtn: {
+    backgroundColor: '#F59E0B',
+    borderRadius: 20,
     paddingVertical: 10,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  issueButtonText: {
-    fontWeight: '600',
-    fontSize: 14,
+  issueBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
-  historyCards: {
-    flexDirection: 'row',
-    gap: 12,
+  historyContainer: {
+    marginHorizontal: -20,
+  },
+  historyScroll: {
+    paddingHorizontal: 20,
+    gap: 16,
   },
   historyCard: {
-    borderRadius: 12,
-    padding: 16,
-    flex: 1,
+    width: 240,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   historyImage: {
-    height: 80,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  historyImageContent: {
     width: '100%',
-    height: '100%',
+    height: 120,
+  },
+  historyContent: {
+    padding: 16,
   },
   historyStreet: {
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
     marginBottom: 4,
   },
   historyType: {
     fontSize: 12,
-    marginBottom: 8,
+    color: '#6B7280',
+    marginBottom: 12,
   },
-  completedLabel: {
+  completedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  completedBadgeText: {
     fontSize: 10,
-    fontWeight: '600',
-    textAlign: 'right',
+    fontWeight: '700',
+    color: '#6B7280',
   },
-  loadingContainer: {
+  emptyCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 20,
+    padding: 32,
+    marginBottom: 30,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  emptyHistoryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    marginHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4B5563',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  
+  // ── Modal Styles ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  noPickupCard: {
-    borderRadius: 12,
-    padding: 40,
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    maxWidth: 400,
     alignItems: 'center',
-    marginBottom: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
   },
-  noPickupText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 16,
+  modalCardDark: {
+    backgroundColor: '#111827',
+  },
+  modalIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
     marginBottom: 8,
   },
-  noPickupSubtext: {
+  modalSubtitle: {
     fontSize: 14,
+    color: '#6B7280',
     textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
   },
-  noHistoryCard: {
-    borderRadius: 12,
-    padding: 40,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  noHistoryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  noHistorySubtext: {
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  profileHeader: {
+  modalActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    width: '100%',
+    gap: 12,
   },
-  backButton: {
-    padding: 8,
-  },
-  profileHeaderTitle: {
+  modalCancelBtn: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  profileHeaderSpacer: {
-    width: 40,
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4B5563',
   },
-  debugText: {
-    fontSize: 10,
-    textAlign: 'center',
-    marginTop: 8,
+  modalConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalConfirmText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

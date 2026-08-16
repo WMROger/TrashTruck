@@ -1,14 +1,14 @@
-import { getAuth } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { db, functions } from '../../config/firebase';
+import { provisionDriverOnSpark } from '../../services/driverProvisioningService';
 import ErrorModal from '../ErrorModal';
 
 const CreateDriverTab: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [isBusy, setIsBusy] = useState(false);
   const [errorModal, setErrorModal] = useState({
     visible: false,
@@ -35,61 +35,27 @@ const CreateDriverTab: React.FC = () => {
   const handleCreate = async () => {
     const trimmedUsername = (username || '').trim();
     const trimmedPassword = (password || '').trim();
-    if (!trimmedUsername || !trimmedPassword) {
-      showError('Please provide both username and password.', 'Missing Fields', 'warning');
-      return;
-    }
-    if (!functions) {
-      showError('Cloud Functions are not available in this environment.', 'Service Unavailable', 'error');
+    if (!trimmedUsername || !trimmedPassword || !fullName.trim() || !employeeId.trim() || !licenseNumber.trim()) {
+      showError('Email, full name, password, employee ID, and license number are required.', 'Missing Fields', 'warning');
       return;
     }
     try {
       setIsBusy(true);
-      let uid: string | undefined;
-      let email: string | undefined;
-      try {
-        const callable = httpsCallable(functions, 'createDriverAccount');
-        const res: any = await callable({ username: trimmedUsername, password: trimmedPassword });
-        uid = res?.data?.uid;
-        email = res?.data?.email;
-      } catch (err) {
-        // Fallback to HTTP endpoint with ID token
-        const auth = getAuth();
-        const token = await auth?.currentUser?.getIdToken?.();
-        const resp = await fetch('https://us-central1-trashtruck-swu-98ce9.cloudfunctions.net/createDriverAccountHttp', {
-          method: 'POST',
-          mode: 'cors',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ username: trimmedUsername, password: trimmedPassword }),
-        });
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(text || 'HTTP fallback failed');
-        }
-        const data = await resp.json();
-        uid = data?.uid;
-        email = data?.email;
-      }
-      if (db && uid) {
-        try {
-          await setDoc(doc(db, 'users', uid), {
-            uid,
-            email: email || `${trimmedUsername}@driver.com`,
-            role: 'driver',
-            provider: 'password',
-            verified: true,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }, { merge: true });
-        } catch {}
-      }
-      showError(`Driver account created: ${email || trimmedUsername}`, 'Success', 'success');
+      const res = await provisionDriverOnSpark({
+        mode: 'create',
+        email: trimmedUsername,
+        password: trimmedPassword,
+        fullName: fullName.trim(),
+        employeeId: employeeId.trim(),
+        licenseNumber: licenseNumber.trim(),
+      });
+      const email = res?.email;
+      showError(`Driver account created: ${email || trimmedUsername}. A verification link was sent before first sign-in.`, 'Success', 'success');
       setUsername('');
       setPassword('');
+      setFullName('');
+      setEmployeeId('');
+      setLicenseNumber('');
     } catch (e: any) {
       const message = e?.message || 'Failed to create driver account';
       showError(message, 'Creation Error', 'error');
@@ -102,14 +68,18 @@ const CreateDriverTab: React.FC = () => {
     <View style={styles.container}>
       <Text style={styles.title}>Create Driver Account</Text>
       <View style={styles.field}> 
-        <Text style={styles.label}>Username</Text>
+        <Text style={styles.label}>Email</Text>
         <TextInput
           style={styles.input}
           value={username}
           onChangeText={setUsername}
-          placeholder="e.g. juan.driver"
+          placeholder="e.g. juan.driver@example.com"
           autoCapitalize="none"
         />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Full Name</Text>
+        <TextInput style={styles.input} value={fullName} onChangeText={setFullName} placeholder="Juan Dela Cruz" />
       </View>
       <View style={styles.field}> 
         <Text style={styles.label}>Password</Text>
@@ -117,9 +87,17 @@ const CreateDriverTab: React.FC = () => {
           style={styles.input}
           value={password}
           onChangeText={setPassword}
-          placeholder="Enter password"
+          placeholder="At least 12 characters"
           secureTextEntry
         />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Employee ID</Text>
+        <TextInput style={styles.input} value={employeeId} onChangeText={setEmployeeId} placeholder="CENRO-2026-001" autoCapitalize="characters" />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>License Number</Text>
+        <TextInput style={styles.input} value={licenseNumber} onChangeText={setLicenseNumber} placeholder="N01-23-456789" autoCapitalize="characters" />
       </View>
       <TouchableOpacity
         onPress={handleCreate}
@@ -129,7 +107,7 @@ const CreateDriverTab: React.FC = () => {
       >
         <Text style={styles.buttonText}>{isBusy ? 'Creating...' : 'Create Driver'}</Text>
       </TouchableOpacity>
-      <Text style={styles.hint}>The account will be created with role "driver". Login with the same username at the normal login screen.</Text>
+      <Text style={styles.hint}>The Spark-compatible workflow creates the Auth account without signing out the current admin, reserves the employee ID, and assigns the driver role.</Text>
 
       {/* Error Modal */}
       <ErrorModal

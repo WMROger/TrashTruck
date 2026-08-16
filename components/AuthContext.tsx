@@ -1,8 +1,9 @@
-import { db } from '@/config/firebase';
+import { auth as firebaseAuth, db } from '@/config/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { updateProfile as updateFirebaseProfile, User } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import React, { createContext, ReactNode, useContext } from 'react';
+import { signOut, updateProfile as updateFirebaseProfile, User } from 'firebase/auth';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import React, { createContext, ReactNode, useContext, useEffect } from 'react';
+import { registerDeviceForFcm } from '@/services/pushTokenService';
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +17,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
+
+  // Enforce account disabling during an active session, not only at the next login.
+  useEffect(() => {
+    if (!auth.user?.uid || !db) return;
+    return onSnapshot(doc(db, 'users', auth.user.uid), snapshot => {
+      const profile = snapshot.data();
+      if (profile?.disabled === true || profile?.status === 'disabled') {
+        signOut(firebaseAuth).catch(error => console.warn('Unable to end disabled account session:', error));
+      }
+    });
+  }, [auth.user?.uid]);
+
+  useEffect(() => {
+    if (!auth.user?.uid) return;
+    registerDeviceForFcm(auth.user.uid).catch(error => console.warn('FCM device registration skipped:', error));
+  }, [auth.user?.uid]);
 
   const updateProfile = async (profileData: { displayName?: string; photoURL?: string | null }) => {
     if (!auth.user || !auth || !db) {

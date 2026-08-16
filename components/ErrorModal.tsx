@@ -167,7 +167,10 @@ export default function ErrorModal({
       onRequestClose={handleClose}
     >
       <Pressable onPress={handleClose} style={styles.overlay}>
-        <Pressable onPress={(event) => event.stopPropagation()}>
+        <Pressable 
+          onPress={(event) => event.stopPropagation()} 
+          style={{ width: '100%', alignItems: 'center' }}
+        >
           <Animated.View
             style={[
               styles.modalContainer,

@@ -42,12 +42,15 @@ export default function TabLayout() {
             router.replace('/admin/dashboard');
             return;
           }
-          if (userData.role === 'driver') {
-            // Redirect driver users to the dedicated driver section
+          // Drivers stay on the regular user portal but have access to driver features
+          setRole(userData.role || null);
+
+          // If driver has an active shift (truck assigned), redirect to driver portal
+          if (userData.role === 'driver' && userData.currentTruckId) {
+            console.log('Tabs layout: Driver on active shift, redirecting to driver portal');
             router.replace('/(driver)');
             return;
           }
-          setRole(userData.role || null);
         }
         setIsAdmin(false);
       } catch (error) {
@@ -79,32 +82,22 @@ export default function TabLayout() {
         initialRouteName="home"
         screenOptions={({ route, navigation }) => ({
           lazy: true,
-          tabBarActiveTintColor: '#FFFFFF',
-          tabBarInactiveTintColor: 'rgba(255,255,255,0.6)',
+          tabBarActiveTintColor: '#2E7D32',
+          tabBarInactiveTintColor: '#757575',
           headerShown: false,
           tabBarButton: (props) => {
             const isFocused = navigation.getState().routes[navigation.getState().index].name === route.name;
-            return <CustomTabBar {...props} isFocused={isFocused} />;
+            const isProtruding = route.name === 'report';
+            return <CustomTabBar {...props} isFocused={isFocused} isProtruding={isProtruding} />;
           },
-          tabBarBackground: TabBarBackground,
-          tabBarStyle: Platform.select({
-            ios: {
-              // Use a transparent background on iOS to show the blur effect
-              position: 'absolute',
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-            default: {
-              backgroundColor: 'transparent',
-              borderTopWidth: 0,
-              height: 75,
-              paddingTop: 5,
-              paddingBottom: 5,
-            },
-          }),
+          tabBarStyle: {
+            backgroundColor: '#FFFFFF',
+            borderTopWidth: 1,
+            borderTopColor: '#E0E0E0',
+            height: 80,
+            paddingTop: 8,
+            paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          },
         })}>
         <Tabs.Screen
           name="home"
@@ -114,7 +107,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="home" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -127,20 +120,7 @@ export default function TabLayout() {
               <MaterialIcons 
                 name="event" 
                 size={28} 
-                color="#FFFFFF"
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="announcements"
-          options={{
-            title: 'Announcements',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialIcons 
-                name="campaign" 
-                size={28} 
-                color="#FFFFFF"
+                color={color}
               />
             ),
           }}
@@ -151,9 +131,35 @@ export default function TabLayout() {
             title: 'Report',
             tabBarIcon: ({ focused, color, size }) => (
               <MaterialIcons 
-                name="description" 
+                name="camera-alt" 
+                size={32} 
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="announcements"
+          options={{
+            title: 'Alerts',
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="campaign" 
                 size={28} 
-                color="#FFFFFF"
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ focused, color, size }) => (
+              <MaterialIcons 
+                name="person" 
+                size={28} 
+                color={color}
               />
             ),
           }}

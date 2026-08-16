@@ -1,20 +1,20 @@
 // Firebase configuration — handles hot-reload / lazy-bundling re-evaluation
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { Platform } from 'react-native';
 
 // ─── 1. Validate env vars ──────────────────────────────────────────────────
-const {
-  EXPO_PUBLIC_FIREBASE_API_KEY: apiKey,
-  EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN: authDomain,
-  EXPO_PUBLIC_FIREBASE_PROJECT_ID: projectId,
-  EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET: storageBucket,
-  EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: messagingSenderId,
-  EXPO_PUBLIC_FIREBASE_APP_ID: appId,
-} = process.env;
+// Expo replaces EXPO_PUBLIC_* values in web bundles only when they are
+// referenced with direct dot notation. Destructuring process.env works during
+// server-side export but leaves the browser bundle with undefined values.
+const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN;
+const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID;
+const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+const messagingSenderId = process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
+const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID;
 
 console.log('Firebase Config Check:');
 console.log('  apiKey:', !!apiKey);
@@ -26,17 +26,16 @@ console.log('  appId:', !!appId);
 
 let app: any = null;
 let db: any = null;
-let functions: any = null;
 let auth: any = null;
 let storage: any = null;
 
   const firebaseConfig = {
-    apiKey: apiKey || 'AIzaSyCI_dZWMCn1QbwAaZe9qkPi_lB5KG0iLks',
-    authDomain: authDomain || 'trashtruck-swu-98ce9.firebaseapp.com',
-    projectId: projectId || 'trashtruck-swu-98ce9',
-    storageBucket: storageBucket || 'trashtruck-swu-98ce9.firebasestorage.app',
-    messagingSenderId: messagingSenderId || '634173704158',
-    appId: appId || '1:634173704158:web:d7a0efc4fd1bd026283f4f',
+    apiKey: apiKey as string,
+    authDomain: authDomain as string,
+    projectId: projectId as string,
+    storageBucket: storageBucket as string,
+    messagingSenderId: messagingSenderId as string,
+    appId: appId as string,
   };
 
   // ─── 2. App ───────────────────────────────────────────────────────────────
@@ -52,23 +51,25 @@ let storage: any = null;
   // ─── 3. Firestore ─────────────────────────────────────────────────────────
   if (app) {
     try {
-      db = getFirestore(app);
-      console.log('Firebase: Firestore ready');
-    } catch (e: any) {
-      console.error('Firebase: Firestore error:', e.message);
+      // Use initializeFirestore with persistentLocalCache to enable offline capabilities
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
+      });
+      console.log('Firebase: Firestore ready (with offline persistence)');
+    } catch {
+      // Fallback to getFirestore if initializeFirestore throws (e.g. unsupported environment)
+      try {
+        db = getFirestore(app);
+        console.log('Firebase: Firestore ready (fallback to memory cache)');
+      } catch (fallbackError: any) {
+        console.error('Firebase: Firestore initialization error:', fallbackError.message);
+      }
     }
   }
 
   // ─── 4. Functions ─────────────────────────────────────────────────────────
-  if (app) {
-    try {
-      functions = getFunctions(app, 'us-central1');
-      console.log('Firebase: Functions ready');
-    } catch (e: any) {
-      console.error('Firebase: Functions error:', e.message);
-    }
-  }
-
   // ─── 5. Storage ───────────────────────────────────────────────────────────
   if (app) {
     try {
@@ -117,5 +118,5 @@ let storage: any = null;
 
   console.log('Firebase: Initialization complete. auth:', auth ? 'OK' : 'NULL');
 
-export { auth, db, functions, storage };
+export { auth, db, storage, firebaseConfig };
 export default app;

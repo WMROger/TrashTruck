@@ -1,4 +1,5 @@
 import ChatMessage from '@/components/ChatMessage';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { auth, db } from '@/config/firebase';
 import { getN8nWebhookUrl } from '@/config/n8n';
@@ -51,8 +52,8 @@ function isScheduleIntent(text: string): boolean {
   return keys.some(k => t.includes(k));
 }
 
-async function buildSchedulesContextForUser(userId: string) {
-  if (!db || !userId) return null;
+async function buildSchedulesContextForBarangay(barangay: string) {
+  if (!db || !barangay) return null;
   try {
     const toDateSafe = (val: any): Date | null => {
       try {
@@ -83,38 +84,31 @@ async function buildSchedulesContextForUser(userId: string) {
       }
     };
 
-    const ref = collection(db, 'schedules');
+    const ref = collection(db, 'barangay_schedules');
     const qy = query(
       ref,
-      where('userId', '==', userId),
-      limit(50)
+      where('barangayName', '==', barangay),
+      limit(20)
     );
     const snap = await getDocs(qy);
     const items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as any[];
-    // Sort client-side by createdAt desc if available
-    items.sort((a: any, b: any) => {
-      const ad = typeof a.createdAt?.toDate === 'function' ? a.createdAt.toDate() : new Date(a.createdAt);
-      const bd = typeof b.createdAt?.toDate === 'function' ? b.createdAt.toDate() : new Date(b.createdAt);
-      return (bd?.getTime?.() || 0) - (ad?.getTime?.() || 0);
-    });
 
-    // Create a compact summary to keep payload small
-    const normalized = items.map((r) => ({
-      id: r.id,
-      status: r.status || 'pending',
-      type: r.type || r.category || r.binType || 'general',
-      address: r.address || r.location || undefined,
-      // try multiple possible date fields
-      dateIso: toIso(toDateSafe(r.date || r.pickupDate || r.scheduledDate || r.when)),
-      createdAtIso: toIso(toDateSafe(r.createdAt)),
-      displayDate: toReadable(toDateSafe(r.date || r.pickupDate || r.scheduledDate || r.when)),
-      displayDateManila: toReadable(toDateSafe(r.date || r.pickupDate || r.scheduledDate || r.when), 'Asia/Manila'),
-      window: r.timeWindow || r.window || undefined
-    }));
+    // Map to a format the AI understands perfectly
+    const normalized = items.map((r) => {
+      return {
+        id: r.id,
+        location: r.barangayName,
+        category: r.wasteCategory || 'Mixed',
+        recurringDays: Array.isArray(r.days) ? r.days.join(', ') : 'None',
+        specialDates: Array.isArray(r.specificSchedules) 
+          ? r.specificSchedules.map((s: any) => `${s.date || 'Unknown'} at ${s.time || 'Unknown'}${s.description ? ` (${s.description})` : ''}`).join('; ')
+          : 'None',
+      };
+    });
 
     return {
       total: normalized.length,
-      items: normalized.slice(0, 20)
+      items: normalized
     };
   } catch (e) {
     console.error('Failed to build schedules context:', e);
@@ -189,6 +183,7 @@ async function buildProfileContext(userId: string): Promise<any | null> {
       displayName: u.displayName || null,
       role: u.role || null,
       photoURL: u.photoURL || null,
+      barangay: u.barangay || u.address || null,
     };
   } catch (e) {
     console.error('Failed to build profile context:', e);
@@ -216,12 +211,32 @@ async function buildPickupsContext(userId: string): Promise<any | null> {
   }
 }
 
-// Call n8n webhook for AI processing
-async function callN8nWebhook(query: string, options?: { context?: any; userId?: string }): Promise<string> {
+const buildOfflineAssistantResponse = (queryText: string, context: any) => {
+  const normalized = queryText.toLowerCase();
+  if (/schedule|pickup|collection/.test(normalized)) {
+    const schedules = Array.isArray(context?.schedules?.items) ? context.schedules.items : [];
+    return schedules.length
+      ? `You have ${schedules.length} collection schedule${schedules.length === 1 ? '' : 's'} available. Open the Schedule tab for confirmed dates, route, and live truck status.`
+      : 'You do not have an assigned collection schedule yet. Confirmed schedules will appear in the Schedule tab when CENRO publishes them.';
+  }
+  if (/announcement|alert/.test(normalized)) {
+    const count = Number(context?.announcements?.total || 0);
+    return count
+      ? `There ${count === 1 ? 'is' : 'are'} ${count} published announcement${count === 1 ? '' : 's'}. Open the Alerts tab to review the official details.`
+      : 'There are no published announcements in your TrashTrack data right now.';
+  }
+  if (/notification|inbox/.test(normalized)) {
+    const count = Number(context?.notifications?.total || 0);
+    return count
+      ? `Your inbox contains ${count} notification${count === 1 ? '' : 's'}. Open the notification list to review them.`
+      : 'Your TrashTrack inbox is currently empty.';
+  }
+  return 'The online AI service is temporarily unavailable. You can still report waste, view collection schedules, read official announcements, and track submitted reports in TrashTrack.';
+};
+
+// Call Gemini API for AI processing
+async function generateAIResponse(query: string, options?: { context?: any; userId?: string }): Promise<string> {
   try {
-    const webhookUrl = getN8nWebhookUrl();
-    console.log('🔗 Calling n8n webhook:', webhookUrl);
-    
     // Enhanced system prompt for TrashTrack app
     const systemPrompt = `You are an AI assistant for TrashTrack, a waste management app that helps users track and manage their waste efficiently. You are friendly, helpful, and knowledgeable about many topics, but you have a special focus on waste management, recycling, sustainability, and the TrashTrack app features.
 
@@ -253,7 +268,7 @@ MANDATORY: You MUST use the provided context data. Do NOT give generic responses
 - Report uncollected trash or illegal dumping
 - Upload photos of trash piles
 - Specify location (Barangay, Street, Landmark)
-- Currently serves Barangay Sambag 2
+- Currently serving the user's selected barangay: \${options?.context?.profile?.barangay || 'Unknown'}
 
 ### Announcements Screen:
 - View important updates from waste management team
@@ -333,178 +348,30 @@ When user asks "Can you tell me the schedules for trash collecting?" or similar:
 4) If asked about inappropriate topics, redirect to waste management and TrashTrack features
 5) Always encourage users to explore TrashTrack features when relevant`;
 
-    const requestBody = {
-      messageInput: query,
-      timestamp: new Date().toISOString(),
-      source: 'TrashTrack App',
-      userId: options?.userId || null,
-      context: options?.context || null,
-      systemPrompt: systemPrompt
-    };
-    
-    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
-    
-    // Add a timeout to avoid long hangs
-    const controller = new AbortController();
-    const timeoutMs = 15000;
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: (controller as any).signal,
-    });
-    clearTimeout(timer);
-
-    console.log('📥 n8n response status:', response.status);
-    console.log('📥 n8n response headers:', Object.fromEntries(response.headers.entries()));
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ n8n error response:', errorText);
-      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+    if (!apiKey) {
+      return buildOfflineAssistantResponse(query, options?.context);
     }
 
-    // Read as text first, then try JSON parse with fallback to raw string
-    const raw = await response.text();
-    let data: any = {};
-    try {
-      data = raw ? JSON.parse(raw) : {};
-    } catch {
-      data = { reply: (raw || '').trim() };
-    }
-    try {
-      console.log('✅ n8n response data:', JSON.stringify(data, null, 2));
-    } catch {}
+    console.log('🚀 Using Gemini SDK for AI response');
+    const genAI = new GoogleGenerativeAI(apiKey);
     
-    // Persist suggested location if provided by backend and user is known
-    try {
-      const userId = options?.userId;
-      const locationCandidate = data?.suggestedLocation || data?.location || data?.address || data?.meta?.suggestedLocation || data?.context?.selectedLocation;
-      if (db && userId && typeof locationCandidate === 'string' && locationCandidate.trim().length > 0) {
-        const settingsRef = doc(db, 'user_settings', userId);
-        await setDoc(settingsRef, {
-          preferredLocation: locationCandidate.trim(),
-          preferredLocationUpdatedAt: serverTimestamp(),
-        }, { merge: true });
-        console.log('💾 Saved preferredLocation for user_settings:', userId, locationCandidate);
-      }
-    } catch (persistErr) {
-      console.warn('Could not persist suggested location:', persistErr);
-    }
+    // Swapped to Flash Lite for lightning-fast, low latency responses
+    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
 
-    // Handle different possible response formats
-    let aiResponse = data.reply || data.response || data.answer || data.message || data.output || data.text || data.content || 'Sorry, I couldn\'t process your request.';
+    const fullPrompt = `${systemPrompt}\n\n--- USER CONTEXT DATA ---\n${JSON.stringify(options?.context || {}, null, 2)}\n-------------------------\n\nUser: ${query}`;
     
-    // Check if the response contains the literal expression (n8n webhook issue)
-    if (aiResponse === '{{$json.output}}' || aiResponse.includes('{{$json.output}}') || aiResponse === '{{ $json.output }}' || aiResponse.includes('{{ $json.output }}')) {
-      console.warn('⚠️ Received literal expression from webhook, trying to extract actual content');
-      console.log('🔍 Full response data:', JSON.stringify(data, null, 2));
-      
-      // Try to get the actual content from various possible fields
-      if (data.output && typeof data.output === 'string' && data.output !== '{{$json.output}}' && data.output !== '{{ $json.output }}') {
-        aiResponse = data.output;
-        console.log('✅ Extracted actual content from data.output');
-      } else if (data.response && typeof data.response === 'string' && data.response !== '{{$json.output}}' && data.response !== '{{ $json.output }}') {
-        aiResponse = data.response;
-        console.log('✅ Extracted actual content from data.response');
-      } else if (data.answer && typeof data.answer === 'string' && data.answer !== '{{$json.output}}' && data.answer !== '{{ $json.output }}') {
-        aiResponse = data.answer;
-        console.log('✅ Extracted actual content from data.answer');
-      } else if (data.message && typeof data.message === 'string' && data.message !== '{{$json.output}}' && data.message !== '{{ $json.output }}') {
-        aiResponse = data.message;
-        console.log('✅ Extracted actual content from data.message');
-      } else if (data.text && typeof data.text === 'string' && data.text !== '{{$json.output}}' && data.text !== '{{ $json.output }}') {
-        aiResponse = data.text;
-        console.log('✅ Extracted actual content from data.text');
-      } else if (data.content && typeof data.content === 'string' && data.content !== '{{$json.output}}' && data.content !== '{{ $json.output }}') {
-        aiResponse = data.content;
-        console.log('✅ Extracted actual content from data.content');
-      } else {
-        // Try to find any string field that's not the literal expression
-        const findValidString = (obj: any, path: string = ''): string | null => {
-          if (typeof obj === 'string' && obj !== '{{$json.output}}' && obj !== '{{ $json.output }}' && obj.length > 10) {
-            return obj;
-          }
-          if (typeof obj === 'object' && obj !== null) {
-            for (const key in obj) {
-              const result = findValidString(obj[key], `${path}.${key}`);
-              if (result) return result;
-            }
-          }
-          return null;
-        };
-        
-        const validString = findValidString(data);
-        if (validString) {
-          aiResponse = validString;
-          console.log('✅ Found valid string content:', validString.substring(0, 100) + '...');
-        } else {
-          // Enhanced fallback with more helpful message
-          aiResponse = 'I apologize, but I\'m experiencing a technical issue with my response system. This appears to be a configuration problem with the AI service. Please try asking your question again, or contact support if the issue persists.';
-          console.error('❌ Could not extract actual content from webhook response. Available fields:', Object.keys(data));
-        }
-      }
-    }
-    
-    // Check if the response is still JSON (common n8n issue)
-    if (typeof aiResponse === 'object' && aiResponse !== null) {
-      console.warn('⚠️ Response is still an object, trying to extract text content');
-      // Try to find text content in nested objects
-      const findTextContent = (obj: any): string | null => {
-        if (typeof obj === 'string') return obj;
-        if (typeof obj === 'object' && obj !== null) {
-          // Check common AI response fields
-          const textFields = ['text', 'content', 'message', 'response', 'answer', 'output', 'reply'];
-          for (const field of textFields) {
-            if (obj[field] && typeof obj[field] === 'string') {
-              return obj[field];
-            }
-          }
-          // Recursively search nested objects
-          for (const key in obj) {
-            const result = findTextContent(obj[key]);
-            if (result) return result;
-          }
-        }
-        return null;
-      };
-      
-      const textContent = findTextContent(aiResponse);
-      if (textContent) {
-        aiResponse = textContent;
-        console.log('✅ Extracted text content from nested object');
-      } else {
-        aiResponse = 'I apologize, but I\'m experiencing a technical issue with my response system. The AI service returned an unexpected format. Please try asking your question again.';
-        console.error('❌ Could not extract text content from object response:', aiResponse);
-      }
-    }
-    
-    // Final check for the specific literal expression that's appearing
-    if (aiResponse === '{{ $json.output }}' || aiResponse === '{{$json.output}}') {
-      console.warn('⚠️ Final response is still the literal expression, providing fallback');
-      aiResponse = 'I apologize, but I\'m experiencing a technical issue with my response system. The AI service is not returning the expected format. Please try asking your question again, or contact support if the issue persists.';
-    }
-    
-    // Ensure the response is a string
-    if (typeof aiResponse !== 'string') {
-      console.warn('⚠️ Final response is not a string, converting:', typeof aiResponse);
-      aiResponse = String(aiResponse);
-    }
-    
-    // Clean the response by removing <think> tags and other internal processing
-    aiResponse = cleanAiResponse(aiResponse);
-    
-    // Add guardrails for trash-related content
+    const result = await model.generateContent(fullPrompt);
+    const responseText = result.response.text();
+
+    let aiResponse = cleanAiResponse(responseText);
     aiResponse = applyGuardrails(aiResponse, query);
     
     return aiResponse;
   } catch (error) {
-    console.error('❌ n8n webhook error:', error);
-    throw error;
+    console.error('❌ AI SDK error:', error);
+    return buildOfflineAssistantResponse(query, options?.context);
   }
 }
 
@@ -521,35 +388,25 @@ function cleanAiResponse(response: string): string {
   return response;
 }
 
-// Enhanced domain filter that allows general topics but encourages waste-related discussions
+// Strict domain filter to prevent wasting tokens on unrelated queries
 function isTrashRelatedQuery(query: string): boolean {
   const q = query.toLowerCase();
   
-  // Always allow these general conversation starters
-  const generalTerms = [
-    'hello', 'hi', 'hey', 'how are you', 'what', 'who', 'when', 'where', 'why', 'how',
-    'help', 'thanks', 'thank you', 'please', 'can you', 'could you', 'would you',
-    'tell me', 'explain', 'describe', 'show me', 'give me', 'i need', 'i want',
-    'weather', 'time', 'date', 'today', 'tomorrow', 'yesterday', 'week', 'month',
-    'food', 'cooking', 'recipe', 'health', 'exercise', 'work', 'school', 'study',
-    'travel', 'vacation', 'hobby', 'music', 'movie', 'book', 'game', 'sport',
-    'family', 'friend', 'love', 'happy', 'sad', 'tired', 'busy', 'free'
+  // Strict list of allowed terms (Waste management and app-specific terms)
+  const allowedTerms = [
+    'trash', 'waste', 'recycle', 'recycling', 'compost', 'garbage', 'bin', 'landfill', 'plastic', 'paper', 'glass', 'metal',
+    'e-waste', 'organic', 'hazardous', 'disposal', 'segregation', 'collection', 'pickup', 'schedule', 'litter', 'pollution',
+    'sustainability', 'environment', 'eco', 'composting', 'reuse', 'reduce', 'sorting', 'incineration', 'municipal',
+    'trashtrack', 'trash track', 'app', 'driver', 'route', 'dump', 'junk', 'debris', 'scrap', 'rubbish', 'refuse',
+    'schedule', 'report', 'announcement', 'notification', 'pickup', 'barangay', 'sambag',
+    'biodegradable', 'non-biodegradable', 'recyclable', 'residual', 'special', 'bulk',
+    'upload', 'photo', 'image', 'location', 'street', 'landmark', 'comment', 'filter',
+    'reminder', 'alert', 'update', 'change', 'maintenance', 'emergency', 'holiday', 'policy',
+    'hello', 'hi', 'hey', 'help', 'who are you', 'what can you do'
   ];
   
-  // Waste management and app-specific terms (higher priority)
-  const wasteTerms = [
-    'trash','waste','recycle','recycling','compost','garbage','bin','landfill','plastic','paper','glass','metal',
-    'e-waste','organic','hazardous','disposal','segregation','collection','pickup','schedule','litter','pollution',
-    'sustainability','environment','eco','composting','reuse','reduce','sorting','incineration','municipal',
-    'trashtrack','trash track','app','driver','route','dump','junk','debris','scrap','rubbish','refuse',
-    'schedule','report','announcement','notification','pickup','barangay','sambag',
-    'biodegradable','non-biodegradable','recyclable','residual','special','bulk',
-    'upload','photo','image','location','street','landmark','comment','filter',
-    'reminder','alert','update','change','maintenance','emergency','holiday','policy'
-  ];
-  
-  // Allow general conversation but give priority to waste-related topics
-  return generalTerms.some(k => q.includes(k)) || wasteTerms.some(k => q.includes(k));
+  // Return true if any of the allowed terms are found in the query
+  return allowedTerms.some(term => q.includes(term));
 }
 
 function applyGuardrails(response: string, originalQuery: string): string {
@@ -669,61 +526,24 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
       // Build expanded context (profile, announcements, schedules, notifications, pickups, theme)
       let context: any = null;
       if (userId) {
-        const [profile, announcements, schedules, notifications, pickups] = await Promise.all([
-          buildProfileContext(userId),
+        const profile = await buildProfileContext(userId);
+        const [announcements, schedules, notifications, pickups] = await Promise.all([
           buildAnnouncementsContext(),
-          buildSchedulesContextForUser(userId),
+          buildSchedulesContextForBarangay(profile?.barangay),
           buildNotificationsContext(userId),
           buildPickupsContext(userId),
         ]);
         context = { profile, announcements, schedules, notifications, pickups };
       }
-      // Include app/theme metadata and client timezone
+      // Include minimal client timezone for temporal awareness
       const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       context = {
         ...(context || {}),
-        app: { 
-          name: 'TrashTrack', 
-          platform: Platform.OS,
-          features: {
-            schedule: {
-              description: 'Calendar view with color-coded waste categories',
-              wasteCategories: {
-                'Biodegradable': { color: '#22C55E', description: 'Food waste, plant materials' },
-                'Non-Biodegradable': { color: '#2563EB', description: 'Plastics, packaging' },
-                'Recyclable': { color: '#EAB308', description: 'Paper, glass, metal' },
-                'Residual': { color: '#6B7280', description: 'Mixed/non-recyclable waste' },
-                'Hazardous': { color: '#EF4444', description: 'Batteries, chemicals' },
-                'Special/Bulk': { color: '#A855F7', description: 'Large items, special collections' }
-              },
-              frequencies: ['Daily', 'Weekly', 'Monthly', 'One-time']
-            },
-            report: {
-              description: 'Report uncollected trash or illegal dumping',
-              features: ['Photo upload', 'Location specification', 'Barangay selection'],
-              currentBarangay: 'Sambag 2'
-            },
-            announcements: {
-              description: 'View important updates from waste management team',
-              categories: ['General', 'Schedule Change', 'Service Update', 'Emergency', 'Maintenance', 'Holiday Notice', 'Policy Update'],
-              priorities: ['Low', 'Medium', 'High', 'Urgent'],
-              features: ['Comments', 'Filtering']
-            },
-            notifications: {
-              types: ['Pickup reminders', 'Announcement alerts', 'Pickup completion notifications']
-            }
-          },
-          screens: {
-            home: 'Dashboard with recent announcements and notifications',
-            schedule: 'Calendar view with pickup dates and waste categories',
-            report: 'Report uncollected trash with photo upload',
-            announcements: 'View and comment on important updates'
-          }
-        },
         ui: { theme },
         clientTimeZone,
       };
-      const aiResponse = await callN8nWebhook(userMessage.text, { context, userId });
+      
+      const aiResponse = await generateAIResponse(userMessage.text, { context, userId });
       
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -919,6 +739,7 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F9FAFB', // Soft off-white background
   },
   header: {
     flexDirection: 'row',
@@ -927,20 +748,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    zIndex: 10,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   closeButton: {
-    padding: 8,
+    padding: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 20,
   },
   messagesList: {
     flex: 1,
   },
   messagesContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 16,
+    gap: 8,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -951,27 +784,38 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
   inputContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
     borderTopWidth: 1,
-    bottom: 10,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 5,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     borderWidth: 1,
-    borderRadius: 20,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 24,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    minHeight: 44,
+    paddingVertical: 6,
+    minHeight: 48,
   },
   input: {
     flex: 1,
     fontSize: 16,
-    maxHeight: 100,
-    paddingVertical: 8,
+    maxHeight: 120,
+    paddingVertical: 10,
+    color: '#1F2937',
   },
   sendButton: {
     width: 36,

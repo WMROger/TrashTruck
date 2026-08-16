@@ -3,17 +3,23 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { auth, db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { DANAO_CITY_BARANGAYS, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { useTheme } from '@/hooks/useTheme';
+import DropDownPicker from 'react-native-dropdown-picker';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
+import { writeAuditLog } from '@/services/auditLogService';
+import { setFcmPushEnabled } from '@/services/pushTokenService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
-import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { addDoc, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-export default function ProfilePage() {
+export default function SettingsPage() {
+  const insets = useSafeAreaInsets();
   const { theme, setTheme, toggleSystem } = useTheme();
   const colors = Colors[theme ?? 'light'];
   const { user, logout, updateProfile } = useAuthContext();
@@ -36,16 +42,79 @@ export default function ProfilePage() {
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
     photoURL?: string;
+    barangay?: string;
   } | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showBarangayModal, setShowBarangayModal] = useState(false);
+  const [editBarangay, setEditBarangay] = useState('');
+  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
   const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [pushEnabled, setPushEnabled] = useState(true);
   const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reportUpdatesEnabled, setReportUpdatesEnabled] = useState(true);
+  const [announcementNotificationsEnabled, setAnnouncementNotificationsEnabled] = useState(true);
+  const [proximityAlertsEnabled, setProximityAlertsEnabled] = useState(true);
+  const [proximityRadiusMeters, setProximityRadiusMeters] = useState(500);
+  const [verifiedRewardCount, setVerifiedRewardCount] = useState(0);
+  const [earnedRewardTokens, setEarnedRewardTokens] = useState(0);
+  const [redeemedRewardTokens, setRedeemedRewardTokens] = useState(0);
   const router = useRouter();
+  const availableRewardTokens = Math.max(0, earnedRewardTokens - redeemedRewardTokens);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    getDoc(doc(db, 'user_settings', user.uid)).then(snapshot => {
+      const preferences = snapshot.data()?.notificationPreferences;
+      if (!preferences) return;
+      setPushEnabled(preferences.pushEnabled !== false);
+      setReminderEnabled(preferences.pickupReminders !== false);
+      setReportUpdatesEnabled(preferences.reportUpdates !== false);
+      setAnnouncementNotificationsEnabled(preferences.announcements !== false);
+      setProximityAlertsEnabled(preferences.proximityAlerts !== false);
+      setProximityRadiusMeters([250, 500, 1000].includes(preferences.proximityRadiusMeters) ? preferences.proximityRadiusMeters : 500);
+    }).catch(error => console.warn('Unable to load notification preferences:', error));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    const unsubscribeAwards = onSnapshot(
+      query(collection(db, 'reward_awards'), where('userId', '==', user.uid)),
+      snapshot => {
+        setVerifiedRewardCount(snapshot.size);
+        setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
+      },
+    );
+    const unsubscribeRedemptions = onSnapshot(
+      query(collection(db, 'reward_redemptions'), where('userId', '==', user.uid)),
+      snapshot => setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0)),
+    );
+    return () => { unsubscribeAwards(); unsubscribeRedemptions(); };
+  }, [user?.uid]);
+
+  const saveNotificationPreferences = async () => {
+    if (!user?.uid || !db) return;
+    const notificationPreferences = {
+      pushEnabled,
+      pickupReminders: reminderEnabled,
+      reportUpdates: reportUpdatesEnabled,
+      announcements: announcementNotificationsEnabled,
+      proximityAlerts: proximityAlertsEnabled,
+      proximityRadiusMeters,
+    };
+    try {
+      await setDoc(doc(db, 'user_settings', user.uid), { notificationPreferences, updatedAt: serverTimestamp() }, { merge: true });
+      await setFcmPushEnabled(user.uid, pushEnabled);
+      await writeAuditLog('notification.preferences_updated', 'user', user.uid, notificationPreferences);
+      setShowNotificationsModal(false);
+    } catch {
+      Alert.alert('Unable to save', 'Notification preferences could not be updated. Check your connection and try again.');
+    }
+  };
 
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
@@ -140,6 +209,7 @@ export default function ProfilePage() {
           setUserProfile({
             displayName: userData.displayName || user.displayName || 'User',
             photoURL: resolved,
+            barangay: userData.barangay || '',
           });
         } else {
           console.log('❌ No Firestore document found, checking auth data');
@@ -181,7 +251,25 @@ export default function ProfilePage() {
       }
     };
 
+    const fetchBarangays = async () => {
+      try {
+        const { collection, getDocs } = require('firebase/firestore');
+        const snap = await getDocs(collection(db, 'barangay_schedules'));
+        const barangayNames = new Set<string>();
+        snap.forEach((doc: any) => {
+          const data = doc.data();
+          if (data.barangayName) {
+            barangayNames.add(data.barangayName);
+          }
+        });
+        setAvailableBarangays(mergeDanaoBarangays(Array.from(barangayNames)));
+      } catch (err) {
+        console.error('Error fetching available barangays:', err);
+      }
+    };
+
     fetchUserProfile();
+    fetchBarangays();
   }, [user]);
 
   const handleLogout = () => {
@@ -354,8 +442,8 @@ export default function ProfilePage() {
   };
 
   const validatePassword = (password: string) => {
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters long';
+    if (password.length < 12) {
+      return 'Password must be at least 12 characters long';
     }
     if (!/(?=.*[a-z])/.test(password)) {
       return 'Password must contain at least one lowercase letter';
@@ -395,8 +483,8 @@ export default function ProfilePage() {
         throw new Error('Authentication not available');
       }
 
-      // Re-authenticate user with current password
-      await signInWithEmailAndPassword(auth, user.email, currentPassword);
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
       
       // Update password
       await updatePassword(user, newPassword);
@@ -423,25 +511,46 @@ export default function ProfilePage() {
     }
   };
 
-  // Feedback handling
-  const sentiments = [
-    { label: 'Terrible', emoji: '😣' },
-    { label: 'Bad', emoji: '😕' },
-    { label: 'Good', emoji: '😊' },
-    { label: 'Loved it', emoji: '😍' },
-  ];
+  const handleSaveBarangay = async () => {
+    if (!auth || !user?.uid) return;
+    setIsSaving(true);
+    try {
+      const { updateDoc } = require('firebase/firestore');
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        barangay: editBarangay,
+        updatedAt: new Date()
+      });
+      setUserProfile(prev => prev ? { ...prev, barangay: editBarangay } : null);
+      setShowBarangayModal(false);
+      Alert.alert('Success', 'Barangay preference updated successfully');
+    } catch (error) {
+      console.error('Failed to update barangay:', error);
+      Alert.alert('Error', 'Failed to update barangay preference');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
+  // Feedback handling
   const handleSendFeedback = async () => {
-    if (feedbackSelected === null || !feedbackText.trim() || feedbackSelected < 0 || feedbackSelected >= sentiments.length) {
+    if (feedbackSelected === null || !feedbackText.trim()) {
       Alert.alert('Error', 'Please select a rating and enter your feedback.');
       return;
     }
-    const rating = sentiments[feedbackSelected].label;
+
+    const ratingOptions = ['Terrible', 'Bad', 'Good', 'Loved it'];
+    const rating = ratingOptions[feedbackSelected] || 'Average';
+
     try {
       await addDoc(collection(db, 'feedback'), {
         rating,
+        title: `${rating} feedback`,
         description: feedbackText,
-        userId: auth.currentUser?.uid,
+        message: feedbackText,
+        userId: auth.currentUser?.uid || 'anonymous',
+        userEmail: auth.currentUser?.email || 'anonymous',
+        street: userProfile?.barangay || 'unknown',
         createdAt: new Date().toISOString(),
       });
       Alert.alert('Thank you!', 'Your feedback has been submitted successfully.');
@@ -449,289 +558,236 @@ export default function ProfilePage() {
       setFeedbackText('');
       setShowFeedbackModal(false);
     } catch (err) {
+      console.error('Feedback error:', err);
       Alert.alert('Error', 'Failed to send feedback. Please try again.');
     }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Modal Header */}
-      <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+    <View style={[styles.container, { backgroundColor: '#C8E6C9' }]}>
+      {/* Settings Header */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
         <TouchableOpacity 
-          style={styles.closeButton}
+          style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="xmark" size={24} color={colors.textPrimary} />
+          <IconSymbol name="arrow.left" size={24} color="#234033" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Profile & Settings</Text>
+        <Text style={styles.headerTitle}>Settings</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView style={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Profile
-          </Text>
-        </View>
-
-      <View style={styles.content}>
-        <View style={[styles.profileCard, { backgroundColor: colors.surface }]}>
-          <TouchableOpacity 
-            style={styles.avatarContainer} 
-            onPress={isEditMode ? pickImage : undefined} 
-            activeOpacity={isEditMode ? 0.7 : 1}
-          >
-            {isEditMode ? (
-              editPhotoURL ? (
-                <Image source={{ uri: editPhotoURL }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                  <IconSymbol name="person.fill" size={40} color={colors.surface} />
-                </View>
-              )
-            ) : (
-              userProfile?.photoURL ? (
-                <Image source={{ uri: userProfile.photoURL }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                  <IconSymbol name="person.fill" size={40} color={colors.surface} />
-                </View>
-              )
-            )}
-            {isEditMode && <Text style={styles.avatarEditText}>Tap to change photo</Text>}
-          </TouchableOpacity>
-          
-          {isEditMode ? (
-            <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              style={[styles.editNameInput, { color: colors.textPrimary, backgroundColor: colors.background }]}
-              placeholder="Enter your name"
-              placeholderTextColor={colors.textTertiary}
-            />
-          ) : (
-            <Text style={[styles.userName, { color: colors.textPrimary }]}>
-              {userProfile?.displayName || 'User'}
-            </Text>
-          )}
-          
-          <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
-            {user?.email || 'No email'}
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            Account Settings
-          </Text>
-          
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]} 
-            onPress={isEditMode ? handleCancelEdit : handleEditProfile}
-          >
-            <IconSymbol name={isEditMode ? "xmark.circle" : "person.circle"} size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}> 
-              {isEditMode ? 'Cancel Edit' : 'Edit Profile'}
-            </Text>
-            {!isEditMode && <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />}
-          </TouchableOpacity>
-
-          {isEditMode && (
-            <TouchableOpacity 
-              style={[styles.saveButton, { backgroundColor: colors.primary }]} 
-              onPress={handleSaveProfile}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <ActivityIndicator color={colors.surface} />
-              ) : (
-                <Text style={[styles.saveButtonText, { color: colors.surface }]}>
-                  Save Changes
-                </Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]} 
-            onPress={handleChangePassword}
-          >
-            <IconSymbol name="lock" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Change Password
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]}
-            onPress={() => setShowNotificationsModal(true)}
-          >
-            <IconSymbol name="bell" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Notifications
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-          </TouchableOpacity>
-
-
-         
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            App Settings
-          </Text>
-          
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]}
-            onPress={togglePreferences}
-          >
-            <IconSymbol name="gear" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Preferences
-            </Text>
-            <IconSymbol 
-              name={preferencesExpanded ? "chevron.up" : "chevron.right"} 
-              size={16} 
-              color={colors.textTertiary} 
-            />
-          </TouchableOpacity>
-
-
-          {/* Preferences Dropdown */}
-          {preferencesExpanded && (
-            <View style={styles.preferencesDropdown}>
-              {/* Theme Status Display */}
-              <View style={styles.themeStatusContainer}>
-                <Text style={[styles.themeStatusText, { color: colors.textSecondary }]}>
-                  Current Theme: {theme?.toUpperCase()}
-                </Text>
-                <Text style={[styles.themeStatusText, { color: colors.textTertiary }]}>
-                  Background: {colors.background}
-                </Text>
-              </View>
-
-              {/* Single Theme Toggle */}
-              <View style={styles.toggleContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.toggleSwitch, 
-                    { 
-                      backgroundColor: theme === 'dark' ? '#2C2C2C' : '#FFFFFF',
-                      justifyContent: theme === 'dark' ? 'flex-end' : 'flex-start'
-                    }
-                  ]}
-                  onPress={toggleTheme}
-                  activeOpacity={0.8}
-                >
-                  <View style={[
-                    styles.toggleThumb, 
-                    { 
-                      backgroundColor: theme === 'dark' ? '#FFFFFF' : '#2C2C2C'
-                    }
-                  ]}>
-                    <IconSymbol 
-                      name={theme === 'dark' ? "moon.fill" : "sun.max.fill"} 
-                      size={16} 
-                      color={theme === 'dark' ? "#2C2C2C" : "#FFFFFF"} 
-                    />
+      <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 100 }}>
+        <Modal
+          visible={isEditMode}
+          transparent
+          animationType="slide"
+          onRequestClose={handleCancelEdit}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.profileCard, { backgroundColor: colors.surface, marginHorizontal: 20, width: '90%', borderRadius: 16 }]}>
+              <TouchableOpacity 
+                style={styles.avatarContainer} 
+                onPress={pickImage} 
+                activeOpacity={0.7}
+              >
+                {editPhotoURL ? (
+                  <Image source={{ uri: editPhotoURL }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+                    <IconSymbol name="person.fill" size={40} color={colors.surface} />
                   </View>
-                  <Text style={[
-                    styles.toggleText, 
-                    { 
-                      color: theme === 'dark' ? '#FFFFFF' : '#000000',
-                      marginLeft: theme === 'dark' ? 0 : 12,
-                      marginRight: theme === 'dark' ? 12 : 0
-                    }
-                  ]}>
-                    {theme === 'dark' ? 'DARK MODE' : 'LIGHT MODE'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                )}
+                <Text style={styles.avatarEditText}>Tap to change photo</Text>
+              </TouchableOpacity>
+              
+              <TextInput
+                value={editName}
+                onChangeText={setEditName}
+                style={[styles.editNameInput, { color: colors.textPrimary, backgroundColor: colors.background }]}
+                placeholder="Enter your name"
+                placeholderTextColor={colors.textTertiary}
+              />
+              
+              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
+                {user?.email || 'No email'}
+              </Text>
 
-              {/* System Theme Toggle */}
-              <View style={styles.toggleContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.systemToggleSwitch, 
-                    { 
-                      backgroundColor: colors.surface,
-                      borderColor: colors.primary,
-                      borderWidth: 2
-                    }
-                  ]}
-                  onPress={toggleSystem}
-                  activeOpacity={0.8}
-                >
-                  <IconSymbol 
-                    name="gear" 
-                    size={20} 
-                    color={colors.primary} 
-                  />
-                  <Text style={[
-                    styles.systemToggleText, 
-                    { color: colors.textPrimary }
-                  ]}>
-                    Use System Theme
+              <TouchableOpacity 
+                style={[styles.saveButton, { backgroundColor: colors.primary, width: '100%' }]} 
+                onPress={handleSaveProfile}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>
+                    Save Changes
                   </Text>
-                </TouchableOpacity>
-              </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ marginTop: 16, paddingVertical: 8 }} 
+                onPress={handleCancelEdit}
+              >
+                <Text style={{ color: colors.textSecondary, textAlign: 'center', fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* EnviroHero Badges */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitleSmall}>EnviroHero Badges</Text>
+          <TouchableOpacity onPress={() => router.push('/rewards' as any)}>
+            <Text style={styles.viewAllText}>VIEW ALL</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.badgesRow}>
+          <View style={styles.badgeCardSmall}>
+            <View style={[styles.badgeIconBg, { backgroundColor: '#FDE68A' }]}>
+              <IconSymbol name="leaf.fill" size={24} color="#D97706" />
+            </View>
+            <Text style={styles.badgeTitle}>Verified Pickups</Text>
+            <Text style={styles.badgeSubtitle}>{verifiedRewardCount} REWARDED</Text>
+          </View>
+          <View style={styles.badgeCardSmall}>
+            <View style={[styles.badgeIconBg, { backgroundColor: '#C8E6C9' }]}>
+              <IconSymbol name="arrow.triangle.2.circlepath" size={24} color="#2E7D32" />
+            </View>
+            <Text style={styles.badgeTitle}>Eco Tokens</Text>
+            <Text style={styles.badgeSubtitle}>{availableRewardTokens.toLocaleString()} AVAILABLE</Text>
+          </View>
+        </View>
+
+        <View style={styles.badgeCardLarge}>
+          <View style={[styles.badgeIconBg, { backgroundColor: '#A5D6A7' }]}>
+            <IconSymbol name="person.circle.fill" size={32} color="#1B5E20" />
+          </View>
+          <Text style={styles.badgeTitle}>{availableRewardTokens >= 500 ? 'Souvenir Eligible' : 'Next Souvenir'}</Text>
+          <Text style={styles.badgeSubtitle}>{availableRewardTokens >= 500 ? 'OPEN REWARDS TO REVIEW OPTIONS' : `${500 - availableRewardTokens} TOKENS TO A CENRO TOTE`}</Text>
+        </View>
+
+        {/* Location & Service */}
+        <Text style={[styles.sectionTitleSmall, { marginTop: 16, marginHorizontal: 20 }]}>Location & Service</Text>
+        <View style={styles.settingsCard}>
+          <TouchableOpacity 
+            style={styles.settingsRow} 
+            onPress={() => {
+              setEditBarangay(userProfile?.barangay || '');
+              setShowBarangayModal(true);
+            }}
+          >
+            <View style={styles.settingsIconBg}>
+              <IconSymbol name="mappin.circle.fill" size={20} color="#2E7D32" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Barangay Preference</Text>
+              <Text style={styles.settingsRowSubtitle}>{userProfile?.barangay || "Tap to set barangay"}</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={() => router.push('/(tabs)/schedule')}>
+            <View style={styles.settingsIconBg}>
+              <IconSymbol name="calendar" size={20} color="#2E7D32" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Area Schedule</Text>
+              <Text style={styles.settingsRowSubtitle}>Open your published collection calendar</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Profile Settings */}
+        <Text style={[styles.sectionTitleSmall, { marginTop: 16, marginHorizontal: 20 }]}>Profile Settings</Text>
+        <View style={styles.settingsCard}>
+          <TouchableOpacity style={styles.settingsRow} onPress={handleEditProfile}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#F5F5F5' }]}>
+              <IconSymbol name="person.fill" size={20} color="#4A6741" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Edit Personal Info</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={() => setShowNotificationsModal(true)}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#F5F5F5' }]}>
+              <IconSymbol name="bell" size={20} color="#4A6741" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Notification Preferences</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={handleChangePassword}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#F5F5F5' }]}>
+              <IconSymbol name="shield.fill" size={20} color="#4A6741" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Security & Privacy</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={() => setShowFeedbackModal(true)}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#F5F5F5' }]}>
+              <IconSymbol name="message.fill" size={20} color="#4A6741" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Send Feedback</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={togglePreferences}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#F5F5F5' }]}>
+              <IconSymbol name="gear" size={20} color="#4A6741" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={styles.settingsRowTitle}>Theme Preferences</Text>
+            </View>
+            <IconSymbol name={preferencesExpanded ? "chevron.down" : "chevron.right"} size={20} color="#9E9E9E" />
+          </TouchableOpacity>
+          {preferencesExpanded && (
+            <View style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.background, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '500' }}>Dark Mode</Text>
+              <TouchableOpacity 
+                onPress={toggleTheme}
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: theme === 'dark' ? colors.primary : '#E5E5E5',
+                  justifyContent: 'center',
+                  paddingHorizontal: 2
+                }}
+              >
+                <View style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: '#fff',
+                  transform: [{ translateX: theme === 'dark' ? 20 : 0 }]
+                }} />
+              </TouchableOpacity>
             </View>
           )}
-
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]}
-            onPress={() => setShowFeedbackModal(true)}
-          >
-            <IconSymbol name="hand.thumbsup" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Feedback
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]}
-            onPress={() => setShowHelpModal(true)}
-          >
-            <IconSymbol name="questionmark.circle" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              Help & Support
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.menuItem, { backgroundColor: colors.surface }]}
-            onPress={() => setShowAboutModal(true)}
-          >
-            <IconSymbol name="info.circle" size={24} color={colors.primary} />
-            <Text style={[styles.menuText, { color: colors.textPrimary }]}>
-              About TrashTrack
-            </Text>
-            <IconSymbol name="chevron.right" size={16} color={colors.textTertiary} />
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.settingsRow} onPress={handleLogout}>
+            <View style={[styles.settingsIconBg, { backgroundColor: '#FFEBEE' }]}>
+              <IconSymbol name="door.left.hand.open" size={20} color="#D32F2F" />
+            </View>
+            <View style={styles.settingsTextContainer}>
+              <Text style={[styles.settingsRowTitle, { color: '#D32F2F', fontWeight: 'bold' }]}>Sign Out</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color="#D32F2F" />
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity 
-          style={[
-            styles.logoutButton, 
-            { 
-              backgroundColor: isLoggingOut ? colors.textTertiary : colors.error,
-              opacity: isLoggingOut ? 0.6 : 1
-            }
-          ]} 
-          onPress={handleLogout}
-          disabled={isLoggingOut}
-          activeOpacity={0.7}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color={colors.surface} />
-          <Text style={[styles.logoutText, { color: colors.surface }]}>
-            {isLoggingOut ? 'Logging Out...' : 'Logout'}
-          </Text>
-        </TouchableOpacity>
 
         {/* Logout Confirmation Modal */}
         <Modal
@@ -808,14 +864,49 @@ export default function ProfilePage() {
                   </View>
                   <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
                 </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Report Status Updates</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Receive acknowledgement, dispatch, and resolution updates.</Text>
+                  </View>
+                  <Switch value={reportUpdatesEnabled} onValueChange={setReportUpdatesEnabled} disabled={!pushEnabled} />
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Announcements</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Receive new CENRO announcement alerts.</Text>
+                  </View>
+                  <Switch value={announcementNotificationsEnabled} onValueChange={setAnnouncementNotificationsEnabled} disabled={!pushEnabled} />
+                </View>
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 16 }}>Truck Proximity Alerts</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>Notify me once when my assigned collection truck enters the selected radius.</Text>
+                    </View>
+                    <Switch value={proximityAlertsEnabled} onValueChange={setProximityAlertsEnabled} disabled={!pushEnabled} />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    {[250, 500, 1000].map(radius => (
+                      <TouchableOpacity
+                        key={radius}
+                        onPress={() => setProximityRadiusMeters(radius)}
+                        disabled={!pushEnabled || !proximityAlertsEnabled}
+                        style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1, borderColor: proximityRadiusMeters === radius ? colors.primary : colors.border, backgroundColor: proximityRadiusMeters === radius ? `${colors.primary}18` : colors.surface }}
+                      >
+                        <Text style={{ color: proximityRadiusMeters === radius ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>{radius} m</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               </View>
 
               <View style={[styles.modalActions, { marginTop: 16 }]}>
                 <TouchableOpacity 
                   style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
-                  onPress={() => setShowNotificationsModal(false)}
+                  onPress={saveNotificationPreferences}
                 >
-                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Done</Text>
+                  <Text style={[styles.modalButtonText, { color: colors.textPrimary }]}>Save Preferences</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -972,7 +1063,7 @@ export default function ProfilePage() {
               {/* Password Requirements */}
               <View style={styles.passwordRequirements}>
                 <Text style={[styles.requirementsTitle, { color: colors.textSecondary }]}>Password Requirements:</Text>
-                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 8 characters</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 12 characters</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One uppercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One lowercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One number</Text>
@@ -1006,54 +1097,53 @@ export default function ProfilePage() {
         {/* Feedback Modal */}
         <Modal
           visible={showFeedbackModal}
-          transparent
-          animationType="slide"
+          transparent={true}
+          animationType="fade"
           onRequestClose={() => setShowFeedbackModal(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={[styles.feedbackModalContainer, { backgroundColor: colors.surface }]}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Send us your feedback</Text>
-              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
-                Do you have a suggestion or experienced any problem? Let us know below.
-              </Text>
-              
-              <Text style={[styles.feedbackQuestion, { color: colors.textPrimary }]}>How was your experience?</Text>
+            <View style={[styles.feedbackModalContainer, { backgroundColor: colors.background }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Send Feedback</Text>
+                <TouchableOpacity onPress={() => setShowFeedbackModal(false)} style={styles.closeButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.icon} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.feedbackQuestion, { color: colors.text }]}>How was your experience today?</Text>
               
               <View style={styles.feedbackRow}>
-                {sentiments.map((s, idx) => {
-                  const active = feedbackSelected === idx;
-                  return (
-                    <TouchableOpacity
-                      key={s.label}
-                      style={[
-                        styles.feedbackReaction, 
-                        { backgroundColor: colors.background, borderColor: colors.border },
-                        active && { backgroundColor: colors.primary + '20', borderColor: colors.primary }
-                      ]}
-                      onPress={() => setFeedbackSelected(idx)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.feedbackReactionEmoji}>{s.emoji}</Text>
-                      <Text style={[styles.feedbackReactionLabel, { color: colors.textSecondary }]}>{s.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {[
+                  { id: 0, emoji: '😣', label: 'Terrible', color: '#EF5350' },
+                  { id: 1, emoji: '😕', label: 'Bad', color: '#FFB300' },
+                  { id: 2, emoji: '😊', label: 'Good', color: '#66BB6A' },
+                  { id: 3, emoji: '😍', label: 'Loved it', color: '#4CAF50' },
+                ].map((reaction) => (
+                  <TouchableOpacity
+                    key={reaction.id}
+                    style={[
+                      styles.feedbackReaction,
+                      { borderColor: feedbackSelected === reaction.id ? reaction.color : '#E0E0E0' },
+                      feedbackSelected === reaction.id && { backgroundColor: `${reaction.color}15` }
+                    ]}
+                    onPress={() => setFeedbackSelected(reaction.id)}
+                  >
+                    <Text style={{ fontSize: 24, marginBottom: 4 }}>{reaction.emoji}</Text>
+                    <Text style={[styles.feedbackReactionLabel, { color: feedbackSelected === reaction.id ? reaction.color : '#757575' }]}>
+                      {reaction.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
 
               <TextInput
+                style={[styles.feedbackInput, { color: colors.text, backgroundColor: colors.surface }]}
+                placeholder="Tell us what you liked or how we can improve..."
+                placeholderTextColor={colors.icon}
+                multiline
+                numberOfLines={4}
                 value={feedbackText}
                 onChangeText={setFeedbackText}
-                multiline
-                placeholder="Please leave your feedback here..."
-                placeholderTextColor={colors.textTertiary}
-                style={[
-                  styles.feedbackInput, 
-                  { 
-                    backgroundColor: colors.background, 
-                    borderColor: colors.border, 
-                    color: colors.textPrimary 
-                  }
-                ]}
               />
 
               <View style={styles.modalActions}>
@@ -1078,7 +1168,74 @@ export default function ProfilePage() {
             </View>
           </View>
         </Modal>
-        </View>
+
+        {/* Barangay Modal */}
+        <Modal
+          visible={showBarangayModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowBarangayModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.passwordModalContainer, { backgroundColor: colors.background }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Select Barangay</Text>
+                <TouchableOpacity onPress={() => setShowBarangayModal(false)} style={styles.closeButton}>
+                  <IconSymbol name="xmark" size={24} color={colors.icon} />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={[styles.passwordInputContainer, { zIndex: 1000 }]}>
+                <Text style={[styles.passwordLabel, { color: colors.text }]}>Barangay (Danao City)</Text>
+                <View style={[styles.passwordInputWrapper, { borderColor: 'transparent', padding: 0, height: 50 }]}>
+                  <DropDownPicker
+                    open={barangayOpen}
+                    value={editBarangay}
+                    items={availableBarangays.map(b => ({ label: b, value: b }))}
+                    setOpen={setBarangayOpen}
+                    setValue={setEditBarangay}
+                    placeholder="Select a barangay"
+                    placeholderStyle={{ color: colors.icon }}
+                    style={{
+                      backgroundColor: colors.background,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      minHeight: 50,
+                      borderRadius: 8,
+                    }}
+                    dropDownContainerStyle={{
+                      backgroundColor: colors.background,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                    }}
+                    textStyle={{
+                      fontSize: 15,
+                      color: colors.text
+                    }}
+                    zIndex={1000}
+                    listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
+                    scrollViewProps={{
+                      nestedScrollEnabled: true,
+                    }}
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.saveButton, { backgroundColor: colors.primary }]}
+                onPress={handleSaveBarangay}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>Save Preferences</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
       </ScrollView>
     </View>
   );
@@ -1111,6 +1268,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
     paddingTop: 20,
@@ -1241,6 +1401,125 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  // Gamified Settings Styles
+  backButton: {
+    padding: 8,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  sectionTitleSmall: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1B5E20',
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  badgesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  badgeCardSmall: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 4,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  badgeCardLarge: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  badgeIconBg: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  badgeTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2E7D32',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  badgeSubtitle: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#9E9E9E',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+  settingsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginTop: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  settingsIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E8F5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  settingsTextContainer: {
+    flex: 1,
+  },
+  settingsRowTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#424242',
+  },
+  settingsRowSubtitle: {
+    fontSize: 14,
+    color: '#757575',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#EEEEEE',
+    marginLeft: 72,
   },
   logoutButton: {
     flexDirection: 'row',

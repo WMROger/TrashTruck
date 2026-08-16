@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Dimensions, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Image, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -13,6 +13,10 @@ export default function AuthScreen() {
 
   const handleSignUp = () => {
     router.push('/(auth)/signup');
+  };
+
+  const handleDriverLogin = () => {
+    router.push('/driver-login');
   };
 
   return (
@@ -52,13 +56,33 @@ export default function AuthScreen() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        style={styles.devBack}
-        onPress={() => router.replace('/splash')}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.devBackText}>Back to Splash (dev)</Text>
-      </TouchableOpacity>
+      <View style={styles.footerLinks}>
+        <TouchableOpacity
+          style={styles.devBack}
+          onPress={() => router.replace('/splash')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.devBackText}>Back</Text>
+        </TouchableOpacity>
+
+        {Platform.OS !== 'web' ? (
+          <TouchableOpacity
+            style={styles.devBack}
+            onPress={handleDriverLogin}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.devBackText}>Driver Portal</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.devBack}
+            onPress={() => router.push('/admin/login')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.devBackText}>Admin Portal Access</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -136,10 +160,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  devBack: {
-    alignSelf: 'center',
+  footerLinks: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 80,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  devBack: {
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
@@ -148,4 +179,4 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     fontSize: 12,
   },
-}); 
+});

@@ -4,7 +4,9 @@ import { db, storage } from "@/config/firebase";
 import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { NotificationService } from "@/services/notificationService";
-import { Ionicons } from "@expo/vector-icons";
+import { formatAdaptiveMassFromMetricTons, toMetricTons, WasteMeasurementUnit } from "@/utils/wasteUnits";
+import { MaterialIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -19,25 +21,23 @@ import { getDownloadURL, ref } from "firebase/storage";
 import React, { useEffect, useState } from "react";
 import {
   Image,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  getNotificationColor,
-  getNotificationIcon,
-  getNotificationTypeLabel,
   markAsRead as markAsReadHelper,
-  sendTestNotification as sendTestNotificationHelper,
+  sendTestNotification as sendTestNotificationHelper
 } from "./home.notifications";
 
 export default function HomePage() {
   const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[theme ?? "light"];
+  const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
@@ -56,17 +56,26 @@ export default function HomePage() {
   const [lastAnnouncementId, setLastAnnouncementId] = useState<string | null>(
     null
   );
+  const [announcementNotificationsEnabled, setAnnouncementNotificationsEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    getDoc(doc(db, 'user_settings', user.uid)).then(snapshot => {
+      const preferences = snapshot.data()?.notificationPreferences;
+      setAnnouncementNotificationsEnabled(preferences?.pushEnabled !== false && preferences?.announcements !== false);
+    }).catch(() => setAnnouncementNotificationsEnabled(false));
+  }, [user?.uid]);
 
   // Notifications inbox state
   const [notifications, setNotifications] = useState<
-    Array<{
+    {
       id: string;
       title: string;
       body: string;
       createdAt: any;
       read?: boolean;
       type?: string;
-    }>
+    }[]
   >([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<{
@@ -81,6 +90,25 @@ export default function HomePage() {
   const [currentNotificationType, setCurrentNotificationType] = useState(0); // 0, 1, 2 for cycling
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  // Gamification states
+  const [userReports, setUserReports] = useState<any[]>([]);
+  const [earnedRewardTokens, setEarnedRewardTokens] = useState(0);
+  const [redeemedRewardTokens, setRedeemedRewardTokens] = useState(0);
+  const [trashCollectedTons, setTrashCollectedTons] = useState(0);
+  const totalPoints = Math.max(0, earnedRewardTokens - redeemedRewardTokens);
+
+  // Next Collection state
+  const [userBarangay, setUserBarangay] = useState<string>('');
+  const [nextCollection, setNextCollection] = useState<{
+    dateLabel: string;
+    timeText: string;
+    wasteCategory: string;
+  } | null>(null);
+
+  // Driver role detection
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const isDriver = userRole === 'driver';
+
   // Request notification permissions on mount
   useEffect(() => {
     const requestPermissions = async () => {
@@ -93,6 +121,105 @@ export default function HomePage() {
 
     requestPermissions();
   }, []);
+
+  // Fetch user's barangay from profile
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserBarangay(docSnap.data().barangay || '');
+      }
+    });
+    return () => unsubUser();
+  }, [user]);
+
+  // Compute next collection from barangay_schedules
+  useEffect(() => {
+    if (!db || !userBarangay) {
+      setNextCollection(null);
+      return;
+    }
+
+    const unsub = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
+      const schedules: any[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.barangayName === userBarangay) {
+          schedules.push({ id: d.id, ...data });
+        }
+      });
+
+      if (schedules.length === 0) {
+        setNextCollection(null);
+        return;
+      }
+
+      const DOW_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      let closest: { date: Date; wasteCategory: string; timeText: string } | null = null;
+
+      // Search the next 60 days for the closest scheduled collection
+      for (let offset = 0; offset < 60; offset++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(today.getDate() + offset);
+        const dowStr = DOW_MAP[checkDate.getDay()];
+        const key = `${checkDate.getFullYear()}-${(checkDate.getMonth() + 1).toString().padStart(2, '0')}-${checkDate.getDate().toString().padStart(2, '0')}`;
+
+        for (const s of schedules) {
+          let isMatch = s.days && s.days.includes(dowStr);
+          let category = s.wasteCategory || 'BIODEGRADABLE';
+          let time = 'Regular Hours';
+
+          const specificMatch = (s.specificSchedules || []).find((ss: any) => {
+            if (!ss.date) return false;
+            const monthNames = ["January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December"];
+            const monthName = monthNames[checkDate.getMonth()];
+            const shortMonthName = monthName.substring(0, 3);
+            const monthDD = `${monthName} ${checkDate.getDate()}`;
+            const shortMonthDD = `${shortMonthName} ${checkDate.getDate()}`;
+            const mmdd = `${(checkDate.getMonth() + 1).toString().padStart(2, '0')}/${checkDate.getDate().toString().padStart(2, '0')}`;
+            const dText = ss.date.trim().toLowerCase();
+            return dText === mmdd.toLowerCase() ||
+              dText === key.toLowerCase() ||
+              dText === monthDD.toLowerCase() ||
+              dText === shortMonthDD.toLowerCase();
+          });
+
+          if (specificMatch) {
+            isMatch = true;
+            category = specificMatch.category || category;
+            time = specificMatch.time || time;
+          }
+
+          if (isMatch) {
+            if (!closest) {
+              closest = { date: checkDate, wasteCategory: category, timeText: time };
+            }
+            break;
+          }
+        }
+        if (closest) break;
+      }
+
+      if (closest) {
+        const c = closest as { date: Date; wasteCategory: string; timeText: string };
+        const diffDays = Math.round((c.date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        let dateLabel = '';
+        if (diffDays === 0) dateLabel = 'Today';
+        else if (diffDays === 1) dateLabel = 'Tomorrow';
+        else {
+          dateLabel = c.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        }
+        setNextCollection({ dateLabel, timeText: c.timeText, wasteCategory: c.wasteCategory });
+      } else {
+        setNextCollection(null);
+      }
+    });
+
+    return () => unsub();
+  }, [userBarangay]);
 
   // Resolve storage path to public URL if needed
   const resolvePhotoURL = async (maybePath?: string) => {
@@ -131,6 +258,7 @@ export default function HomePage() {
             displayName: userData.displayName || user.displayName || "User",
             photoURL: resolved,
           });
+          setUserRole(userData.role || null);
         } else {
           // Fallback to auth data if Firestore document doesn't exist
           const resolved = await resolvePhotoURL(user.photoURL || undefined);
@@ -193,16 +321,19 @@ export default function HomePage() {
         // Check for new announcements and send notifications
         if (announcementsData.length > 0) {
           const latestAnnouncement = announcementsData[0];
-          if (lastAnnouncementId !== latestAnnouncement.id) {
-            // New announcement detected, send notification
-            try {
-              await NotificationService.scheduleAnnouncementNotification(
-                latestAnnouncement
-              );
-              setLastAnnouncementId(latestAnnouncement.id);
-            } catch (error) {
-              // Error sending announcement notification
+          
+          if (lastAnnouncementId === null) {
+            // Initial load - don't spam a notification on login, just set the ID
+            setLastAnnouncementId(latestAnnouncement.id);
+          } else if (lastAnnouncementId !== latestAnnouncement.id) {
+            if (announcementNotificationsEnabled) {
+              try {
+                await NotificationService.scheduleAnnouncementNotification(latestAnnouncement);
+              } catch {
+                // Keep the announcement visible even when local scheduling fails.
+              }
             }
+            setLastAnnouncementId(latestAnnouncement.id);
           }
         }
 
@@ -217,7 +348,63 @@ export default function HomePage() {
       // Cleaning up home announcements listener
       unsubscribe();
     };
-  }, [lastAnnouncementId]);
+  }, [lastAnnouncementId, announcementNotificationsEnabled]);
+
+  // Subscribe to user reports for gamification
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const q = query(
+      collection(db, "reports"),
+      where("userId", "==", user.uid)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const items: any[] = [];
+      snap.forEach((d) => {
+        items.push({ id: d.id, ...d.data() });
+      });
+      // Sort client-side to avoid Firebase composite index requirement
+      items.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return dateB - dateA;
+      });
+      setUserReports(items);
+    });
+    return () => unsub();
+  }, [user?.uid]);
+
+  // Use the immutable completion ledger for points and measured pickup totals.
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const ownedAwards = query(collection(db, 'reward_awards'), where('userId', '==', user.uid));
+    const ownedRedemptions = query(collection(db, 'reward_redemptions'), where('userId', '==', user.uid));
+    const ownedSchedules = query(collection(db, 'schedules'), where('userId', '==', user.uid));
+
+    const unsubscribeAwards = onSnapshot(ownedAwards, snapshot => {
+      setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
+    });
+    const unsubscribeRedemptions = onSnapshot(ownedRedemptions, snapshot => {
+      setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0));
+    });
+    const unsubscribeSchedules = onSnapshot(ownedSchedules, snapshot => {
+      const measuredTons = snapshot.docs.reduce((sum, item) => {
+        const schedule = item.data();
+        if (!['completed', 'done'].includes(String(schedule.status || '').toLowerCase())) return sum;
+        const measurement = schedule.collectionMeasurement;
+        const value = Number(measurement?.value || 0);
+        const unit = String(measurement?.unit || '');
+        if (!(value > 0) || !['kg', 'ton', 'm3'].includes(unit)) return sum;
+        return sum + toMetricTons(value, unit as WasteMeasurementUnit);
+      }, 0);
+      setTrashCollectedTons(measuredTons);
+    });
+
+    return () => {
+      unsubscribeAwards();
+      unsubscribeRedemptions();
+      unsubscribeSchedules();
+    };
+  }, [user?.uid]);
 
   // Subscribe to user notifications (inbox)
   useEffect(() => {
@@ -228,14 +415,14 @@ export default function HomePage() {
       orderBy("createdAt", "desc")
     );
     const unsub = onSnapshot(q, (snap) => {
-      const items: Array<{
+      const items: {
         id: string;
         title: string;
         body: string;
         createdAt: any;
         read?: boolean;
         type?: string;
-      }> = [];
+      }[] = [];
       snap.forEach((d) => {
         const data: any = d.data();
         items.push({
@@ -396,16 +583,12 @@ export default function HomePage() {
     })}`;
   };
 
-  // Notification helpers imported from './home.notifications'
-
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#E8F5E9' }]}>
       {/* Header Section */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 30) }]}>
         <View style={styles.profileSection}>
-          <View
-            style={[styles.profileIcon, { backgroundColor: colors.primary }]}
-          >
+          <View style={[styles.profileIcon, { backgroundColor: '#C8E6C9' }]}>
             {userProfile?.photoURL ? (
               <Image
                 source={{ uri: userProfile.photoURL }}
@@ -413,597 +596,181 @@ export default function HomePage() {
                 resizeMode="cover"
               />
             ) : (
-              <IconSymbol name="person.fill" size={24} color={colors.surface} />
+              <IconSymbol name="person.fill" size={24} color="#2E7D32" />
             )}
           </View>
-          <Text style={[styles.greeting, { color: colors.textPrimary }]}>
-            Hello, {userProfile?.displayName?.split(" ")[0] || "User"}!
+          <Text style={[styles.greeting, { color: '#2E7D32' }]}>
+            Welcome, {userProfile?.displayName?.split(" ")[0] || "User"}!
           </Text>
         </View>
 
         <View style={styles.headerActions}>
-          <View style={{ alignItems: "center" }}>
-            <TouchableOpacity
-              style={[
-                styles.testButton,
-                {
-                  backgroundColor: colors.primary,
-                  borderRadius: 20,
-                  width: 32,
-                  height: 32,
-                  alignItems: "center",
-                  justifyContent: "center",
-                },
-              ]}
-              onPress={sendTestNotification}
-            >
-              <Text
-                style={{ color: "white", fontSize: 18, fontWeight: "bold" }}
-              >
-                +
-              </Text>
-            </TouchableOpacity>
-            <Text
-              style={[
-                styles.notificationTypeIndicator,
-                { color: colors.textTertiary, fontSize: 10 },
-              ]}
-            >
-              {getCurrentNotificationTypeName()}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={() => setShowNotificationsModal(true)}
-          >
-            <IconSymbol
-              name="bell.badge.fill"
-              size={24}
-              color={colors.textSecondary}
-            />
-            {unreadCount > 0 && (
-              <View
-                style={[
-                  styles.notificationBadge,
-                  { backgroundColor: colors.error },
-                ]}
-              >
-                <Text
-                  style={[styles.notificationText, { color: colors.surface }]}
-                >
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => router.push("/profile")}
-          >
-            <IconSymbol name="gear" size={24} color={colors.textSecondary} />
+          <TouchableOpacity onPress={() => router.push("/settings")}>
+            <IconSymbol name="gear" size={28} color="#78A578" />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Main Content */}
-      <View style={styles.content}>
-        {/* Featured Image */}
-        <View style={styles.featuredImageContainer}>
-          <View
-            style={[styles.featuredImage, { backgroundColor: colors.surface }]}
-          >
-            <Image
-              source={require("../../assets/images/Dashboard_mobile.png")}
-              style={styles.heroImage}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
+      <ScrollView 
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 10) }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Your Eco Impact */}
+        <View style={styles.ecoImpactContainer}>
+          <Text style={styles.sectionTitleSmall}>Your Eco Impact</Text>
+          <View style={styles.ecoImpactCard}>
+            <View style={styles.pointsBadge}>
+              <Text style={styles.pointsLabel}>POINTS</Text>
+              <Text style={styles.pointsValue}>{totalPoints.toLocaleString()}</Text>
+            </View>
+            <View style={styles.levelRow}>
+              <Text style={styles.levelText}>Level {Math.floor(totalPoints / 500) + 1}: {Math.floor(totalPoints / 500) >= 4 ? 'Green Guardian' : 'Eco Starter'}</Text>
+              <Text style={styles.levelPercent}>{Math.min(100, Math.floor(((totalPoints % 500) / 500) * 100))}%</Text>
+            </View>
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { width: `${Math.min(100, ((totalPoints % 500) / 500) * 100)}%` }]} />
+            </View>
 
-        {/* Informational Box */}
-        <View style={[styles.infoBox, { backgroundColor: colors.primary }]}>
-          <Text style={styles.infoText}>
-            Compost your kitchen waste like vegetable peels and eggshells – your
-            plants will love it!
-          </Text>
-        </View>
-
-        {/* Announcements Section */}
-        <View style={styles.announcementsSection}>
-          <View
-            style={[
-              styles.sectionDivider,
-              { backgroundColor: colors.textTertiary },
-            ]}
-          />
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            Latest Announcements
-          </Text>
-
-          {announcements.length === 0 ? (
-            <View
-              style={[
-                styles.announcementCard,
-                { backgroundColor: colors.surface },
-              ]}
-            >
-              <View style={styles.announcementLeft}>
-                <IconSymbol
-                  name="megaphone"
-                  size={24}
-                  color={colors.textSecondary}
-                />
-                <View style={styles.announcementText}>
-                  <Text
-                    style={[
-                      styles.announcementTitle,
-                      { color: colors.textPrimary },
-                    ]}
-                  >
-                    No announcements yet
-                  </Text>
-                  <Text
-                    style={[
-                      styles.announcementSubtitle,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    Check back later for updates
-                  </Text>
-                </View>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{formatAdaptiveMassFromMetricTons(trashCollectedTons)}</Text>
+                <Text style={styles.statLabel}>Trash Collected</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{userReports.length}</Text>
+                <Text style={styles.statLabel}>Reports</Text>
               </View>
             </View>
-          ) : (
-            announcements.map((announcement) => (
-              <TouchableOpacity
-                key={announcement.id}
-                style={[
-                  styles.announcementCard,
-                  { backgroundColor: colors.surface },
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(tabs)/announcements",
-                    params: {
-                      openModal: "true",
-                      announcementId: announcement.id,
-                    },
-                  })
-                }
-                activeOpacity={0.7}
-              >
-                <View style={styles.announcementLeft}>
-                  <View style={styles.announcementContent}>
-                    <View style={styles.announcementHeader}>
-                      <View style={styles.priorityContainer}>
-                        <Ionicons
-                          name={getPriorityIcon(announcement.priority) as any}
-                          size={16}
-                          color={getPriorityColor(announcement.priority)}
-                        />
-                        <Text
-                          style={[
-                            styles.priorityText,
-                            { color: getPriorityColor(announcement.priority) },
-                          ]}
-                        >
-                          {announcement.priority.toUpperCase()}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text
-                      style={[
-                        styles.announcementTitle,
-                        { color: colors.textPrimary },
-                      ]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {announcement.title.length > 20
-                        ? `${announcement.title.substring(0, 20)}...`
-                        : announcement.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.announcementSubtitle,
-                        { color: colors.textSecondary },
-                      ]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {announcement.description.length > 20
-                        ? `${announcement.description.substring(0, 20)}...`
-                        : announcement.description}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.announcementDate,
-                        { color: colors.textTertiary },
-                      ]}
-                    >
-                      {formatAnnouncementDate(announcement.createdAt)}
-                    </Text>
-                  </View>
-                </View>
-                <Text
-                  style={[
-                    styles.categoryBadge,
-                    {
-                      backgroundColor: getCategoryColor(announcement.category),
-                      color: "#fff",
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {announcement.category}
-                </Text>
-              </TouchableOpacity>
-            ))
-          )}
+          </View>
+        </View>
 
-          {/* View More Link */}
-          <TouchableOpacity
-            style={styles.viewMoreButton}
-            onPress={() => router.push("/(tabs)/announcements")}
-          >
-            <IconSymbol name="chevron.right" size={16} color={colors.primary} />
-            <Text style={[styles.viewMoreText, { color: colors.primary }]}>
-              View all announcements
-            </Text>
+        {/* Next Collection */}
+        <View style={styles.nextCollectionCard}>
+          <View style={styles.nextCollectionHeader}>
+            <IconSymbol name="clock" size={20} color="white" />
+            <Text style={styles.nextCollectionTitle}>Next Collection</Text>
+          </View>
+          {nextCollection ? (
+            <>
+              <Text style={styles.nextCollectionDate}>{nextCollection.dateLabel}</Text>
+              <Text style={styles.nextCollectionTime}>{nextCollection.timeText}</Text>
+              <View style={styles.nextCollectionDivider} />
+              <View style={styles.nextCollectionFooter}>
+                <IconSymbol name="arrow.triangle.2.circlepath" size={16} color="white" />
+                <Text style={styles.nextCollectionFooterText}>{nextCollection.wasteCategory}</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.nextCollectionDate}>No upcoming collection</Text>
+              <Text style={styles.nextCollectionTime}>Set your barangay in your profile</Text>
+            </>
+          )}
+        </View>
+
+        {/* Community Updates */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitleSmall}>Community Updates</Text>
+          <TouchableOpacity onPress={() => router.push('/announcements')}>
+            <Text style={styles.viewAllText}>View All</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Notifications Modal */}
-      <Modal
-        transparent
-        visible={showNotificationsModal}
-        animationType="fade"
-        onRequestClose={() => setShowNotificationsModal(false)}
-      >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.3)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 16,
-          }}
-        >
-          <View
-            style={{
-              width: "100%",
-              maxWidth: 420,
-              borderRadius: 12,
-              backgroundColor: colors.surface,
-              padding: 16,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 8,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: "700",
-                  color: colors.textPrimary,
-                }}
-              >
-                Notifications
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowNotificationsModal(false)}
-              >
-                <IconSymbol
-                  name="xmark"
-                  size={20}
-                  color={colors.textTertiary}
-                />
-              </TouchableOpacity>
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "flex-end",
-                marginBottom: 8,
-              }}
-            >
-              {unreadCount > 0 && (
-                <TouchableOpacity
-                  onPress={markAllAsRead}
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 8,
-                    backgroundColor: colors.secondary,
-                  }}
-                >
-                  <Text style={{ color: colors.primary, fontWeight: "600" }}>
-                    Mark all as read
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <ScrollView style={{ maxHeight: 400 }}>
-              {notifications.length === 0 ? (
-                <View style={{ padding: 16, alignItems: "center" }}>
-                  <Text style={{ color: colors.textSecondary }}>
-                    No notifications yet
-                  </Text>
-                </View>
-              ) : (
-                notifications.map((n) => (
-                  <TouchableOpacity
-                    key={n.id}
-                    onPress={() => handleNotificationPress(n)}
-                    style={{
-                      paddingVertical: 12,
-                      borderBottomWidth: 1,
-                      borderBottomColor: colors.border,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: colors.textPrimary,
-                            fontWeight: n.read
-                              ? ("500" as any)
-                              : ("700" as any),
-                          }}
-                        >
-                          {n.title}
-                        </Text>
-                        {!!n.body && (
-                          <Text
-                            style={{
-                              color: colors.textSecondary,
-                              marginTop: 2,
-                            }}
-                            numberOfLines={2}
-                          >
-                            {n.body}
-                          </Text>
-                        )}
-                        <Text
-                          style={{
-                            color: colors.textTertiary,
-                            fontSize: 12,
-                            marginTop: 4,
-                          }}
-                        >
-                          {(() => {
-                            const d = n.createdAt?.toDate
-                              ? n.createdAt.toDate()
-                              : new Date(n.createdAt);
-                            return isNaN(d?.getTime?.() || NaN)
-                              ? ""
-                              : `${d.toLocaleDateString()} ${d.toLocaleTimeString(
-                                  [],
-                                  { hour: "2-digit", minute: "2-digit" }
-                                )}`;
-                          })()}
-                        </Text>
-                      </View>
-                      <IconSymbol
-                        name="chevron.right"
-                        size={16}
-                        color={colors.textTertiary}
-                      />
-                    </View>
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
+        
+        <View style={styles.updateCard}>
+          <View style={[styles.updateIconBg, { backgroundColor: '#C8E6C9' }]}>
+            <IconSymbol name="megaphone.fill" size={20} color="#2E7D32" />
+          </View>
+          <View style={styles.updateTextContent}>
+            <Text style={styles.updateTitle}>Holiday Delay</Text>
+            <Text style={styles.updateDesc}>Collection moved to Saturday due to the upcoming public holiday.</Text>
           </View>
         </View>
-      </Modal>
-
-      {/* Notification Detail Modal */}
-      <Modal
-        visible={showNotificationDetail}
-        transparent
-        animationType="slide"
-        onRequestClose={handleCloseNotificationDetail}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.notificationDetailContainer,
-              { backgroundColor: colors.surface },
-            ]}
-          >
-            <View
-              style={[
-                styles.notificationDetailHeader,
-                { borderBottomColor: colors.border },
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={handleCloseNotificationDetail}
-              >
-                <IconSymbol name="xmark" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-              <Text
-                style={[
-                  styles.notificationDetailTitle,
-                  { color: colors.textPrimary },
-                ]}
-              >
-                Notification Details
-              </Text>
-              <View style={styles.headerSpacer} />
-            </View>
-
-            {selectedNotification && (
-              <ScrollView style={styles.notificationDetailContent}>
-                <View style={styles.notificationDetailCard}>
-                  <View style={styles.notificationTypeContainer}>
-                    <IconSymbol
-                      name={getNotificationIcon(
-                        selectedNotification.type || "general"
-                      )}
-                      size={24}
-                      color={getNotificationColor(
-                        selectedNotification.type || "general"
-                      )}
-                    />
-                    <Text
-                      style={[
-                        styles.notificationTypeText,
-                        {
-                          color: getNotificationColor(
-                            selectedNotification.type || "general"
-                          ),
-                        },
-                      ]}
-                    >
-                      {getNotificationTypeLabel(
-                        selectedNotification.type || "general"
-                      )}
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.notificationDetailTitleText,
-                      { color: colors.textPrimary },
-                    ]}
-                  >
-                    {selectedNotification.title}
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.notificationDetailBody,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    {selectedNotification.body}
-                  </Text>
-
-                  <View
-                    style={[
-                      styles.notificationDetailMeta,
-                      { backgroundColor: colors.background },
-                    ]}
-                  >
-                    <View style={styles.notificationMetaRow}>
-                      <IconSymbol
-                        name="clock"
-                        size={16}
-                        color={colors.textTertiary}
-                      />
-                      <Text
-                        style={[
-                          styles.notificationMetaText,
-                          { color: colors.textTertiary },
-                        ]}
-                      >
-                        {(() => {
-                          const d = selectedNotification.createdAt?.toDate
-                            ? selectedNotification.createdAt.toDate()
-                            : new Date(selectedNotification.createdAt);
-                          return isNaN(d?.getTime?.() || NaN)
-                            ? "Unknown time"
-                            : `${d.toLocaleDateString()} at ${d.toLocaleTimeString(
-                                [],
-                                { hour: "2-digit", minute: "2-digit" }
-                              )}`;
-                        })()}
-                      </Text>
-                    </View>
-
-                    <View style={styles.notificationMetaRow}>
-                      <IconSymbol
-                        name="checkmark.circle"
-                        size={16}
-                        color={
-                          selectedNotification.read
-                            ? colors.primary
-                            : colors.textTertiary
-                        }
-                      />
-                      <Text
-                        style={[
-                          styles.notificationMetaText,
-                          {
-                            color: selectedNotification.read
-                              ? colors.primary
-                              : colors.textTertiary,
-                          },
-                        ]}
-                      >
-                        {selectedNotification.read ? "Read" : "Unread"}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </ScrollView>
-            )}
-
-            <View
-              style={[
-                styles.notificationDetailActions,
-                { borderTopColor: colors.border },
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.notificationActionButton,
-                  {
-                    backgroundColor: colors.background,
-                    borderColor: colors.border,
-                    borderWidth: 1,
-                    marginRight: 8,
-                  },
-                ]}
-                onPress={() => {
-                  handleCloseNotificationDetail();
-                  setShowNotificationsModal(true);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.notificationActionText,
-                    { color: colors.textPrimary },
-                  ]}
-                >
-                  Back to Notifications
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.notificationActionButton,
-                  { backgroundColor: colors.primary, flex: 1 },
-                ]}
-                onPress={handleCloseNotificationDetail}
-              >
-                <Text
-                  style={[
-                    styles.notificationActionText,
-                    { color: colors.surface },
-                  ]}
-                >
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
+        
+        <View style={styles.updateCard}>
+          <View style={[styles.updateIconBg, { backgroundColor: '#FCE4EC' }]}>
+            <IconSymbol name="leaf.fill" size={20} color="#880E4F" />
+          </View>
+          <View style={styles.updateTextContent}>
+            <Text style={styles.updateTitle}>Free Compost Workshop</Text>
+            <Text style={styles.updateDesc}>Join us this Sunday at the Community Center for a 2-hour session.</Text>
           </View>
         </View>
-      </Modal>
+
+        {/* Driver Portal Button - Only for drivers */}
+        {isDriver && (
+          <TouchableOpacity
+            style={styles.driverPortalCard}
+            onPress={() => router.push('/(driver)/select-truck')}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#1B5E20', '#2E7D32', '#388E3C']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.driverPortalGradient}
+            >
+              <View style={styles.driverPortalIcon}>
+                <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
+              </View>
+              <View style={styles.driverPortalTextContainer}>
+                <Text style={styles.driverPortalTitle}>Driver Portal</Text>
+                <Text style={styles.driverPortalSubtitle}>Start your shift & select a truck</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        {/* Quick Actions */}
+        <Text style={[styles.sectionTitleSmall, { marginTop: 10, textTransform: 'uppercase', color: '#78A578' }]}>Quick Actions</Text>
+        
+        <TouchableOpacity style={styles.quickActionCard} onPress={() => router.push('/report')}>
+          <IconSymbol name="camera" size={20} color="#4A6741" />
+          <Text style={styles.quickActionText}>Report a Pile</Text>
+        </TouchableOpacity>
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitleSmall}>Recent Reports</Text>
+          <TouchableOpacity onPress={() => router.push('/my-reports')}>
+            <Text style={styles.viewAllText}>View All</Text>
+          </TouchableOpacity>
+        </View>
+        {userReports.length > 0 ? (
+          userReports.slice(0, 3).map((report, index) => (
+            <TouchableOpacity 
+              key={report.id || index} 
+              style={styles.updateCard}
+              onPress={() => router.push('/my-reports')}
+            >
+              <View style={styles.updateIconBg}>
+                <IconSymbol name={report.imageURL ? "camera.fill" : "doc.text"} size={20} color="#234033" />
+              </View>
+              <View style={styles.updateTextContent}>
+                <Text style={styles.updateTitle}>{report.title || 'Trash Report'}</Text>
+                <Text style={styles.updateDesc}>
+                  {new Date(report.createdAt).toLocaleDateString()} • {report.barangay}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <TouchableOpacity style={styles.updateCard} onPress={() => router.push('/my-reports')}>
+            <View style={styles.updateTextContent}>
+              <Text style={styles.updateDesc}>No reports submitted yet.</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        
+        <TouchableOpacity style={styles.quickActionCard} onPress={() => router.push('/rewards' as any)}>
+          <IconSymbol name="gift" size={20} color="#4A6741" />
+          <Text style={styles.quickActionText}>Redeem Points</Text>
+        </TouchableOpacity>
+
+      </ScrollView>
+      {/* Notifications Modal Removed to simplify file and focus on home layout */}
     </View>
   );
 }
@@ -1011,7 +778,6 @@ export default function HomePage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    height: "100%",
   },
   header: {
     flexDirection: "row",
@@ -1035,157 +801,142 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   profileImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: "100%",
+    height: "100%",
   },
   greeting: {
-    fontSize: 20,
-    fontWeight: "bold",
+    fontSize: 22,
+    fontWeight: "800",
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
   },
-  notificationButton: {
-    position: "relative",
-  },
-  notificationBadge: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  notificationText: {
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  testButton: {
-    padding: 4,
-  },
-  settingsButton: {
-    padding: 4,
-  },
   content: {
     padding: 20,
-    gap: 20,
+    gap: 16,
   },
-  featuredImageContainer: {
-    alignItems: "center",
-  },
-  featuredImage: {
-    width: "100%",
-    height: 200,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  heroImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 16,
-  },
-  aiIcon: {
-    position: "absolute",
-    bottom: 16,
-    right: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  aiText: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  infoBox: {
-    padding: 20,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  infoText: {
-    color: "white",
+  sectionTitleSmall: {
     fontSize: 16,
-    textAlign: "center",
-    lineHeight: 22,
-    fontWeight: "500",
+    fontWeight: "700",
+    color: "#2E7D32",
+    marginBottom: 4,
   },
-  announcementsSection: {
-    gap: 16,
-  },
-  sectionDivider: {
-    height: 1,
+  ecoImpactContainer: {
     marginBottom: 8,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 16,
-  },
-  announcementCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 15,
-    paddingRight: 120,
-    borderRadius: 12,
+  ecoImpactCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    position: "relative",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
-  announcementLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    flex: 1,
+  pointsBadge: {
+    backgroundColor: '#C8E6C9',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
   },
-  announcementText: {
-    gap: 4,
-    flex: 1,
+  pointsLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: '#2E7D32',
+    letterSpacing: 1,
   },
-  announcementContent: {
-    flex: 1,
+  pointsValue: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: '#1B5E20',
   },
-  announcementHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  levelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  priorityContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+  levelText: {
+    fontSize: 13,
+    color: '#4A6741',
+    fontWeight: '500',
   },
-  priorityText: {
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
+  levelPercent: {
+    fontSize: 12,
+    color: '#2E7D32',
+    fontWeight: '700',
   },
-  categoryBadge: {
-    position: "absolute",
-    top: "50%",
-    right: 16,
-    transform: [{ translateY: -12 }],
+  progressBarBg: {
+    height: 8,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#2E7D32',
+    borderRadius: 4,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1B5E20',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#4A6741',
+    marginTop: 4,
+  },
+  statDivider: {
+    width: 1,
+    height: '100%',
+    backgroundColor: '#E0E0E0',
+  },
+  nextCollectionCard: {
+    backgroundColor: '#4A6741',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 8,
+  },
+  nextCollectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  nextCollectionTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  nextCollectionDate: {
+    color: '#E8F5E9',
+    fontSize: 14,
+  },
+  nextCollectionTime: {
+    color: 'white',
+    fontSize: 26,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  nextCollectionDivider: {
+    height: 1,
     fontSize: 11,
     fontWeight: "600",
     paddingHorizontal: 10,
@@ -1230,6 +981,82 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textDecorationLine: "underline",
   },
+  // Community Updates Styles
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  viewAllText: {
+    color: '#2E7D32',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  updateCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    alignItems: 'center',
+    gap: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  updateIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  updateTextContent: {
+    flex: 1,
+  },
+  updateTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#234033',
+    marginBottom: 4,
+  },
+  updateDesc: {
+    fontSize: 13,
+    color: '#4B5F4F',
+    lineHeight: 18,
+  },
+
+  // Quick Actions Styles
+  quickActionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  quickActionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#234033',
+  },
+  
+  // Next Collection Footer
+  nextCollectionFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  nextCollectionFooterText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
   // Notification Detail Modal Styles
   modalOverlay: {
     flex: 1,
@@ -1331,5 +1158,48 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: "center",
     maxWidth: 60,
+  },
+
+  // Driver Portal Styles
+  driverPortalCard: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginTop: 8,
+    marginBottom: 4,
+    elevation: 6,
+    shadowColor: "#1B5E20",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  driverPortalGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  driverPortalIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  driverPortalTextContainer: {
+    flex: 1,
+  },
+  driverPortalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.3,
+  },
+  driverPortalSubtitle: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 2,
+    fontWeight: "500",
   },
 });

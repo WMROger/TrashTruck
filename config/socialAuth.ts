@@ -1,6 +1,5 @@
 import * as AuthSession from 'expo-auth-session';
 import Constants from 'expo-constants';
-import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import {
   FacebookAuthProvider,
@@ -19,7 +18,6 @@ WebBrowser.maybeCompleteAuthSession();
 const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
 
 // Facebook OAuth configuration  
 const FACEBOOK_APP_ID = process.env.EXPO_PUBLIC_FACEBOOK_APP_ID;
@@ -42,12 +40,8 @@ export const signInWithGoogle = async (): Promise<{ success: boolean; error?: st
       if (!clientId) {
         throw new Error('Google Client ID not configured for mobile');
       }
-      if (!GOOGLE_CLIENT_SECRET) {
-        throw new Error('Google Client Secret not configured');
-      }
-
       const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'myapp',
+        scheme: 'trashtrack',
         path: 'auth/callback'
       });
 
@@ -57,11 +51,7 @@ export const signInWithGoogle = async (): Promise<{ success: boolean; error?: st
         scopes: ['openid', 'profile', 'email'],
         redirectUri,
         responseType: AuthSession.ResponseType.Code,
-        codeChallenge: await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          Math.random().toString(36), // Use a proper code verifier
-          { encoding: Crypto.CryptoEncoding.HEX }
-        ),
+        usePKCE: true,
         codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
       });
 
@@ -73,7 +63,6 @@ export const signInWithGoogle = async (): Promise<{ success: boolean; error?: st
         const tokenResponse = await AuthSession.exchangeCodeAsync(
           {
             clientId,
-            clientSecret: GOOGLE_CLIENT_SECRET,
             code: result.params.code,
             redirectUri,
             extraParams: {
@@ -129,13 +118,14 @@ export const signInWithFacebook = async (): Promise<{ success: boolean; error?: 
       const isExpoGo = Constants.appOwnership === 'expo';
       const expoOwner = (Constants as any)?.expoConfig?.owner || (Constants as any)?.easConfig?.owner;
       const expoSlug = (Constants as any)?.expoConfig?.slug || 'trashtrack';
-      const proxyBase = expoOwner && expoSlug
-        ? `https://auth.expo.dev/@${expoOwner}/${expoSlug}`
-        : `https://auth.expo.dev/@wmroger/trashtrack`;
+      if (isExpoGo && (!expoOwner || !expoSlug)) {
+        throw new Error('Expo project owner is required for Facebook sign-in in Expo Go. Use a development build or configure expo.owner.');
+      }
+      const proxyBase = `https://auth.expo.dev/@${expoOwner}/${expoSlug}`;
 
       const redirectUri = isExpoGo
         ? proxyBase
-        : (AuthSession.makeRedirectUri as any)({ scheme: 'myapp', path: 'auth/callback' });
+        : (AuthSession.makeRedirectUri as any)({ scheme: 'trashtrack', path: 'auth/callback' });
       console.log('Redirect URI:', redirectUri);
 
       const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${encodeURIComponent(

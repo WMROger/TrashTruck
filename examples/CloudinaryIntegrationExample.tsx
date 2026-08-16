@@ -89,7 +89,7 @@ export default function CloudinaryIntegrationExample() {
           onImageSelected={handleProfileImageUpload}
           folder="PROFILES"
           placeholder="Update profile picture"
-          currentImageUrl={profileImage}
+          currentImageUrl={profileImage || undefined}
           showPreview={true}
           style={styles.profilePicker}
         />

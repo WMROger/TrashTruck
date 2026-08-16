@@ -1,42 +1,36 @@
 import { StyleSheet } from 'react-native';
 
 export const adminStyles = StyleSheet.create({
-  // Container styles
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mainCard: {
-    width: '95%',
-    height: '90%',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+  },
+  fullScreenBackground: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  overlay: {
+    flex: 1,
     flexDirection: 'row',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  
-  // Panel styles
-  leftPanel: {
-    flex: 1,
-    backgroundColor: '#f0f8f0',
-    justifyContent: 'center',
+    justifyContent: 'flex-end', // Aligns the card to the right side
     alignItems: 'center',
+    paddingRight: '10%', // Keeps the card away from the very edge of the screen
   },
-  rightPanel: {
-    flex: 1,
-    backgroundColor: '#f0f8f0',
-    padding: 48,
-    justifyContent: 'center',
+  floatingCardContainer: {
+    width: '100%',
+    maxWidth: 550,
+  },
+  loginFloatingCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)', // Slight glass effect
+    width: '100%',
+    padding: 60,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.15,
+    shadowRadius: 40,
+    elevation: 16,
   },
   
   // Form styles

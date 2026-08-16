@@ -45,8 +45,6 @@ Create a `.env` file in your project root (copy from `env.example`):
 ```env
 # Cloudinary Configuration
 EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=your-cloud-name-here
-EXPO_PUBLIC_CLOUDINARY_API_KEY=your-api-key-here
-EXPO_PUBLIC_CLOUDINARY_API_SECRET=your-api-secret-here
 EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=trashtruck_reports
 
 # Your existing Firebase config...
@@ -56,8 +54,8 @@ EXPO_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
 
 **Important**: 
 - Never commit your `.env` file to version control
-- The API secret should ideally only be used server-side
-- For mobile apps, use unsigned upload presets when possible
+- Never put a Cloudinary API secret in an `EXPO_PUBLIC_*` variable
+- TrashTrack uses a restricted unsigned upload preset for client uploads
 
 ## Step 5: Install Required Packages
 

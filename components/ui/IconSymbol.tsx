@@ -50,6 +50,16 @@ const MAPPING = {
   'mappin.and.ellipse': 'location-on',
   'star.fill': 'star',
   'hand.thumbsdown': 'thumb-down',
+  // Missing icons from recent redesign
+  'clock': 'access-time',
+  'megaphone.fill': 'campaign',
+  'camera': 'photo-camera',
+  'gift': 'card-giftcard',
+  'sparkles': 'auto-awesome',
+  'scalemass.fill': 'monitor-weight',
+  'mappin.circle.fill': 'place',
+  'location.fill': 'location-on',
+  'star.circle.fill': 'stars',
   // Additional useful icons
   'phone.fill': 'phone',
   'envelope.fill': 'email',

@@ -1,4 +1,5 @@
 import { auth, db } from '@/config/firebase';
+import { DANAO_CITY_BARANGAYS, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,17 +18,40 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import DropDownPicker from 'react-native-dropdown-picker';
 import ErrorModal from './ErrorModal';
 
 export default function SignupScreen() {
   const router = useRouter();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [selectedBarangay, setSelectedBarangay] = useState('');
+  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
+  
+  React.useEffect(() => {
+    const fetchBarangays = async () => {
+      try {
+        const { collection, getDocs } = require('firebase/firestore');
+        const snap = await getDocs(collection(db, 'barangay_schedules'));
+        const barangayNames = new Set<string>();
+        snap.forEach((doc: any) => {
+          const data = doc.data();
+          if (data.barangayName) {
+            barangayNames.add(data.barangayName);
+          }
+        });
+        setAvailableBarangays(mergeDanaoBarangays(Array.from(barangayNames)));
+      } catch (err) {
+        console.error('Error fetching available barangays:', err);
+      }
+    };
+    fetchBarangays();
+  }, []);
+  const [consent, setConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [errorModal, setErrorModal] = useState({
     visible: false,
@@ -69,9 +93,10 @@ export default function SignupScreen() {
   // Password strength validation
   const validatePasswordStrength = (password: string) => {
     const requirements = {
-      length: password.length >= 8,
+      length: password.length >= 12,
       lowercase: /[a-z]/.test(password),
       uppercase: /[A-Z]/.test(password),
+      number: /\d/.test(password),
       special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
     };
     
@@ -85,19 +110,19 @@ export default function SignupScreen() {
     switch (strength) {
       case 0:
       case 1:
-        return { text: 'Very Weak', color: '#EF4444' };
+        return { text: 'WEAK', color: '#EF4444' };
       case 2:
-        return { text: 'Weak', color: '#F97316' };
+        return { text: 'WEAK', color: '#F97316' };
       case 3:
-        return { text: 'Good', color: '#EAB308' };
+        return { text: 'GOOD', color: '#EAB308' };
       case 4:
-        return { text: 'Strong', color: '#22C55E' };
+        return { text: 'STRONG', color: '#22C55E' };
       default:
-        return { text: 'Very Weak', color: '#EF4444' };
+        return { text: 'WEAK', color: '#EF4444' };
     }
   };
 
-  const upsertUserProfile = async (provider: string) => {
+  const upsertUserProfile = async (provider: string, displayNameParam?: string) => {
     try {
       if (!auth || !db) return;
       const currentUser = auth.currentUser;
@@ -110,16 +135,19 @@ export default function SignupScreen() {
       const userId = currentUser.uid; // Firestore rules expect userId to equal auth.uid
       const userRef = doc(db, 'users', userId);
       const snap = await getDoc(userRef);
+      const finalDisplayName = displayNameParam || currentUser.displayName || name || '';
+
       const writeOnce = async () => {
         if (!snap.exists()) {
           await setDoc(userRef, {
             uid: currentUser.uid,
             email: rawEmail || '',
-            displayName: currentUser.displayName || '',
+            displayName: finalDisplayName,
             photoURL: currentUser.photoURL || '',
             verified: currentUser.emailVerified === true,
             role: 'user',
             provider,
+            barangay: selectedBarangay,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -129,10 +157,11 @@ export default function SignupScreen() {
             userRef,
             {
               email: rawEmail || '',
-              displayName: currentUser.displayName || '',
+              displayName: finalDisplayName,
               photoURL: currentUser.photoURL || '',
               verified: currentUser.emailVerified === true,
               provider,
+              barangay: selectedBarangay,
               updatedAt: serverTimestamp(),
             },
             { merge: true }
@@ -163,6 +192,17 @@ export default function SignupScreen() {
     // Clear previous errors
     setErrors({});
 
+    // Validate name
+    if (!name.trim()) {
+      showError('Please enter your full name');
+      return;
+    }
+
+    if (!selectedBarangay) {
+      showError('Please select your Danao City barangay');
+      return;
+    }
+
     // Validate email
     if (!email) {
       showError('Please enter your email address');
@@ -181,17 +221,12 @@ export default function SignupScreen() {
 
     const passwordValidation = validatePasswordStrength(password);
     if (!passwordValidation.isValid) {
-      showError('Password must contain at least 8 characters, 1 uppercase letter, 1 lowercase letter, and 1 special character');
+      showError('Password must contain at least 12 characters, 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character');
       return;
     }
 
-    // Validate confirm password
-    if (!confirmPassword) {
-      showError('Please confirm your password');
-      return;
-    }
-    if (password !== confirmPassword) {
-      showError('Passwords do not match');
+    if (!consent) {
+      showError('You must provide informed consent to register.');
       return;
     }
 
@@ -202,7 +237,12 @@ export default function SignupScreen() {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         console.log('User created successfully:', user.email);
-        await upsertUserProfile('password');
+        
+        // Update user profile with name
+        const { updateProfile } = require('firebase/auth');
+        await updateProfile(user, { displayName: name });
+
+        await upsertUserProfile('password', name);
         
         // Send email verification and redirect to login
         try {
@@ -222,13 +262,10 @@ export default function SignupScreen() {
         } catch {}
         router.replace('/(auth)/login' as any);
       } else {
-        // Fallback to mock signup if Firebase is not available
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('Mock signup - Firebase not available');
-        router.replace('/(auth)/login' as any);
+        throw new Error('Firebase authentication is unavailable. Check the app configuration and connection.');
       }
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.log('Signup failed:', error.code);
       let errorMessage = 'Sign up failed. Please try again.';
       
       if (error.code === 'auth/email-already-in-use') {
@@ -262,7 +299,7 @@ export default function SignupScreen() {
         Alert.alert('Google Sign Up Error', result.error || 'Failed to sign up with Google. Please try again.');
       }
     } catch (error: any) {
-      console.error('Google signup error:', error);
+      console.log('Google signup failed:', error.code);
       Alert.alert('Google Sign Up Error', 'Failed to sign up with Google. Please try again.');
     } finally {
       setIsLoading(false);
@@ -282,7 +319,7 @@ export default function SignupScreen() {
         Alert.alert('Facebook Sign Up Error', result.error || 'Failed to sign up with Facebook. Please try again.');
       }
     } catch (error: any) {
-      console.error('Facebook signup error:', error);
+      console.log('Facebook signup failed:', error.code);
       Alert.alert('Facebook Sign Up Error', 'Failed to sign up with Facebook. Please try again.');
     } finally {
       setIsLoading(false);
@@ -299,7 +336,7 @@ export default function SignupScreen() {
 
   return (
     <LinearGradient
-      colors={['#B0D7A7', '#FFFFFF']}
+      colors={['#C1E1C1', '#F5F5F5']}
       style={styles.container}
     >
       <SafeAreaView style={styles.safeArea}>
@@ -310,214 +347,197 @@ export default function SignupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#333" />
+            <Ionicons name="arrow-back-circle-outline" size={32} color="#6B705C" />
           </TouchableOpacity>
         </View>
 
-        {/* Content */}
-        <View style={styles.content}>
-          {/* Top Section - Title and Inputs */}
-          <View style={styles.topSection}>
-            <Text style={styles.title}>SignUp to TrashTrack</Text>
-            <Text style={styles.subtitle}>Enter your email and password to sign up</Text>
+        {/* Content Card Overlay */}
+        <View style={styles.contentCard}>
+          <Ionicons name="leaf" size={100} color="#F2F8F2" style={styles.leafWatermark} />
+          
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>
+            Join our mission to keep the neighborhood clean and earn rewards for sustainable waste disposal.
+          </Text>
 
-            {/* Input Fields */}
+          <View style={styles.formContainer}>
+            {/* Full Name */}
             <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={[
-                styles.input,
-                email.length > 0 && !validateEmail(email) && styles.inputError
-              ]}
-              placeholder="Enter your email"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={(text) => {
-                setEmail(text);
-                if (text.length > 0 && !validateEmail(text)) {
-                  setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
-                } else {
-                  clearError('email');
-                }
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {errors.email && (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={16} color="#EF4444" />
-                <Text style={styles.errorText}>{errors.email}</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={[styles.input, styles.passwordInputContainer]}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter your password"
-                placeholderTextColor="#999"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off" : "eye"}
-                  size={20}
-                  color="#666"
+              <Text style={styles.inputLabel}>Full Name</Text>
+              <View style={[styles.inputWrapper, name.length > 0 && name.trim() === '' && styles.inputError]}>
+                <Ionicons name="person-outline" size={20} color="#999" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="John Doe"
+                  placeholderTextColor="#999"
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
                 />
-              </TouchableOpacity>
+              </View>
             </View>
-            
-            {/* Password Strength Indicator */}
+
+            {/* Barangay */}
+            <View style={[styles.inputContainer, { zIndex: 1000 }]}>
+              <Text style={styles.inputLabel}>Barangay (Danao City)</Text>
+              <View style={[styles.inputWrapper, { padding: 0, borderWidth: 0 }]}>
+                <DropDownPicker
+                  open={barangayOpen}
+                  value={selectedBarangay}
+                  items={availableBarangays.map(b => ({ label: b, value: b }))}
+                  setOpen={setBarangayOpen}
+                  setValue={setSelectedBarangay}
+                  placeholder="Select a barangay"
+                  placeholderStyle={{ color: '#999' }}
+                  style={{
+                    backgroundColor: '#F9FAFB',
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                    minHeight: 50,
+                    borderRadius: 12,
+                    paddingLeft: 44,
+                  }}
+                  dropDownContainerStyle={{
+                    backgroundColor: '#F9FAFB',
+                    borderColor: '#E5E7EB',
+                    borderRadius: 12,
+                  }}
+                  textStyle={{
+                    fontSize: 15,
+                    color: '#333'
+                  }}
+                  zIndex={1000}
+                  listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
+                  scrollViewProps={{
+                    nestedScrollEnabled: true,
+                  }}
+                />
+                <View style={{ position: 'absolute', left: 16, top: 15, zIndex: 1001 }}>
+                  <Ionicons name="location-outline" size={20} color="#999" />
+                </View>
+              </View>
+            </View>
+
+            {/* Email Address */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <View style={[styles.inputWrapper, email.length > 0 && !validateEmail(email) && styles.inputError]}>
+                <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="john@example.com"
+                  placeholderTextColor="#999"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    if (text.length > 0 && !validateEmail(text)) {
+                      setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
+                    } else {
+                      clearError('email');
+                    }
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+              {errors.email && (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                  <Text style={styles.errorText}>{errors.email}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Secure Password */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Secure Password</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="lock-closed-outline" size={20} color="#999" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#999" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Password Strength */}
             {password.length > 0 && (
-              <View style={styles.passwordStrengthContainer}>
+              <View style={styles.passwordStrengthRow}>
                 <View style={styles.passwordStrengthBar}>
                   <View
                     style={[
                       styles.passwordStrengthFill,
                       {
-                        width: `${(validatePasswordStrength(password).strength / 4) * 100}%`,
+                        width: `${(validatePasswordStrength(password).strength / 5) * 100}%`,
                         backgroundColor: getPasswordStrengthText(validatePasswordStrength(password).strength).color,
                       },
                     ]}
                   />
                 </View>
-                <Text
-                  style={[
-                    styles.passwordStrengthText,
-                    { color: getPasswordStrengthText(validatePasswordStrength(password).strength).color },
-                  ]}
-                >
+                <Text style={[styles.passwordStrengthText, { color: '#666' }]}>
                   {getPasswordStrengthText(validatePasswordStrength(password).strength).text}
                 </Text>
               </View>
             )}
-            
-            {/* Password Requirements */}
-            {password.length > 0 && (
-              <View style={styles.requirementsContainer}>
-                <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-                {Object.entries(validatePasswordStrength(password).requirements).map(([key, isValid]) => (
-                  <View key={key} style={styles.requirementItem}>
-                    <Ionicons
-                      name={isValid ? "checkmark-circle" : "close-circle"}
-                      size={16}
-                      color={isValid ? "#22C55E" : "#EF4444"}
-                    />
-                    <Text style={[styles.requirementText, { color: isValid ? "#22C55E" : "#EF4444" }]}>
-                      {key === 'length' && 'At least 8 characters'}
-                      {key === 'lowercase' && 'One lowercase letter'}
-                      {key === 'uppercase' && 'One uppercase letter'}
-                      {key === 'special' && 'One special character'}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Confirm Password</Text>
-            <View style={[styles.input, styles.passwordInputContainer]}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Confirm your password"
-                placeholderTextColor="#999"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirmPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              >
-                <Ionicons
-                  name={showConfirmPassword ? "eye-off" : "eye"}
-                  size={20}
-                  color="#666"
-                />
+            {/* Consent Checkbox */}
+            <TouchableOpacity style={styles.consentContainer} onPress={() => setConsent(!consent)} activeOpacity={0.8}>
+              <View style={[styles.checkbox, consent && styles.checkboxChecked]}>
+                {consent && <Ionicons name="checkmark" size={14} color="white" />}
+              </View>
+              <Text style={styles.consentText}>
+                I provide my <Text style={styles.linkText}>Informed Consent</Text> for TrashTrack to process my personal data to facilitate waste collection services. I have read and agree to the <Text style={styles.linkText}>Data Privacy Terms</Text>.
+              </Text>
+            </TouchableOpacity>
+
+            {/* Sign Up Button */}
+            <TouchableOpacity 
+              style={[styles.primaryButton, isLoading && styles.disabledButton]}
+              onPress={handleSignUp}
+              disabled={isLoading}
+            >
+              <Text style={styles.primaryButtonText}>
+                {isLoading ? 'Signing up...' : 'Create Account'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Separator */}
+            <View style={styles.separatorContainer}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>OR CONTINUE WITH</Text>
+              <View style={styles.separatorLine} />
+            </View>
+
+            {/* Social Buttons (Side by side) */}
+            <View style={styles.socialButtonsRow}>
+              <TouchableOpacity style={styles.socialButtonHalf} onPress={handleGoogleSignUp} disabled={isLoading}>
+                <View style={styles.socialIconCircle}>
+                  <Text style={{fontWeight: 'bold', color: '#DB4437'}}>G</Text>
+                </View>
+                <Text style={styles.socialButtonText}>Google</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.socialButtonHalf} onPress={handleFacebookSignUp} disabled={isLoading}>
+                <Ionicons name="logo-facebook" size={18} color="#1877F2" style={{marginRight: 6}} />
+                <Text style={styles.socialButtonText}>Facebook</Text>
               </TouchableOpacity>
             </View>
-            
-            {/* Password Match Indicator */}
-            {confirmPassword.length > 0 && (
-              <View style={styles.passwordMatchContainer}>
-                <Ionicons
-                  name={password === confirmPassword ? "checkmark-circle" : "close-circle"}
-                  size={16}
-                  color={password === confirmPassword ? "#22C55E" : "#EF4444"}
-                />
-                <Text
-                  style={[
-                    styles.passwordMatchText,
-                    { color: password === confirmPassword ? "#22C55E" : "#EF4444" },
-                  ]}
-                >
-                  {password === confirmPassword ? "Passwords match" : "Passwords do not match"}
-                </Text>
-              </View>
-            )}
-          </View>
-          </View>
-        
-          {/* Bottom Section - Buttons */}
-          <View style={styles.bottomSection}>
-          {/* Sign Up Button */}
-          <TouchableOpacity 
-            style={[styles.primaryButton, isLoading && styles.disabledButton]}
-            onPress={handleSignUp}
-            disabled={isLoading}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isLoading ? 'Signing up...' : 'Sign Up'}
-            </Text>
-          </TouchableOpacity>
 
-          {/* Separator */}
-          <View style={styles.separatorContainer}>
-            <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>or sign up with</Text>
-            <View style={styles.separatorLine} />
-          </View>
+            {/* Login Link */}
+            <View style={styles.loginContainer}>
+              <Text style={styles.loginText}>Already have an account? </Text>
+              <TouchableOpacity onPress={handleLogin}>
+                <Text style={styles.loginLink}>Login</Text>
+              </TouchableOpacity>
+            </View>
 
-          {/* Social Sign Up Buttons */}
-          <View style={styles.socialButtons}>
-            <TouchableOpacity
-              style={[styles.socialButton, styles.googleButton]}
-              onPress={handleGoogleSignUp}
-              disabled={isLoading}
-            >
-              <Ionicons name="logo-google" size={20} color="#fff" />
-              <Text style={styles.socialButtonText}>
-                {isLoading ? 'Signing up...' : 'Continue with Google'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.socialButton, styles.facebookButton]}
-              onPress={handleFacebookSignUp}
-              disabled={isLoading}
-            >
-              <Ionicons name="logo-facebook" size={20} color="#fff" />
-              <Text style={styles.socialButtonText}>
-                {isLoading ? 'Signing up...' : 'Continue with Facebook'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Login Link */}
-          <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
-            <TouchableOpacity onPress={handleLogin}>
-              <Text style={styles.loginLink}>Login</Text>
-            </TouchableOpacity>
-          </View>
           </View>
         </View>
 
@@ -543,179 +563,154 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    justifyContent: 'center',
   },
   keyboardView: {
     flex: 1,
-    justifyContent: 'center',
-    paddingTop: 60, // Account for the absolute header
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 40,
     paddingBottom: 10,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     zIndex: 1,
   },
   backButton: {
-    padding: 8,
+    padding: 4,
   },
-  content: {
-    marginHorizontal: 20,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 20,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
+  contentCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 20,
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  topSection: {
-    // Contains title, subtitle, inputs
-  },
-  bottomSection: {
-    // Contains signup button, separator, social buttons, login link
+  leafWatermark: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    transform: [{ rotate: '15deg' }],
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#2f3a31',
-    marginBottom: 6,
-    textAlign: 'left',
+    color: '#4A6B48', // Darker green
+    marginBottom: 12,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#6b6b6b',
-    textAlign: 'left',
-    marginBottom: 20,
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+    marginBottom: 24,
+    paddingRight: 20,
+  },
+  formContainer: {
+    // Form wrapper
   },
   inputContainer: {
-    marginBottom: 14,
+    marginBottom: 16,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#dfe9df',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    color: '#333',
-  },
-  passwordInputContainer: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FAFAFA', // Very light grey/white background inside card
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
   },
-  passwordInput: {
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
     flex: 1,
-    fontSize: 16,
+    paddingVertical: 12,
+    fontSize: 15,
     color: '#333',
-    paddingRight: 8,
   },
   eyeButton: {
     padding: 4,
   },
-  passwordStrengthContainer: {
-    marginTop: 8,
+  inputError: {
+    borderColor: '#EF4444',
+  },
+  passwordStrengthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 12,
   },
   passwordStrengthBar: {
+    flex: 1,
     height: 4,
     backgroundColor: '#E5E7EB',
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: 4,
   },
   passwordStrengthFill: {
     height: '100%',
     borderRadius: 2,
   },
   passwordStrengthText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
   },
-  requirementsContainer: {
+  consentContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginTop: 8,
-    padding: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  requirementsTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  requirementItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  requirementText: {
-    fontSize: 12,
-    marginLeft: 6,
-  },
-  passwordMatchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  passwordMatchText: {
-    fontSize: 12,
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  rememberMeContainer: {
-    marginBottom: 30,
-  },
-  rememberMeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginBottom: 24,
   },
   checkbox: {
     width: 20,
     height: 20,
-    borderWidth: 2,
-    borderColor: '#5B7C67',
+    borderWidth: 1.5,
+    borderColor: '#CCC',
     borderRadius: 4,
-    marginRight: 8,
+    marginRight: 12,
+    marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#5B7C67',
+    backgroundColor: '#5C7C54',
+    borderColor: '#5C7C54',
   },
-  rememberMeText: {
-    fontSize: 14,
-    color: '#333',
+  consentText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 18,
+  },
+  linkText: {
+    color: '#709A67', // Green link text
+    textDecorationLine: 'underline',
   },
   primaryButton: {
-    backgroundColor: '#4f6b4f',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    backgroundColor: '#5C7C54',
+    borderRadius: 8,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: 18,
-    alignSelf: 'center',
-    minWidth: 300,
-    top: 10,
+    marginBottom: 24,
   },
   primaryButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   disabledButton: {
@@ -724,45 +719,49 @@ const styles = StyleSheet.create({
   separatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 20,
   },
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E6E6E6',
+    backgroundColor: '#E5E7EB',
   },
   separatorText: {
     marginHorizontal: 12,
-    fontSize: 13,
-    color: '#888',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#A3A3A3',
+    letterSpacing: 1,
   },
-  socialButtons: {
-    flexDirection: 'column',
+  socialButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 24,
   },
-  socialButton: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+  socialButtonHalf: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
     paddingVertical: 12,
-    paddingHorizontal: 14,
     alignItems: 'center',
-    borderWidth: 0,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 12,
-    alignSelf: 'center',
-    minWidth: 300,
   },
-  googleButton: {
-    backgroundColor: '#DB4437',
-  },
-  facebookButton: {
-    backgroundColor: '#1877F2',
+  socialIconCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
   socialButtonText: {
-    fontSize: 14,
-    color: 'white',
+    fontSize: 13,
+    color: '#333',
     fontWeight: '600',
   },
   loginContainer: {
@@ -771,18 +770,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loginText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
   },
   loginLink: {
-    fontSize: 14,
-    color: '#007AFF',
+    fontSize: 13,
+    color: '#4A76FF',
     fontWeight: '600',
-  },
-  // Error styles
-  inputError: {
-    borderColor: '#EF4444',
-    borderWidth: 2,
   },
   errorContainer: {
     flexDirection: 'row',

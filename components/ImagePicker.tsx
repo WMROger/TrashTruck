@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ExpoImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    type AlertButton,
     Image,
     StyleSheet,
     Text,
@@ -120,10 +122,44 @@ export const AdvancedImagePicker: React.FC<AdvancedImagePickerProps> = ({
   const [uploadProgress, setUploadProgress] = useState<string>('');
 
   const handleMultipleImageUpload = async () => {
-    // Implementation for multiple image selection would go here
-    // This is a simplified version - you'd need to implement
-    // proper multiple image selection using expo-image-picker
-    Alert.alert('Multiple Upload', 'Multiple image upload coming soon!');
+    setIsUploading(true);
+    setUploadProgress('Selecting images...');
+    try {
+      const permission = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission required', 'Allow photo-library access to upload images.');
+        return;
+      }
+      const selection = await ExpoImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: Math.max(1, Math.min(10, maxImages)),
+        quality: 0.8,
+        exif: false,
+      });
+      if (selection.canceled || !selection.assets.length) return;
+      setUploadProgress(`Uploading ${selection.assets.length} image${selection.assets.length === 1 ? '' : 's'}...`);
+      const results = await cloudinaryService.uploadMultipleImages(
+        selection.assets.map(asset => asset.uri),
+        { folder: UPLOAD_FOLDERS[folder] },
+      );
+      const successful = results.filter(result => result.success);
+      if (!successful.length) {
+        Alert.alert('Upload failed', results[0]?.error || 'The selected images could not be uploaded.');
+        return;
+      }
+      onMultipleImagesSelected?.(successful);
+      successful.forEach(onImageSelected);
+      if (successful.length !== results.length) {
+        Alert.alert('Partial upload', `${successful.length} of ${results.length} images were uploaded.`);
+      }
+    } catch (error) {
+      console.error('Multiple image upload error:', error);
+      Alert.alert('Upload failed', 'The selected images could not be uploaded.');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress('');
+    }
   };
 
   const handleSingleImageUpload = async (source: 'gallery' | 'camera') => {
@@ -154,7 +190,7 @@ export const AdvancedImagePicker: React.FC<AdvancedImagePickerProps> = ({
   };
 
   const showImageOptions = () => {
-    const options = [
+    const options: AlertButton[] = [
       { text: 'Camera', onPress: () => handleSingleImageUpload('camera') },
       { text: 'Gallery', onPress: () => handleSingleImageUpload('gallery') },
     ];

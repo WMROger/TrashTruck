@@ -1,35 +1,55 @@
-// Firestore security rules
 rules_version = '2';
 
 service cloud.firestore {
-  // Helpers
+  match /databases/{database}/documents {
   function isAuthenticated() {
     return request.auth != null;
   }
+
   function isOwner(userId) {
-    return request.auth != null && request.auth.uid == userId;
+    return isAuthenticated() && request.auth.uid == userId;
   }
+
+  function userProfile() {
+    return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+  }
+
+  function hasActiveProfile() {
+    return isAuthenticated()
+      && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      && (!userProfile().keys().hasAny(['disabled']) || userProfile().disabled == false)
+      && (!userProfile().keys().hasAny(['status']) || userProfile().status != 'disabled');
+  }
+
+  function hasRole(role) {
+    return hasActiveProfile()
+      && userProfile().role == role;
+  }
+
   function isAdmin() {
-    return isAuthenticated() && ('admin' in request.auth.token) && request.auth.token.admin == true;
+    return hasActiveProfile()
+      && userProfile().role == 'admin';
   }
-  // Driver assigned to a schedule
-  function isAssignedDriver() {
-    // Many docs store driver as an email or display name string
-    return isAuthenticated() && (
-      (('email' in request.auth.token) && resource.data.driver == request.auth.token.email) ||
-      (('name' in request.auth.token) && resource.data.driver == request.auth.token.name) ||
-      (('driverUid' in resource.data) && resource.data.driverUid == request.auth.uid)
-    );
+
+  function isDict() {
+    return hasActiveProfile()
+      && userProfile().role == 'dict';
   }
-  // Restrict what drivers can change when completing/flagging a pickup
+
+  function isAssignedDriver(schedule) {
+    return hasRole('driver') && schedule.get('assignedDriverId', '') == request.auth.uid;
+  }
+
   function driverCompletionUpdateOnly() {
-    // Only these fields may change
-    return resource.data.diff(request.resource.data).changedKeys().hasOnly([
+    return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       'status',
       'completedAt',
       'completionImage',
       'completionImagePublicId',
       'completionDescription',
+      'completionNotes',
+      'completionLocation',
+      'collectionMeasurement',
       'completedBy',
       'completedByEmail',
       'completedByUid',
@@ -37,173 +57,408 @@ service cloud.firestore {
       'issueReportedAt',
       'issueImage',
       'issueImagePublicId',
+      'issueLocation',
       'issueDescription',
       'issueType',
       'reportedBy',
       'reportedByEmail',
       'reportedByUid',
-      'reportedByName'
+      'reportedByName',
+      'updatedAt'
     ]);
   }
-  function isValidCompletionStatus() {
-    return request.resource.data.status in ['completed', 'issue'];
+
+  function hasValidDriverEvidence() {
+    return (
+      request.resource.data.status == 'completed'
+      && request.resource.data.completedByUid == request.auth.uid
+      && request.resource.data.collectionMeasurement.value is number
+      && request.resource.data.collectionMeasurement.value > 0
+      && (request.resource.data.collectionMeasurement.unit in ['kg', 'ton', 'm3'])
+      && (
+        request.resource.data.collectionMeasurement.get('bagCount', null) == null
+        || (
+          request.resource.data.collectionMeasurement.get('bagCount', null) is int
+          && request.resource.data.collectionMeasurement.get('bagCount', -1) >= 0
+        )
+      )
+    ) || (
+      request.resource.data.status == 'issue'
+      && request.resource.data.reportedByUid == request.auth.uid
+      && request.resource.data.issueDescription is string
+      && request.resource.data.issueDescription.size() > 0
+    );
   }
 
-  match /databases/{database}/documents {
-    // Waste collection schedules
-    match /schedules/{scheduleId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (isOwner(request.resource.data.userId) || isAdmin());
-      // Admins and owners have full control; assigned drivers can only mark completion/issue with limited fields
-      allow update: if isAuthenticated() && (
-        isOwner(resource.data.userId) ||
-        isAdmin() ||
-        (isAssignedDriver() && driverCompletionUpdateOnly() && isValidCompletionStatus())
+  function validResidentProfileCreate(userId) {
+    return isOwner(userId)
+      && request.resource.data.role == 'user'
+      && request.resource.data.uid == request.auth.uid
+      && request.resource.data.email == request.auth.token.get('email', '')
+      && request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
+      && request.resource.data.keys().hasOnly([
+        'uid', 'email', 'displayName', 'name', 'photoURL', 'verified', 'role', 'provider',
+        'barangay', 'contactInfo', 'phoneNumber', 'createdAt', 'updatedAt'
+      ]);
+  }
+
+  function regularProfileUpdateOnly() {
+    return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      'displayName', 'photoURL', 'barangay', 'contactInfo', 'phoneNumber', 'phone',
+      'firstName', 'lastName', 'name', 'gender', 'dateOfBirth', 'dob', 'verified',
+      'provider', 'email', 'lastLogin', 'updatedAt'
+    ])
+    && request.resource.data.get('role', '') == resource.data.get('role', '')
+    && request.resource.data.get('uid', '') == resource.data.get('uid', '')
+    && request.resource.data.get('email', '') == request.auth.token.get('email', '')
+    && (
+      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified'])
+      || request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
+    );
+  }
+
+  function validRewardRedemption() {
+    return request.resource.data.keys().hasOnly([
+      'userId', 'userName', 'souvenirId', 'souvenirName', 'cost',
+      'issuedByUid', 'issuedAt', 'status', 'mode'
+    ])
+    && request.resource.data.userId is string
+    && request.resource.data.userId.size() > 0
+    && request.resource.data.issuedByUid == request.auth.uid
+    && request.resource.data.status == 'completed'
+    && request.resource.data.mode == 'spark-ledger'
+    && (
+      (
+        request.resource.data.souvenirId == 'tumbler'
+        && request.resource.data.souvenirName == 'Eco-Friendly Tumbler'
+        && request.resource.data.cost == 1000
+      )
+      || (
+        request.resource.data.souvenirId == 'tote'
+        && request.resource.data.souvenirName == 'CENRO Tote Bag'
+        && request.resource.data.cost == 500
+      )
+      || (
+        request.resource.data.souvenirId == 'kit'
+        && request.resource.data.souvenirName == 'Reusable Utensil Kit'
+        && request.resource.data.cost == 2000
+      )
+    );
+  }
+
+  function driverTruckAssignmentOnly() {
+    return hasRole('driver')
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'currentTruckId', 'currentTruckPlate', 'updatedAt'
+      ])
+      && (
+        request.resource.data.get('currentTruckId', null) == null
+        || get(/databases/$(database)/documents/trucks/$(request.resource.data.currentTruckId)).data.get('assignedDriverId', '') == request.auth.uid
       );
-      allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+  }
+
+  function dictRoleUpdateOnly(userId) {
+    return isDict()
+      && userId != request.auth.uid
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'updatedAt'])
+      && request.resource.data.role in ['user', 'admin', 'dict', 'coordinator'];
+  }
+
+  function ownDriverLocation(locationId) {
+    return hasRole('driver')
+      && locationId == request.auth.uid
+      && request.resource.data.get('driverId', '') == request.auth.uid
+      && request.resource.data.get('truckId', '') == userProfile().get('currentTruckId', '');
+  }
+
+    match /schedules/{scheduleId} {
+      allow read: if isAdmin() || isDict()
+        || isAssignedDriver(resource.data)
+        || isOwner(resource.data.get('userId', ''));
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          isAssignedDriver(resource.data)
+          && driverCompletionUpdateOnly()
+          && hasValidDriverEvidence()
+        );
     }
-    // User profiles
+
+    match /barangay_schedules/{scheduleId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /truck_locations/{driverId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() || ownDriverLocation(driverId);
+      allow delete: if isAdmin() || (hasRole('driver') && driverId == request.auth.uid);
+    }
+
+    match /trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        hasRole('driver')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'assignedDriverId', 'assignedDriverName', 'shiftStartedAt', 'updatedAt'
+        ])
+        && (
+          (
+            resource.data.get('assignedDriverId', null) == null
+            && request.resource.data.get('assignedDriverId', '') == request.auth.uid
+          )
+          || (
+            resource.data.get('assignedDriverId', '') == request.auth.uid
+            && request.resource.data.get('assignedDriverId', null) == null
+          )
+        )
+      );
+    }
+
     match /users/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
+      allow create: if validResidentProfileCreate(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin() || isDict();
+      allow update: if isAdmin() || dictRoleUpdateOnly(userId)
+        || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
+      allow delete: if isAdmin();
+
+    }
+
+    match /users/{userId}/devices/{deviceId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    match /employee_ids/{employeeId} {
       allow read, write: if isAdmin();
     }
 
-    // User settings
+    match /license_numbers/{licenseNumber} {
+      allow read, write: if isAdmin();
+    }
+
+    match /coordinator_employee_ids/{employeeId} {
+      allow read, write: if isAdmin();
+    }
+
     match /user_settings/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId);
+      allow delete: if isAdmin();
     }
 
-    // Chat logs
-    match /chat_logs/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
-    }
-    match /chat_logs/{userId}/messages/{messageId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
-    }
-
-  // ...existing code...
-
-    // Collection requests
-    match /collection_requests/{requestId} {
-      allow read, write: if isAuthenticated() && isOwner(resource.data.userId);
-      allow read, write: if isAdmin();
-    }
-
-
-    // Feedback (singular)
-    match /feedback/{feedbackId} {
-      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
-      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
-      allow update, delete: if isAdmin();
-    }
-
-    // Feedbacks (plural) - for admin dashboard
-    match /feedbacks/{feedbackId} {
-      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
-      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
-      allow update, delete: if isAdmin();
-    }
-
-    // Reports
     match /reports/{reportId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if hasActiveProfile()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if isAdmin() || isDict() || resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
-    // User Reports (new collection)
     match /user_reports/{reportId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      // Relax reads for authenticated users so admin UI can list reports without custom claims
-      allow read: if isAuthenticated();
+      allow create: if hasActiveProfile()
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
-    // Driver Reports (new collection)
     match /driver_reports/{reportId} {
-      // Allow any authenticated driver to create; document carries driver identifiers
-      allow create: if isAuthenticated();
-      // Relax reads for authenticated users so admin UI can list driver reports
-      allow read: if isAuthenticated();
+      allow create: if hasRole('driver')
+        && (
+          request.resource.data.driverId == request.auth.uid
+          || request.resource.data.driverUid == request.auth.uid
+          || request.resource.data.reportedByUid == request.auth.uid
+        );
+      allow read: if isAdmin()
+        || (hasRole('driver') && (
+          resource.data.driverId == request.auth.uid
+          || resource.data.driverUid == request.auth.uid
+          || resource.data.reportedByUid == request.auth.uid
+        ));
       allow update, delete: if isAdmin();
     }
 
-    // Announcements
+    match /feedback/{feedbackId} {
+      allow create: if hasActiveProfile() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /feedbacks/{feedbackId} {
+      allow create: if hasActiveProfile() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /collection_requests/{requestId} {
+      allow create: if hasActiveProfile() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update: if resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+    }
+
     match /announcements/{announcementId} {
-      allow create: if isAdmin();
       allow read: if isAuthenticated();
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Comments on announcements
     match /comments/{commentId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow create: if hasActiveProfile() && request.resource.data.userId == request.auth.uid;
       allow read: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin() || resource.data.userId == request.auth.uid;
     }
 
-    // Public data
+    match /userNotifications/{notificationId} {
+      allow create: if isAdmin()
+        || (hasActiveProfile() && request.resource.data.userId == request.auth.uid);
+      allow read: if resource.data.userId == request.auth.uid || isAdmin();
+      allow update: if resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if isAdmin();
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update: if resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{userId}/messages/{notificationId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isAdmin() || isDict();
+      allow create, update, delete: if false;
+    }
+
+    match /client_activity/{logId} {
+      allow create: if hasActiveProfile()
+        && request.resource.data.actorUid == request.auth.uid;
+      allow read: if isAdmin() || isDict() || resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /proximity_alerts/{alertId} {
+      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /chat_logs/{userId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    match /chat_logs/{userId}/messages/{messageId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    match /user_locations/{userId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    match /waste_tracking/{userId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    match /waste_tracking/{userId}/entries/{entryId} {
+      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
     match /public_data/{document} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
-    // App configuration
     match /app_config/{document} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
-    // Admin-only
+    match /barangays/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /system_settings/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /history/{historyId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /reward_redemptions/{redemptionId} {
+      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
+      allow create: if (isAdmin() || isDict()) && validRewardRedemption();
+      allow update, delete: if false;
+    }
+
+    match /interagency_messages/{messageId} {
+      allow read: if isAdmin() || isDict();
+      allow create: if isDict()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.senderRole == 'dict'
+        && request.resource.data.status == 'sent'
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() >= 3
+        && request.resource.data.subject.size() <= 120
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 5
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.priority in ['normal', 'high', 'urgent'];
+      allow update, delete: if false;
+    }
+
+    match /reward_awards/{awardId} {
+      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
+      allow create: if hasActiveProfile()
+        && awardId == 'report_' + request.resource.data.reportId
+        && request.resource.data.tokens == 100
+        && request.resource.data.reason == 'verified-collection-completed'
+        && request.resource.data.createdByUid == request.auth.uid
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.reportId == request.resource.data.reportId
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.userId == request.resource.data.userId
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.status in ['completed', 'done']
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.collectionMeasurement.value is number
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.collectionMeasurement.value > 0
+        && (
+          isAdmin()
+          || isDict()
+          || (
+            hasRole('driver')
+            && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.assignedDriverId == request.auth.uid
+            && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.completedByUid == request.auth.uid
+          )
+        );
+      allow update, delete: if false;
+    }
+
     match /admin/{document=**} {
       allow read, write: if isAdmin();
     }
 
-    // Analytics and logs
     match /analytics/{document=**} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isDict();
+      allow write: if isAdmin();
     }
+
     match /error_logs/{document=**} {
-      allow read, write: if isAdmin();
-    }
-
-    // Notifications
-    match /notifications/{userId} {
-      allow read: if isAuthenticated() && isOwner(userId);
-      allow write: if isAdmin();
-    }
-    match /notifications/{userId}/messages/{notificationId} {
-      allow read: if isAuthenticated() && isOwner(userId);
+      allow read: if isAdmin() || isDict();
       allow write: if isAdmin();
     }
 
-    // User notifications (inbox)
-    match /userNotifications/{notificationId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow delete: if isAdmin();
-    }
-
-    // Locations
-    match /user_locations/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
-    }
-
-    // Waste tracking
-    match /waste_tracking/{userId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
-    }
-    match /waste_tracking/{userId}/entries/{entryId} {
-      allow read, write: if isAuthenticated() && isOwner(userId);
-      allow read: if isAdmin();
-    }
-
-    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }

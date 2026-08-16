@@ -1,0 +1,15 @@
+export { default as CenroDashboardTab } from './CenroDashboardTab';
+export { default as DriverOnboardingTab } from './DriverOnboardingTab';
+export { default as CollectionSchedulerTab } from './CollectionSchedulerTab';
+export { default as OperationalOverridesTab } from './OperationalOverridesTab';
+export { default as AddNewBarangayTab } from './AddNewBarangayTab';
+export { default as EnvironmentalCoordinatorsTab } from './EnvironmentalCoordinatorsTab';
+export { default as WasteAnalyticsTab } from './WasteAnalyticsTab';
+export { default as TrashReportsTab } from './TrashReportsTab';
+export { default as ServiceFeedbackTab } from './ServiceFeedbackTab';
+export { default as RouteOptimizationTab } from './RouteOptimizationTab';
+export { default as TruckInventoryTab } from './TruckInventoryTab';
+export { default as DriverAccountsTab } from './DriverAccountsTab';
+export { default as AnnouncementsTab } from './AnnouncementsTab';
+export { default as FleetMonitoringTab } from './FleetMonitoringTab';
+export { default as DictCommandsTab } from './DictCommandsTab';

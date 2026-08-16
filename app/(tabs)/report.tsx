@@ -1,16 +1,21 @@
+import { IconSymbol } from "@/components/ui/IconSymbol";
 import { UPLOAD_PRESETS } from "@/config/cloudinary";
 import { auth, db, storage } from "@/config/firebase";
 import {
   cloudinaryService,
   UPLOAD_FOLDERS,
 } from "@/services/cloudinaryService";
+import { analyzeWasteImage, WasteAnalysisResult } from "@/services/wasteAIService";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { addDoc, collection } from "firebase/firestore";
+import * as Location from "expo-location";
+import { addDoc, collection, doc, getDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import React, { useMemo, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActionSheetIOS,
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -21,8 +26,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import MapView, { Marker } from "@/components/MapView";
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
+import { formatWasteAmount } from '@/utils/wasteUnits';
 
 export default function ReportScreen() {
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
   const [barangay, setBarangay] = useState("");
   const [street, setStreet] = useState("");
@@ -35,7 +44,33 @@ export default function ReportScreen() {
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [locationAddress, setLocationAddress] = useState<string>("Locating...");
+  const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
+  const [aiResult, setAiResult] = useState<WasteAnalysisResult | null>(null);
+  const [userProfileBarangay, setUserProfileBarangay] = useState("");
   const MAX_FIRESTORE_FIELD_BYTES = 1000000; // ~1MB safe cap
+
+  React.useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (auth.currentUser) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const data = userSnap.data();
+            if (data.barangay) {
+              setUserProfileBarangay(data.barangay);
+              setBarangay(data.barangay); // Initialize input with profile barangay
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching user profile:", err);
+        }
+      }
+    };
+    fetchUserProfile();
+  }, []);
 
   // Debug function to check Firebase configuration
   const checkFirebaseConfig = () => {
@@ -123,7 +158,7 @@ export default function ReportScreen() {
     }
   };
 
-  const BARANGAYS = useMemo(() => ["Sambag 2"], []);
+  const BARANGAYS = useMemo(() => [...DANAO_CITY_BARANGAYS], []);
 
   const LANDMARKS = useMemo(
     () => ["Barangay Hall", "Market", "Church", "School", "Park", "Main Road"],
@@ -170,6 +205,11 @@ export default function ReportScreen() {
       Alert.alert("Error", "You must be signed in to submit a report.");
       return;
     }
+    if (!geoCoords) {
+      Alert.alert("Location Required", "Please wait for your GPS location to be fetched before submitting.");
+      return;
+    }
+
     if (
       !title.trim() ||
       !barangay.trim() ||
@@ -177,6 +217,16 @@ export default function ReportScreen() {
       !description.trim()
     ) {
       Alert.alert("Error", "Please fill in all required fields.");
+      return;
+    }
+
+    if (!imageUri) {
+      Alert.alert("Photo Required", "Please take a photo of the waste before submitting.");
+      return;
+    }
+    
+    if (isAnalyzingAI) {
+      Alert.alert("Please Wait", "The AI is currently analyzing your photo. Please wait a moment before submitting.");
       return;
     }
 
@@ -240,10 +290,17 @@ export default function ReportScreen() {
         landmark,
         description,
         imageURL: imageURL || null, // Always include imageURL field, even if null
+        location: geoCoords,
         userId: auth.currentUser.uid,
         userEmail: auth.currentUser.email || "",
         createdAt: new Date().toISOString(),
         status: "pending", // Add status for admin management
+        aiAnalysis: aiResult ? {
+          wasteType: aiResult.wasteType,
+          estimatedWeight: aiResult.estimatedWeight,
+          confidence: aiResult.confidence,
+          details: aiResult.details,
+        } : null,
       };
 
       console.log("Report data to be saved:", reportData);
@@ -277,6 +334,8 @@ export default function ReportScreen() {
       setDescription("");
       setImageUri(null);
       setImageDataUrl(null);
+      setGeoCoords(null);
+      setAiResult(null);
     } catch (err) {
       console.error("Report submission error:", err);
       Alert.alert(
@@ -302,6 +361,7 @@ export default function ReportScreen() {
           landmark,
           description,
           imageURL: null,
+          location: geoCoords,
           userId: auth.currentUser?.uid,
           userEmail: auth.currentUser?.email || "",
           createdAt: new Date().toISOString(),
@@ -318,6 +378,7 @@ export default function ReportScreen() {
       setLandmark("");
       setDescription("");
       setImageUri(null);
+      setGeoCoords(null);
     } catch (err) {
       console.error("Report submission error:", err);
       handleFirestoreError(err, "submit report");
@@ -327,308 +388,371 @@ export default function ReportScreen() {
     }
   };
 
-  const handleImageSelection = async (useCamera: boolean) => {
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleTakePhoto = async () => {
     try {
-      // Request permissions
-      if (useCamera) {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission Denied",
-            "Camera permission is required to take photos."
-          );
-          return;
-        }
-      } else {
-        const { status } =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission Denied",
-            "Gallery permission is required to select photos."
-          );
-          return;
-        }
+      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      if (cameraStatus !== 'granted') {
+        Alert.alert(
+          "Permission Denied",
+          "Camera permission is required to capture the trash pile."
+        );
+        return;
       }
 
-      const mediaTypes = (ImagePicker as any).MediaType
-        ? [(ImagePicker as any).MediaType.image]
-        : (ImagePicker as any).MediaTypeOptions?.Images ??
-          ImagePicker.MediaTypeOptions.Images;
-
-      const result = useCamera
-        ? await ImagePicker.launchCameraAsync({
-            mediaTypes: mediaTypes as any,
-            allowsEditing: true,
-            quality: 0.5,
-            aspect: [4, 3],
-            base64: Platform.OS === "web",
-          } as any)
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: mediaTypes as any,
-            allowsEditing: true,
-            quality: 0.5,
-            aspect: [4, 3],
-            base64: Platform.OS === "web",
-          } as any);
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0] as any;
-        setImageUri(asset.uri);
-        const mime = (asset as any).mimeType || "image/jpeg";
-        setImageMimeType(mime);
-        if (asset.base64) {
-          setImageDataUrl(`data:${mime};base64,${asset.base64}`);
-        } else {
-          setImageDataUrl(null);
-        }
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus !== 'granted') {
+        Alert.alert(
+          "Permission Denied",
+          "Location permission is required to geotag your report."
+        );
+        return;
       }
-    } catch (error) {
-      console.error("Error selecting image:", error);
-      Alert.alert("Error", "Failed to select image. Please try again.");
-    }
-  };
 
-  const pickImage = () => {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ["Cancel", "Take Photo", "Choose from Gallery"],
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) {
-            handleImageSelection(true); // Camera
-          } else if (buttonIndex === 2) {
-            handleImageSelection(false); // Gallery
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const capturedUri = result.assets[0].uri;
+        const capturedBase64 = result.assets[0].base64;
+        setImageUri(capturedUri);
+
+        // Trigger AI analysis in parallel with location fetching
+        setIsAnalyzingAI(true);
+        setAiResult(null);
+        analyzeWasteImage(capturedUri, capturedBase64)
+          .then((analysis) => {
+            setAiResult(analysis);
+            console.log('🤖 AI analysis result:', analysis);
+          })
+          .catch((err) => {
+            console.error('🤖 AI analysis error:', err);
+            setAiResult({
+              wasteType: 'Analysis failed',
+              estimatedWeight: '—',
+              confidence: 'none',
+              details: 'Could not analyze the image.',
+            });
+          })
+          .finally(() => setIsAnalyzingAI(false));
+        setIsFetchingLocation(true);
+        
+        try {
+          let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+          setGeoCoords({
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+          });
+          const geocode = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          if (geocode && geocode.length > 0) {
+            const place = geocode[0];
+            const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
+            setLocationAddress(addressStr || "Unknown Location");
+            setBarangay(place.district || place.city || place.subregion || 'Unknown Area');
+            setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
+          } else {
+            setLocationAddress("Unknown Location");
+            setBarangay('Unknown Area');
+            setStreet(`${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           }
+        } catch (locErr) {
+          console.warn("Failed to get current location, trying last known:", locErr);
+          try {
+            let loc = await Location.getLastKnownPositionAsync();
+            if (loc) {
+              setGeoCoords({
+                lat: loc.coords.latitude,
+                lng: loc.coords.longitude,
+              });
+              const geocode = await Location.reverseGeocodeAsync({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              });
+              if (geocode && geocode.length > 0) {
+                const place = geocode[0];
+                const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
+                setLocationAddress(addressStr || "Unknown Location");
+                // If user has a barangay in their profile, use it. Otherwise try district first, then subregion, fallback to city
+                if (userProfileBarangay) {
+                  setBarangay(userProfileBarangay);
+                } else {
+                  setBarangay(place.district || place.subregion || place.city || '');
+                }
+                setStreet(place.street || place.name || '');
+              } else {
+                setLocationAddress("Unknown Location");
+                if (userProfileBarangay) {
+                  setBarangay(userProfileBarangay);
+                }
+              }
+            } else {
+              throw new Error("No last known location");
+            }
+          } catch (fallbackErr) {
+            console.warn("Failed to get fallback location:", fallbackErr);
+            Alert.alert("Location Error", "Could not get your exact location. Are you on an emulator? Please set a mock location in the emulator settings.");
+          }
+        } finally {
+          setIsFetchingLocation(false);
         }
-      );
-    } else {
-      // For Android and Web, show Alert dialog
-      Alert.alert(
-        "Add Photo",
-        "Choose an option",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-          {
-            text: "Take Photo",
-            onPress: () => handleImageSelection(true),
-          },
-          {
-            text: "Choose from Gallery",
-            onPress: () => handleImageSelection(false),
-          },
-        ],
-        { cancelable: true }
-      );
+      }
+    } catch (err) {
+      console.error("Error capturing photo or location:", err);
+      Alert.alert("Error", "Failed to capture photo.");
+      setIsFetchingLocation(false);
     }
   };
+
+  // Helper functions for AI waste type display
+  const getWasteTypeIcon = (wasteType: string): string => {
+    if (wasteType.includes('Solid')) return 'cube.fill';
+    if (wasteType.includes('Liquid')) return 'drop.fill';
+    if (wasteType.includes('Organic')) return 'leaf.fill';
+    if (wasteType.includes('Recyclable')) return 'arrow.triangle.2.circlepath';
+    if (wasteType.includes('Hazardous')) return 'exclamationmark.triangle.fill';
+    if (wasteType.includes('Cannot determine')) return 'questionmark.circle.fill';
+    if (wasteType.includes('Not waste')) return 'xmark.circle.fill';
+    if (wasteType.includes('Temporarily')) return 'clock.fill';
+    return 'sparkles';
+  };
+
+  const getWasteTypeColor = (wasteType: string): string => {
+    if (wasteType.includes('Solid')) return '#2563EB';
+    if (wasteType.includes('Liquid')) return '#0891B2';
+    if (wasteType.includes('Organic')) return '#059669';
+    if (wasteType.includes('Recyclable')) return '#D97706';
+    if (wasteType.includes('Hazardous')) return '#DC2626';
+    if (wasteType.includes('Cannot determine')) return '#9CA3AF';
+    if (wasteType.includes('Not waste')) return '#EF4444';
+    if (wasteType.includes('Temporarily')) return '#6B7280';
+    return '#4A6741';
+  };
+
+  // Check if the current AI result allows submission
+  const canSubmitReport = useMemo(() => {
+    // No AI result yet — block submission
+    if (!aiResult) return false;
+    // Not waste — block submission
+    if (aiResult.wasteType === 'Not waste') return false;
+    // Temporarily unavailable — block submission
+    if (aiResult.wasteType === 'Temporarily unavailable') return false;
+    // Unable to determine (fallback) — block submission
+    if (aiResult.wasteType === 'Unable to determine') return false;
+    return true;
+  }, [aiResult]);
 
   return (
     <View style={styles.root}>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 30), paddingBottom: Math.max(insets.bottom + 20, 100) }]}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Report a Trash Pile</Text>
+        <Text style={styles.headerTitle}>Report a Trash Pile</Text>
+
+        {/* Photo upload placeholder */}
+        <TouchableOpacity style={styles.photoCard} onPress={handleTakePhoto} disabled={isFetchingLocation}>
+          {imageUri ? (
+            <View style={{ width: "100%", height: "100%", position: 'relative' }}>
+              <Image
+                source={{ uri: imageUri }}
+                style={{ width: "100%", height: "100%", borderRadius: 12 }}
+              />
+              {isFetchingLocation && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}>
+                  <ActivityIndicator size="large" color="#4A6741" />
+                  <Text style={{ marginTop: 8, color: '#4A6741', fontWeight: 'bold' }}>Acquiring GPS...</Text>
+                </View>
+              )}
+              {geoCoords && !isFetchingLocation && (
+                <View style={{ position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                    {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.photoPlaceholder}>
+              <IconSymbol name="camera.fill" size={36} color="#4A6741" />
+              <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
+              <Text style={styles.photoTextSub}>Tap to take a Geo-Photo</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* AI Suggestions */}
+        <View style={styles.aiSectionHeader}>
+          <IconSymbol name="sparkles" size={16} color="#4A6741" />
+          <Text style={styles.aiSectionTitle}>AI SUGGESTIONS</Text>
+          {aiResult?.confidence && aiResult.confidence !== 'none' && (
+            <View style={[
+              styles.confidenceBadge,
+              { backgroundColor: aiResult.confidence === 'high' ? '#D1FAE5' : aiResult.confidence === 'medium' ? '#FEF3C7' : '#FEE2E2' }
+            ]}>
+              <Text style={[
+                styles.confidenceText,
+                { color: aiResult.confidence === 'high' ? '#065F46' : aiResult.confidence === 'medium' ? '#92400E' : '#991B1B' }
+              ]}>
+                {aiResult.confidence.toUpperCase()} CONFIDENCE
+              </Text>
+            </View>
+          )}
         </View>
 
-        <Text style={styles.helperText}>
-          Help us keep our barangay clean, healthy, and safe! Use this form to
-          report any uncollected trash or illegal dumping in your area.
-        </Text>
+        {isAnalyzingAI ? (
+          <View style={styles.aiLoadingContainer}>
+            <ActivityIndicator size="small" color="#4A6741" />
+            <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
+          </View>
+        ) : aiResult ? (
+          <>
+            <View style={styles.aiRow}>
+              <View style={styles.aiCard}>
+                <Text style={styles.aiCardLabel}>Waste Type</Text>
+                <View style={styles.aiCardValueRow}>
+                  <IconSymbol
+                    name={getWasteTypeIcon(aiResult.wasteType)}
+                    size={18}
+                    color={getWasteTypeColor(aiResult.wasteType)}
+                  />
+                  <Text style={[styles.aiCardValue, { color: getWasteTypeColor(aiResult.wasteType) }]}>
+                    {aiResult.wasteType}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.aiCard}>
+                <Text style={styles.aiCardLabel}>Estimated Weight</Text>
+                <View style={styles.aiCardValueRow}>
+                  <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
+                  <Text style={styles.aiCardValue}>{formatWasteAmount(aiResult.estimatedWeight)}</Text>
+                </View>
+              </View>
+            </View>
+            {aiResult.details && (
+              <View style={styles.aiDetailsCard}>
+                <IconSymbol name="info.circle.fill" size={14} color="#6B7280" />
+                <Text style={styles.aiDetailsText}>{aiResult.details}</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.aiEmptyContainer}>
+            <IconSymbol name="camera.fill" size={20} color="#9CA3AF" />
+            <Text style={styles.aiEmptyText}>Take a photo to get AI analysis</Text>
+          </View>
+        )}
 
         {/* Title */}
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>
-            Title <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={styles.sublabel}>What you're reporting?</Text>
+          <Text style={styles.label}>Report Title</Text>
           <View style={styles.inputField}>
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Title"
+              placeholder="What are you reporting?"
               placeholderTextColor="#7C8E80"
               style={styles.inputText}
             />
           </View>
+          <View style={styles.tagsRow}>
+            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Illegal Dumping")}>
+              <Text style={styles.tagText}>Illegal Dumping</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Missed Pickup")}>
+              <Text style={styles.tagText}>Missed Pickup</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Location */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.sectionTitle}>Location of the Trash Pile</Text>
-
-          {/* Barangay dropdown */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              Barangay <Text style={styles.required}>*</Text>
-            </Text>
-            <TouchableOpacity
-              style={styles.inputField}
-              onPress={() => {
-                setShowBarangay(!showBarangay);
-                if (!showBarangay) {
-                  setShowLandmark(false); // Close landmark dropdown when opening barangay
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.inputText,
-                  barangay ? undefined : styles.placeholder,
-                ]}
+        {/* Location Map */}
+        <View style={styles.mapContainer}>
+          {geoCoords ? (
+            <View style={{ height: 180, borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
+              <MapView
+                style={{ width: '100%', height: '100%' }}
+                initialRegion={{
+                  latitude: geoCoords.lat,
+                  longitude: geoCoords.lng,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                }}
+                region={{
+                  latitude: geoCoords.lat,
+                  longitude: geoCoords.lng,
+                  latitudeDelta: 0.005,
+                  longitudeDelta: 0.005,
+                }}
               >
-                {barangay || "Barangay"}
-              </Text>
-              <Ionicons
-                name={showBarangay ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#4B5F4F"
-              />
-            </TouchableOpacity>
-            {showBarangay && BARANGAYS && BARANGAYS.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.dropdownBackdrop}
-                  onPress={() => setShowBarangay(false)}
-                  activeOpacity={1}
-                />
-                <View style={styles.dropdownPanelBarangay}>
-                  {BARANGAYS.map((b, index) => (
-                    <TouchableOpacity
-                      key={`barangay-${index}-${b}`}
-                      style={[
-                        styles.dropdownItem,
-                        index === BARANGAYS.length - 1 &&
-                          styles.dropdownItemLast,
-                      ]}
-                      onPress={() => {
-                        setBarangay(b);
-                        setShowBarangay(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{b}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-          </View>
+                <Marker coordinate={{ latitude: geoCoords.lat, longitude: geoCoords.lng }} />
+              </MapView>
+              <View style={styles.mapAddressBadge}>
+                <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                <Text style={styles.mapAddressText} numberOfLines={1}>{locationAddress}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.mockMapBg}>
+              <View style={styles.mockMapPinContainer}>
+                 <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
+              </View>
+              <View style={styles.mapAddressBadge}>
+                <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                <Text style={styles.mapAddressText}>Location will appear here</Text>
+              </View>
+            </View>
+          )}
+        </View>
 
-          {/* Street input */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              Street <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.inputField}>
+        {/* Barangay & Street Inputs (Auto-filled but Editable) */}
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Barangay</Text>
+            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
               <TextInput
-                value={street}
-                onChangeText={setStreet}
-                placeholder="Street name or purok/sitio"
+                value={barangay}
+                onChangeText={setBarangay}
+                placeholder="e.g. Poblacion"
                 placeholderTextColor="#7C8E80"
                 style={styles.inputText}
               />
             </View>
           </View>
-
-          {/* Landmark dropdown */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Landmark</Text>
-            <TouchableOpacity
-              style={styles.inputField}
-              onPress={() => {
-                setShowLandmark(!showLandmark);
-                if (!showLandmark) {
-                  setShowBarangay(false); // Close barangay dropdown when opening landmark
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.inputText,
-                  landmark ? undefined : styles.placeholder,
-                ]}
-              >
-                {landmark || "Nearby landmarks"}
-              </Text>
-              <Ionicons
-                name={showLandmark ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#4B5F4F"
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Street</Text>
+            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
+              <TextInput
+                value={street}
+                onChangeText={setStreet}
+                placeholder="e.g. V. Rama Ave"
+                placeholderTextColor="#7C8E80"
+                style={styles.inputText}
               />
-            </TouchableOpacity>
-            {showLandmark && LANDMARKS && LANDMARKS.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.dropdownBackdrop}
-                  onPress={() => setShowLandmark(false)}
-                  activeOpacity={1}
-                />
-                <View style={styles.dropdownPanelLandmark}>
-                  {LANDMARKS.map((l, index) => (
-                    <TouchableOpacity
-                      key={`landmark-${index}-${l}`}
-                      style={[
-                        styles.dropdownItem,
-                        index === LANDMARKS.length - 1 &&
-                          styles.dropdownItemLast,
-                      ]}
-                      onPress={() => {
-                        setLandmark(l);
-                        setShowLandmark(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
+            </View>
           </View>
         </View>
 
         {/* Description */}
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>
-            Description of Trash <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={styles.sublabel}>
-            What do you see? Please describe the type and amount of trash.
-          </Text>
+          <Text style={styles.label}>Additional Notes</Text>
           <View style={styles.textArea}>
             <TextInput
               value={description}
               onChangeText={setDescription}
-              placeholder=""
+              placeholder="Any specific instructions for the pickup crew?"
               placeholderTextColor="#7C8E80"
               style={styles.textAreaInput}
               multiline
             />
           </View>
         </View>
-
-        {/* Photo upload placeholder */}
-        <TouchableOpacity style={styles.photoCard} onPress={pickImage}>
-          {imageUri ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={{ width: 100, height: 100, borderRadius: 12 }}
-            />
-          ) : (
-            <>
-              <Ionicons name="camera" size={28} color="#234033" />
-              <Text style={styles.photoText}>Add photo</Text>
-            </>
-          )}
-        </TouchableOpacity>
 
         {/* Upload Progress */}
         {isUploading && (
@@ -648,215 +772,246 @@ export default function ReportScreen() {
           </View>
         )}
 
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.submitBtn, isUploading && styles.submitBtnDisabled]}
-          activeOpacity={0.8}
-          onPress={handleSendReport}
-          disabled={isUploading}
-        >
-          <Text style={styles.submitText}>
-            {isUploading ? "Submitting..." : "Send report"}
+        {/* Points Badge & Submit */}
+        <View style={styles.submitSection}>
+          <View style={styles.pointsBadgeSubmit}>
+             <IconSymbol name="star.circle.fill" size={16} color="#4A6741" />
+             <Text style={styles.pointsBadgeText}>+50 POINTS FOR THIS REPORT</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.submitBtn, (isUploading || !canSubmitReport) && styles.submitBtnDisabled]}
+            activeOpacity={0.8}
+            onPress={handleSendReport}
+            disabled={isUploading || !canSubmitReport}
+          >
+            <Text style={styles.submitText}>
+              {isUploading ? "Submitting..." : "Submit Report"}
+            </Text>
+            <IconSymbol name="paperplane.fill" size={16} color="white" />
+          </TouchableOpacity>
+          {!canSubmitReport && !isUploading && (
+            <Text style={{ color: '#DC2626', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
+              {!aiResult
+                ? '📸 Take a photo first so the AI can classify the waste'
+                : aiResult.wasteType === 'Not waste'
+                ? '🚫 This photo does not contain waste — please retake'
+                : '⚠️ AI could not determine waste type — please retake the photo'}
+            </Text>
+          )}
+          <Text style={styles.submitFooterText}>
+            By submitting, you&apos;ll earn 50 Community Points and help reach the &quot;Cleanest Quarter&quot; goal!
           </Text>
-        </TouchableOpacity>
+        </View>
+
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#ECF8ED" },
-  content: { padding: 26, paddingBottom: 10, paddingTop: 45 },
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  backBtn: {
-    width: 32,
-    height: 32,
+  root: { flex: 1, backgroundColor: "#E8F5E9" },
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40, paddingTop: 60 },
+  headerTitle: { fontSize: 24, fontWeight: "700", color: "#234033", marginBottom: 20 },
+  
+  photoCard: {
+    height: 180,
     borderRadius: 16,
+    backgroundColor: "#F0F6F0",
+    borderWidth: 2,
+    borderColor: "#C8D8CA",
+    borderStyle: 'dashed',
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#DDEEDB",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    marginRight: 8,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  headerTitle: { fontSize: 16, fontWeight: "700", color: "#234033" },
-  helperText: { fontSize: 12, color: "#4B5F4F", marginBottom: 12 },
-
-  fieldGroup: { marginBottom: 14, position: "relative" },
-  sectionTitle: {
-    fontSize: 12,
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoTextMain: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#4A6741",
     fontWeight: "700",
-    color: "#234033",
+  },
+  photoTextSub: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#7C8E80",
+  },
+
+  aiSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  aiSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4A6741',
+    letterSpacing: 1,
+  },
+  aiRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  aiCard: {
+    flex: 1,
+    backgroundColor: '#E2EFE3',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  aiCardLabel: {
+    fontSize: 11,
+    color: '#6B8C72',
+    fontWeight: '600',
     marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  label: { fontSize: 12, fontWeight: "700", color: "#234033" },
-  sublabel: { fontSize: 10, color: "#4B5F4F", marginBottom: 6 },
-  required: { color: "#FF4444", fontWeight: "700" },
+  aiCardValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  aiCardValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#234033',
+    flexShrink: 1,
+  },
 
+  fieldGroup: { marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: "700", color: "#4A6741", marginBottom: 8 },
+  
   inputField: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F7FBF7",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderWidth: 1,
     borderColor: "#C8D8CA",
-    marginTop: 6,
   },
-  inputText: { flex: 1, fontSize: 12, color: "#234033" },
-  placeholder: { color: "#7C8E80" },
+  inputText: { fontSize: 15, color: "#234033" },
+  
+  tagsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  tagBadge: {
+    backgroundColor: '#C8E6C9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  tagText: {
+    color: '#2E7D32',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
-  dropdownPanel: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 1000,
-    elevation: 100,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mapContainer: {
+    marginBottom: 20,
   },
-  dropdownPanelBarangay: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 10000,
-    elevation: 10000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mockMapBg: {
+    backgroundColor: '#7C8E80',
+    height: 140,
+    borderRadius: 16,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  dropdownPanelLandmark: {
-    position: "absolute",
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 10000,
-    elevation: 10000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    pointerEvents: "auto",
-    maxHeight: 200,
+  mockMapPinContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
-  dropdownPanelPortal: {
-    position: "fixed",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 2147483647,
-    boxShadow: "0 6px 12px rgba(0,0,0,0.15)",
-  } as any,
-  dropdownPanelPortalNative: {
-    position: "absolute",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    borderRadius: 8,
-    overflow: "hidden",
-    zIndex: 2147483647,
-    elevation: 100,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-  },
-  dropdownItem: {
-    paddingHorizontal: 12,
+  mapAddressBadge: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: 'white',
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF3EE",
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  dropdownItemLast: {
-    borderBottomWidth: 0,
-  },
-  dropdownText: { fontSize: 12, color: "#234033" },
-  dropdownBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: -1000,
-    right: -1000,
-    bottom: -1000,
-    zIndex: 9999,
-    elevation: 9999,
+  mapAddressText: {
+    fontSize: 13,
+    color: '#234033',
+    fontWeight: '500',
   },
 
   textArea: {
-    backgroundColor: "#F7FBF7",
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 88,
-    borderWidth: 1,
-    borderColor: "#C8D8CA",
-    marginTop: 6,
-    position: "relative",
-    zIndex: 0,
-  },
-  textAreaInput: { fontSize: 12, color: "#234033" },
-
-  photoCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 120,
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    backgroundColor: "#F0F6F0",
+    padding: 16,
+    minHeight: 100,
     borderWidth: 1,
     borderColor: "#C8D8CA",
-    marginBottom: 14,
-    position: "relative",
-    zIndex: 0,
   },
-  photoText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#234033",
-    fontWeight: "600",
-  },
+  textAreaInput: { fontSize: 15, color: "#234033", textAlignVertical: 'top' },
 
+  submitSection: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  pointsBadgeSubmit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#C8E6C9',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 16,
+  },
+  pointsBadgeText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   submitBtn: {
-    alignSelf: "center",
-    backgroundColor: "#4E6E58",
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: "#4A6741",
+    paddingVertical: 16,
+    width: '100%',
+    borderRadius: 12,
+    marginBottom: 16,
   },
   submitBtnDisabled: {
     backgroundColor: "#A0A0A0",
-    opacity: 0.6,
   },
-  submitText: { color: "white", fontWeight: "700" },
+  submitText: { color: "white", fontWeight: "700", fontSize: 16 },
+  submitFooterText: {
+    textAlign: 'center',
+    color: '#4B5F4F',
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 20,
+  },
 
   progressContainer: {
     marginBottom: 16,
-    paddingHorizontal: 20,
   },
   progressText: {
     fontSize: 12,
@@ -874,5 +1029,65 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "#4E6E58",
     borderRadius: 2,
+  },
+
+  // AI Analysis styles
+  aiLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0F7F2',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  aiLoadingText: {
+    color: '#4A6741',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  aiEmptyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F9FAFB',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  aiEmptyText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+  },
+  aiDetailsCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    gap: 8,
+  },
+  aiDetailsText: {
+    color: '#6B7280',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  confidenceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

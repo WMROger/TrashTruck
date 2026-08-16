@@ -11,8 +11,6 @@ console.log('🔍 Checking Cloudinary Configuration...\n');
 
 const requiredEnvVars = [
   'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME',
-  'EXPO_PUBLIC_CLOUDINARY_API_KEY',
-  'EXPO_PUBLIC_CLOUDINARY_API_SECRET',
   'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'
 ];
 

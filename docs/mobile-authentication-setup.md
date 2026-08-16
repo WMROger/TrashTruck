@@ -9,8 +9,9 @@ Add these to your `.env` file:
 
 ```bash
 # Google OAuth (Required for mobile Google sign-in)
-EXPO_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
-EXPO_PUBLIC_GOOGLE_CLIENT_SECRET=your_google_client_secret
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=your_ios_google_client_id
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=your_android_google_client_id
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=your_web_google_client_id
 
 # Facebook OAuth (Required for mobile Facebook sign-in)
 EXPO_PUBLIC_FACEBOOK_APP_ID=your_facebook_app_id
@@ -23,16 +24,17 @@ EXPO_PUBLIC_FACEBOOK_APP_ID=your_facebook_app_id
 2. Select your project
 3. Go to "APIs & Services" > "Credentials"
 4. Create a new "OAuth 2.0 Client ID"
-5. Set Application Type to "Web application"
+5. Create the matching iOS, Android, and Web OAuth client types
 6. Add these Authorized redirect URIs:
    - `https://auth.expo.io/@your-expo-username/trashtrack`
-   - `myapp://auth/callback`
-7. Copy the Client ID and Client Secret
+   - `trashtrack://auth/callback`
+7. Copy the client IDs. Do not place an OAuth client secret in an Expo application.
 
 ### 2. Update Environment Variables
 ```bash
-EXPO_PUBLIC_GOOGLE_CLIENT_ID=123456789-abcdef.apps.googleusercontent.com
-EXPO_PUBLIC_GOOGLE_CLIENT_SECRET=GOCSPX-your_secret_here
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=123456789-ios.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=123456789-android.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=123456789-web.apps.googleusercontent.com
 ```
 
 ## Facebook OAuth Setup
@@ -45,7 +47,7 @@ EXPO_PUBLIC_GOOGLE_CLIENT_SECRET=GOCSPX-your_secret_here
 5. Copy the App ID
 6. Add these Valid OAuth Redirect URIs:
    - `https://auth.expo.io/@your-expo-username/trashtrack`
-   - `myapp://auth/callback`
+   - `trashtrack://auth/callback`
 
 ### 2. Update Environment Variables
 ```bash
@@ -61,7 +63,7 @@ EXPO_PUBLIC_FACEBOOK_APP_ID=123456789012345
 ### Mobile Platform (iOS/Android)
 - Uses Expo AuthSession API
 - Opens native browser for authentication
-- Exchanges authorization code for access token
+- Exchanges the authorization code using PKCE; no client secret is embedded
 - Signs in to Firebase using the token
 
 ## Testing
@@ -76,7 +78,7 @@ EXPO_PUBLIC_FACEBOOK_APP_ID=123456789012345
 1. **"Google Client ID not configured"**: Add `EXPO_PUBLIC_GOOGLE_CLIENT_ID` to `.env`
 2. **"Facebook App ID not configured"**: Add `EXPO_PUBLIC_FACEBOOK_APP_ID` to `.env`
 3. **Redirect URI mismatch**: Ensure redirect URIs match exactly in OAuth console
-4. **Scheme mismatch**: Verify `scheme: 'myapp'` in `app.json` matches your setup
+4. **Scheme mismatch**: Verify `scheme: 'trashtrack'` in `app.json` matches your setup
 
 ### Debug Steps:
 1. Check console logs for authentication flow

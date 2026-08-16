@@ -3,11 +3,28 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Animated, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
-import { AdminSidebar, AnnouncementsTab, FeedbackTab, HistoryTab, ManageAccountsTab, ReportsTab, ScheduleTab } from '../../components/admin';
+import { AdminSidebar } from '../../components/admin';
+import {
+  CenroDashboardTab,
+  CollectionSchedulerTab,
+  DriverOnboardingTab,
+  EnvironmentalCoordinatorsTab,
+  OperationalOverridesTab,
+  TrashReportsTab,
+  WasteAnalyticsTab,
+  ServiceFeedbackTab,
+  RouteOptimizationTab,
+  TruckInventoryTab,
+  DriverAccountsTab,
+  AnnouncementsTab,
+  FleetMonitoringTab,
+  DictCommandsTab,
+} from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
+import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
 
 export default function AdminDashboard() {
   const { user, isAuthenticated } = useAuthContext();
@@ -15,9 +32,12 @@ export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isTabLoading, setIsTabLoading] = useState(false);
   const spinValue = new Animated.Value(0);
+  const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
+  const isNarrow = windowWidth < 900;
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [latestReportImages, setLatestReportImages] = useState<string[]>([]);
   const [latestFeedback, setLatestFeedback] = useState<{ userName: string; message: string; rating: string; createdAt?: any; photoURL?: string } | null>(null);
   const [feedbackStats, setFeedbackStats] = useState<{ loved: number; good: number; bad: number; terrible: number }>({ loved: 0, good: 0, bad: 0, terrible: 0 });
@@ -34,6 +54,7 @@ export default function AdminDashboard() {
   const [historyReports, setHistoryReports] = useState<Report[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [currentNotificationType, setCurrentNotificationType] = useState(0);
   type Report = {
     id: string;
     title: string;
@@ -45,6 +66,13 @@ export default function AdminDashboard() {
     createdAt: any;
   };
   const [resolvedReports, setResolvedReports] = useState<Report[]>([]);
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowWidth(window.width);
+    });
+    return () => subscription?.remove();
+  }, []);
 
   useEffect(() => {
     const checkAdminAccess = async () => {
@@ -86,8 +114,9 @@ export default function AdminDashboard() {
           router.replace('/admin/login');
         }
       } else {
-        console.log('Admin dashboard: Firestore not available, proceeding with auth only');
-        setIsAdmin(true);
+        Alert.alert('Access Unavailable', 'Admin privileges cannot be verified because Firestore is unavailable.');
+        try { await signOut(auth); } catch {}
+        router.replace('/admin/login');
         setIsLoading(false);
       }
     };
@@ -268,6 +297,11 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     console.log('Admin logout: Button pressed, showing confirmation modal');
     setShowLogoutModal(true);
+  };
+
+  const sendTestNotification = async () => {
+    const next = await sendTestNotificationHelper(db, user, currentNotificationType);
+    setCurrentNotificationType(next);
   };
 
   const confirmLogout = async () => {
@@ -454,182 +488,38 @@ export default function AdminDashboard() {
     return null; // Will redirect to login
   }
 
-  const renderHomeContent = () => (
-    <ScrollView style={styles.content}>
-      
-
-      {/* Trash Reports row */}
-      <View style={styles.sectionBlock}>
-        <Text style={styles.blockTitle}>Trash Reports</Text>
-        <View style={styles.reportsRow}>
-          {[0,1,2].map((idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={styles.reportCard}
-              activeOpacity={0.85}
-              onPress={() => {
-                if (latestReportImages[idx]) {
-                  setImagePreviewUrl(latestReportImages[idx]);
-                  setIsImagePreviewVisible(true);
-                }
-              }}
-            >
-              {latestReportImages[idx] ? (
-                <Image
-                  source={{ uri: latestReportImages[idx] }}
-                  style={styles.reportImage}
-                  resizeMode="cover"
-                />
-              ) : null}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Feedback and Ratings */}
-      <View style={styles.sectionBlock}>
-        <Text style={styles.blockTitle}>Feedback and Ratings</Text>
-        <View style={styles.feedbackCard}> 
-          <View style={styles.feedbackAvatar}>
-            {latestFeedback?.photoURL ? (
-              <Image source={{ uri: latestFeedback.photoURL }} style={styles.dashboardAvatar} />
-            ) : (
-              <View style={styles.avatarCircle} />
-            )}
-          </View>
-          <View style={styles.feedbackContent}>
-            <Text style={styles.feedbackQuote}>“{latestFeedback?.rating || 'Feedback'}”</Text>
-            <Text style={styles.feedbackBody} numberOfLines={3}>
-              {latestFeedback?.message || 'No feedback yet.'}
-            </Text>
-            <Text style={styles.feedbackMeta}>{latestFeedback?.userName || ''}</Text>
-          </View>
-        </View>
-
-        {/* Feedback percentages */}
-        <View style={{ marginTop: 10, gap: 6 }}>
-          <Text style={styles.feedbackPercent}>😀 Loved it: {feedbackStats.loved}%</Text>
-          <Text style={styles.feedbackPercent}>😊 Good: {feedbackStats.good}%</Text>
-          <Text style={styles.feedbackPercent}>😐 Bad: {feedbackStats.bad}%</Text>
-          <Text style={styles.feedbackPercent}>😠 Terrible: {feedbackStats.terrible}%</Text>
-        </View>
-      </View>
-    </ScrollView>
-  );
-
-  const renderScheduleContent = () => <ScheduleTab />;
-
-  const renderAnnouncementsContent = () => <AnnouncementsTab />;
-
-  const renderReportsContent = () => <ReportsTab />;
-
-  const formatSimpleDate = (value: any) => {
-    try {
-      if (!value) return '';
-      
-      let d: Date;
-      if (value?.toDate) {
-        d = value.toDate();
-      } else if (typeof value === 'string') {
-        // Handle different string formats more safely
-        if (value.match(/^[A-Za-z]+\s+\d{1,2},\s*\d{4}$/)) {
-          // Handle "September 20, 2025" format - try multiple approaches
-          try {
-            // First try standard parsing
-            d = new Date(value);
-            if (isNaN(d.getTime())) {
-              // If that fails, try manual parsing
-              const match = value.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
-              if (match) {
-                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-                  'July', 'August', 'September', 'October', 'November', 'December'];
-                const monthIndex = monthNames.indexOf(match[1]);
-                if (monthIndex !== -1) {
-                  d = new Date(parseInt(match[3]), monthIndex, parseInt(match[2]));
-                } else {
-                  console.warn('Unknown month name in date:', value);
-                  return '';
-                }
-              }
-            }
-            if (isNaN(d.getTime())) {
-              console.warn('Could not parse date format:', value);
-              return '';
-            }
-          } catch (error) {
-            console.warn('Error parsing date string:', value, error);
-            return '';
-          }
-        } else {
-          d = new Date(value);
-        }
-      } else {
-        d = new Date(value);
-      }
-      
-      if (isNaN(d.getTime())) {
-        console.error('Invalid date:', value);
-        return '';
-      }
-      
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    } catch (error) {
-      console.error('Error formatting date:', value, error);
-      return '';
-    }
-  };
-
-  const getFilteredResolvedReports = () => {
-    const now = new Date();
-    const start = new Date(now);
-    if (historyFilter === 'today') {
-      start.setHours(0, 0, 0, 0);
-    } else if (historyFilter === 'week') {
-      const day = now.getDay();
-      const diff = (day === 0 ? 6 : day - 1); // start Monday
-      start.setDate(now.getDate() - diff);
-      start.setHours(0, 0, 0, 0);
-    } else if (historyFilter === 'month') {
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-    }
-
-    const toMs = (v: any) => v?.toDate ? v.toDate().getTime() : new Date(v).getTime();
-
-    return resolvedReports
-      .filter((r) => {
-        const t = toMs(r.createdAt);
-        return !isNaN(t) && t >= start.getTime();
-      })
-      .sort((a, b) => (toMs(b.createdAt) - toMs(a.createdAt)));
-  };
-
-  const renderHistoryContent = () => <HistoryTab />;
-
-  const renderFeedbacksContent = () => <FeedbackTab />;
-  const renderManageAccountsContent = () => <ManageAccountsTab />;
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'home':
-        return renderHomeContent();
-      case 'schedule':
-        return renderScheduleContent();
+    const renderContent = () => {
+      switch (activeTab) {
+        case 'dashboard':
+          return <CenroDashboardTab onTabChange={handleTabPress} />;
+      case 'trash-reports':
+        return <TrashReportsTab />;
+      case 'service-feedback':
+        return <ServiceFeedbackTab />;
+      case 'route-optimization':
+        return <RouteOptimizationTab />;
+      case 'fleet-monitoring':
+        return <FleetMonitoringTab />;
+      case 'truck-inventory':
+        return <TruckInventoryTab />;
+      case 'driver-onboarding':
+        return <DriverOnboardingTab />;
+      case 'driver-accounts':
+        return <DriverAccountsTab />;
+      case 'collection-scheduler':
+        return <CollectionSchedulerTab />;
+      case 'operational-overrides':
+        return <OperationalOverridesTab />;
       case 'announcements':
-        return renderAnnouncementsContent();
-      case 'reports':
-        return renderReportsContent();
-      case 'history':
-        return renderHistoryContent();
-      case 'feedbacks':
-        return renderFeedbacksContent();
-      case 'accounts':
-        return renderManageAccountsContent();
+        return <AnnouncementsTab />;
+      case 'dict-commands':
+        return <DictCommandsTab />;
+      case 'coordinators':
+        return <EnvironmentalCoordinatorsTab />;
+      case 'analytics':
+        return <WasteAnalyticsTab />;
       default:
-        return renderHomeContent();
+        return <CenroDashboardTab />;
     }
   };
 
@@ -657,27 +547,52 @@ export default function AdminDashboard() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.title}>TrashTrack</Text>
-            <Text style={styles.subtitle}>Barangay Sambag 2, Cebu City</Text>
-            <Text style={styles.userInfo}>Logged in as: {user?.email}</Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.logoutButton} 
-            onPress={handleLogout}
-            activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      <View style={styles.topBar}>
+        {isNarrow && (
+          <TouchableOpacity
+            style={styles.hamburgerBtn}
+            onPress={() => setDrawerOpen(true)}
           >
-            <MaterialIcons name="logout" size={24} color="white" />
-            <Text style={styles.logoutText}>Logout</Text>
+            <MaterialIcons name="menu" size={26} color="#2E8B57" />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.topBarTitle}>{isNarrow ? 'CENRO' : 'CENRO Civic Steward'}</Text>
+        <View style={styles.topBarRight}>
+          <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('announcements')}>
+            <MaterialIcons name="notifications-none" size={24} color="#374151" />
+            <View style={styles.notificationDot} />
+          </TouchableOpacity>
+          {!isNarrow && (
+            <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('operational-overrides')}>
+              <MaterialIcons name="settings" size={24} color="#374151" />
+            </TouchableOpacity>
+          )}
+          <View style={styles.topBarDivider} />
+          {!isNarrow && (
+            <View style={styles.topBarUser}>
+              <Text style={styles.topBarRole}>Admin Panel</Text>
+              <Text style={styles.topBarSubrole}>FLEET SUPERVISOR</Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={handleLogout} activeOpacity={0.7}>
+            {user?.photoURL ? (
+              <Image source={{ uri: user.photoURL }} style={styles.topBarAvatar} />
+            ) : (
+              <View style={[styles.topBarAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#DDE9DF' }]}>
+                <MaterialIcons name="person" size={22} color="#2E6B49" />
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
       
       <View style={styles.mainContainer}>
-        <AdminSidebar activeTab={activeTab} onTabPress={handleTabPress} />
+        <AdminSidebar 
+          activeTab={activeTab} 
+          onTabPress={handleTabPress} 
+          isOpen={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
         <View style={styles.contentContainer}>
           {isTabLoading ? (
             <View style={styles.tabLoaderContainer}>
@@ -724,7 +639,7 @@ export default function AdminDashboard() {
             {/* Content */}
             <View style={styles.logoutModalContent}>
               <Text style={styles.logoutModalMessage}>
-                Are you sure you want to logout from the admin panel? You'll need to sign in again to access administrative features.
+                Are you sure you want to logout from the admin panel? You will need to sign in again to access administrative features.
               </Text>
             </View>
             
@@ -902,45 +817,68 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  header: {
-    backgroundColor: '#2E8B57',
-    padding: 20,
-    paddingTop: 40,
-  },
-  headerContent: {
+  topBar: {
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 5,
+  topBarTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#4b6354',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#E8F5E8',
-  },
-  userInfo: {
-    fontSize: 14,
-    color: '#E8F5E8',
-    marginTop: 5,
-  },
-  logoutButton: {
+  topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF6347',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginTop: 10,
+    gap: 16,
   },
-  logoutText: {
-    color: 'white',
-    fontSize: 16,
+  topBarIconBtn: {
+    padding: 8,
+    position: 'relative',
+  },
+  notificationDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ef4444',
+  },
+  topBarDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 8,
+  },
+  topBarUser: {
+    alignItems: 'flex-end',
+  },
+  topBarRole: {
+    fontSize: 13,
     fontWeight: 'bold',
-    marginLeft: 10,
+    color: '#111827',
+  },
+  topBarSubrole: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B7280',
+    letterSpacing: 0.5,
+  },
+  topBarAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E5E7EB',
+  },
+  hamburgerBtn: {
+    marginRight: 12,
+    padding: 4,
   },
   mainContainer: {
     flexDirection: 'row',
@@ -1627,4 +1565,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-}); 
+});

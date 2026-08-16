@@ -394,7 +394,7 @@ const FeedbackTab: React.FC = () => {
                         
                         <View style={styles.feedbackContent}>
                           <Text style={styles.feedbackTitle}>
-                            "{getRatingText(feedback.rating)}"
+                            “{getRatingText(feedback.rating)}”
                           </Text>
                           <Text style={styles.feedbackMessage}>
                             {feedback.message}

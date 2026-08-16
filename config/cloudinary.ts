@@ -1,8 +1,6 @@
 // Cloudinary configuration for React Native
 export const getCloudinaryConfig = () => ({
   cloud_name: process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dosewf6kp',
-  api_key: process.env.EXPO_PUBLIC_CLOUDINARY_API_KEY,
-  api_secret: process.env.EXPO_PUBLIC_CLOUDINARY_API_SECRET,
   secure: true,
 });
 

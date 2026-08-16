@@ -5,6 +5,8 @@ import { Platform } from 'react-native';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -106,7 +108,7 @@ export class NotificationService {
           },
           sound: 'default',
         },
-        trigger: { date: oneHourBefore },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: oneHourBefore },
       });
     }
 
@@ -124,7 +126,7 @@ export class NotificationService {
           },
           sound: 'default',
         },
-        trigger: { date: tomorrow },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: tomorrow },
       });
     }
 
@@ -208,7 +210,7 @@ export class NotificationService {
           data: { type: 'pickup_reminder', scheduleId: schedule.id, reminderType: '1hour' },
           sound: 'default',
         },
-        trigger: { date: oneHourBefore },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: oneHourBefore },
       });
     }
 
@@ -223,7 +225,7 @@ export class NotificationService {
           data: { type: 'pickup_reminder', scheduleId: schedule.id, reminderType: 'tomorrow' },
           sound: 'default',
         },
-        trigger: { date: tomorrow },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: tomorrow },
       });
     }
   }
