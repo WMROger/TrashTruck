@@ -199,13 +199,6 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
-        name="test-tabs" 
-        options={{ 
-          headerShown: false,
-          ...getTransitionConfig('slideFromRight'),
-        }} 
-      />
-      <Stack.Screen 
         name="admin" 
         options={{ 
           headerShown: false,
