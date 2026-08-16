@@ -2,19 +2,19 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, initializeAuth } from 'firebase/auth';
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 import { Platform } from 'react-native';
 
 // ─── 1. Validate env vars ──────────────────────────────────────────────────
-const {
-  EXPO_PUBLIC_FIREBASE_API_KEY: apiKey,
-  EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN: authDomain,
-  EXPO_PUBLIC_FIREBASE_PROJECT_ID: projectId,
-  EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET: storageBucket,
-  EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: messagingSenderId,
-  EXPO_PUBLIC_FIREBASE_APP_ID: appId,
-} = process.env;
+// Expo replaces EXPO_PUBLIC_* values in web bundles only when they are
+// referenced with direct dot notation. Destructuring process.env works during
+// server-side export but leaves the browser bundle with undefined values.
+const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN;
+const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID;
+const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+const messagingSenderId = process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
+const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID;
 
 console.log('Firebase Config Check:');
 console.log('  apiKey:', !!apiKey);
@@ -26,7 +26,6 @@ console.log('  appId:', !!appId);
 
 let app: any = null;
 let db: any = null;
-let functions: any = null;
 let auth: any = null;
 let storage: any = null;
 
@@ -59,7 +58,7 @@ let storage: any = null;
         })
       });
       console.log('Firebase: Firestore ready (with offline persistence)');
-    } catch (e: any) {
+    } catch {
       // Fallback to getFirestore if initializeFirestore throws (e.g. unsupported environment)
       try {
         db = getFirestore(app);
@@ -71,15 +70,6 @@ let storage: any = null;
   }
 
   // ─── 4. Functions ─────────────────────────────────────────────────────────
-  if (app) {
-    try {
-      functions = getFunctions(app, 'us-central1');
-      console.log('Firebase: Functions ready');
-    } catch (e: any) {
-      console.error('Firebase: Functions error:', e.message);
-    }
-  }
-
   // ─── 5. Storage ───────────────────────────────────────────────────────────
   if (app) {
     try {
@@ -128,5 +118,5 @@ let storage: any = null;
 
   console.log('Firebase: Initialization complete. auth:', auth ? 'OK' : 'NULL');
 
-export { auth, db, functions, storage, firebaseConfig };
+export { auth, db, storage, firebaseConfig };
 export default app;

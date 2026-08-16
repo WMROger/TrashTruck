@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface AdminSidebarProps {
   activeTab: string;
@@ -10,7 +10,6 @@ interface AdminSidebarProps {
 }
 
 const SIDEBAR_WIDTH = 256;
-const COLLAPSED_WIDTH = 64;
 const BREAKPOINT = 900;
 
 const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOpen = false, onClose }) => {
@@ -40,7 +39,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
       duration: 250,
       useNativeDriver: false,
     }).start();
-  }, [isOpen]);
+  }, [isOpen, slideAnim]);
 
   const navigationGroups = [
     {
@@ -58,6 +57,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
         { id: 'driver-onboarding', label: 'DRIVER ONBOARDING', icon: 'person-add' },
         { id: 'driver-accounts', label: 'ACCOUNTS DIRECTORY', icon: 'recent-actors' },
         { id: 'route-optimization', label: 'ROUTE OPTIMIZATION', icon: 'route' },
+        { id: 'fleet-monitoring', label: 'FLEET MONITORING', icon: 'location-searching' },
         { id: 'collection-scheduler', label: 'COLLECTION SCHEDULES', icon: 'event-note' },
       ]
     },
@@ -65,6 +65,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
       title: 'SYSTEM & COMMUNICATIONS',
       items: [
         { id: 'announcements', label: 'ANNOUNCEMENTS', icon: 'campaign' },
+        { id: 'dict-commands', label: 'DICT COMMANDS', icon: 'mark-email-unread' },
         { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people' },
         { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem' },
         { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart' },
@@ -138,16 +139,16 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
           <Text style={styles.statusLabel}>SYSTEM STATUS</Text>
           <View style={styles.statusRow}>
             <View style={styles.statusDot} />
-            <Text style={styles.statusText}>Optimal Performance</Text>
+            <Text style={styles.statusText}>Authenticated session</Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.bottomNavBtn}>
+        <TouchableOpacity style={styles.bottomNavBtn} onPress={() => Alert.alert('CENRO Support', 'For account or operational assistance, contact the designated TrashTrack system administrator.')}>
           <MaterialIcons name="help-outline" size={20} color="#4B5563" />
           <Text style={styles.bottomNavText}>SUPPORT</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.bottomNavBtn}>
+        <TouchableOpacity style={styles.bottomNavBtn} onPress={() => handleItemPress('operational-overrides')}>
           <MaterialIcons name="history" size={20} color="#4B5563" />
           <Text style={styles.bottomNavText}>LOGS</Text>
         </TouchableOpacity>

@@ -1,6 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  setPersistence,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { ImageBackground, Platform, Text, TouchableOpacity, View } from 'react-native';
@@ -60,8 +68,17 @@ export default function AdminLogin() {
       const email = username.includes('@') ? username : `${username}@admin.com`;
       
       // Attempt to sign in with Firebase
+      await setPersistence(auth, keepLoggedIn ? browserLocalPersistence : browserSessionPersistence);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+
+      const usesPassword = user.providerData.some(provider => provider.providerId === 'password');
+      if (usesPassword && !user.emailVerified) {
+        try { await sendEmailVerification(user); } catch {}
+        await signOut(auth);
+        showError('A verification link was sent to this administrator email. Verify it before signing in.', 'Email Verification Required', 'warning');
+        return;
+      }
       
       console.log('Admin login successful:', user.email);
       
@@ -94,17 +111,19 @@ export default function AdminLogin() {
             return;
           } else {
             console.log('User does not have admin role');
+            try { await signOut(auth); } catch {}
             showError('You do not have admin privileges.', 'Access Denied', 'error');
             return;
           }
         } else {
           console.log('User document not found in Firestore');
+          try { await signOut(auth); } catch {}
           showError('User profile not found.', 'Access Denied', 'error');
           return;
         }
       } else {
-        console.log('Firestore not available, proceeding with auth only');
-        router.replace('/admin/dashboard');
+        try { await signOut(auth); } catch {}
+        showError('Admin privileges cannot be verified right now.', 'Access Unavailable', 'error');
       }
       
     } catch (error: any) {
@@ -123,6 +142,29 @@ export default function AdminLogin() {
       }
       
       showError(errorMessage, 'Login Failed', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const email = username.includes('@') ? username.trim().toLowerCase() : '';
+    if (!email) {
+      showError('Enter the administrator email address first.', 'Password Reset', 'warning');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showError('Password reset instructions have been sent.', 'Check Your Email', 'success');
+    } catch (error: any) {
+      showError(
+        error?.code === 'auth/too-many-requests'
+          ? 'Too many reset attempts. Please wait and try again.'
+          : 'The reset email could not be sent. Verify the address and connection.',
+        'Password Reset Failed',
+        'error',
+      );
     } finally {
       setIsLoading(false);
     }
@@ -188,7 +230,7 @@ export default function AdminLogin() {
                 </TouchableOpacity>
                 <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
               </View>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
                 <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
@@ -218,5 +260,3 @@ export default function AdminLogin() {
     </SafeAreaView>
   );
 }
-
- 

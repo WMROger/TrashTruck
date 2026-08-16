@@ -7,7 +7,9 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
-    "public": "public",
+    "public": "output/web",
+    "cleanUrls": true,
+    "trailingSlash": false,
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -31,4 +33,4 @@
       "enabled": true
     }
   }
-} 
+}

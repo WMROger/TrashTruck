@@ -1,14 +1,19 @@
 import * as Location from 'expo-location';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/config/firebase';
+import { dailyTripId, distanceFromRouteMeters, distanceMeters, FleetTrackingContext } from '@/services/fleetMonitoringService';
 
 class LocationService {
   private locationSubscription: Location.LocationSubscription | null = null;
   private isTracking = false;
   private retryTimeout: ReturnType<typeof setTimeout> | null = null;
   private maxRetries = 3;
+  private lastHistoryAt = 0;
+  private lastHistoryCoordinate: { latitude: number; longitude: number } | null = null;
+  private deviationSamples = 0;
+  private lastAlertAt: Record<string, number> = {};
 
-  async startTracking(driverId: string, truckId: string) {
+  async startTracking(driverId: string, truckId: string, context: FleetTrackingContext = {}) {
     if (!driverId || !truckId) {
       console.warn('GPS tracking requires both an authenticated driver and an assigned truck.');
       return;
@@ -26,7 +31,7 @@ class LocationService {
       const isEnabled = await Location.hasServicesEnabledAsync();
       if (!isEnabled) {
         console.warn('Location services are disabled. GPS tracking will retry when available.');
-        this.scheduleRetry(driverId, truckId, 0);
+        this.scheduleRetry(driverId, truckId, context, 0);
         return;
       }
 
@@ -37,13 +42,13 @@ class LocationService {
         const initialLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        await this.updateLocationInFirestore(driverId, truckId, initialLocation.coords);
+        await this.updateLocationInFirestore(driverId, truckId, initialLocation.coords, context);
       } catch {
         console.warn('getCurrentPositionAsync failed, trying getLastKnownPositionAsync...');
         try {
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (lastKnown) {
-            await this.updateLocationInFirestore(driverId, truckId, lastKnown.coords);
+            await this.updateLocationInFirestore(driverId, truckId, lastKnown.coords, context);
           }
         } catch {
           console.warn('getLastKnownPositionAsync also failed — will rely on watchPosition updates.');
@@ -58,7 +63,7 @@ class LocationService {
           distanceInterval: 10, // Update every 10 meters
         },
         (location) => {
-          this.updateLocationInFirestore(driverId, truckId, location.coords);
+          this.updateLocationInFirestore(driverId, truckId, location.coords, context);
         }
       );
       
@@ -67,11 +72,11 @@ class LocationService {
       console.error('Error starting location tracking:', error);
       this.isTracking = false;
       // Schedule a retry
-      this.scheduleRetry(driverId, truckId, 0);
+      this.scheduleRetry(driverId, truckId, context, 0);
     }
   }
 
-  private scheduleRetry(driverId: string, truckId: string, attempt: number) {
+  private scheduleRetry(driverId: string, truckId: string, context: FleetTrackingContext, attempt: number) {
     if (attempt >= this.maxRetries) {
       console.warn(`GPS tracking: gave up after ${this.maxRetries} retries.`);
       return;
@@ -81,7 +86,7 @@ class LocationService {
     console.log(`GPS tracking: retrying in ${delay / 1000}s (attempt ${attempt + 1}/${this.maxRetries})`);
     
     this.retryTimeout = setTimeout(() => {
-      this.startTracking(driverId, truckId);
+      this.startTracking(driverId, truckId, context);
     }, delay);
   }
 
@@ -101,6 +106,9 @@ class LocationService {
       this.locationSubscription = null;
     }
     this.isTracking = false;
+    this.lastHistoryAt = 0;
+    this.lastHistoryCoordinate = null;
+    this.deviationSamples = 0;
 
     // Mark as inactive in Firestore
     try {
@@ -121,7 +129,76 @@ class LocationService {
     }
   }
 
-  private async updateLocationInFirestore(driverId: string, truckId: string, coords: Location.LocationObjectCoords) {
+  private async writeTripPoint(
+    driverId: string,
+    truckId: string,
+    coords: Location.LocationObjectCoords,
+    context: FleetTrackingContext,
+  ) {
+    const now = Date.now();
+    const coordinate = { latitude: coords.latitude, longitude: coords.longitude };
+    const movedMeters = this.lastHistoryCoordinate ? distanceMeters(this.lastHistoryCoordinate, coordinate) : Number.POSITIVE_INFINITY;
+    if (now - this.lastHistoryAt < 30_000 && movedMeters < 50) return;
+
+    const speedKph = Math.max(0, Number(coords.speed || 0) * 3.6);
+    const deviationMeters = distanceFromRouteMeters(coordinate, context.routePolyline);
+    await addDoc(collection(db, 'client_activity'), {
+      event: 'fleet.location',
+      actorUid: driverId,
+      driverId,
+      truckId,
+      tripId: dailyTripId(driverId, truckId),
+      activeScheduleIds: context.activeScheduleIds || [],
+      location: { lat: coords.latitude, lng: coords.longitude },
+      speedKph: Number(speedKph.toFixed(1)),
+      heading: coords.heading,
+      accuracyMeters: coords.accuracy,
+      deviationMeters: deviationMeters === null ? null : Math.round(deviationMeters),
+      source: 'driver-gps',
+      recordedAtClient: new Date(now).toISOString(),
+      createdAt: serverTimestamp(),
+    });
+    this.lastHistoryAt = now;
+    this.lastHistoryCoordinate = coordinate;
+
+    if (speedKph >= 60) await this.writeOperationalAlert('speeding', driverId, truckId, {
+      speedKph: Number(speedKph.toFixed(1)),
+      thresholdKph: 60,
+      location: { lat: coords.latitude, lng: coords.longitude },
+    });
+
+    if (deviationMeters !== null && deviationMeters >= 500) this.deviationSamples += 1;
+    else this.deviationSamples = 0;
+    if (this.deviationSamples >= 3) {
+      await this.writeOperationalAlert('route-deviation', driverId, truckId, {
+        deviationMeters: Math.round(deviationMeters || 0),
+        thresholdMeters: 500,
+        location: { lat: coords.latitude, lng: coords.longitude },
+      });
+      this.deviationSamples = 0;
+    }
+  }
+
+  private async writeOperationalAlert(type: string, driverId: string, truckId: string, metadata: Record<string, unknown>) {
+    const now = Date.now();
+    if (now - (this.lastAlertAt[type] || 0) < 5 * 60 * 1000) return;
+    await addDoc(collection(db, 'client_activity'), {
+      event: 'fleet.alert',
+      alertType: type,
+      severity: type === 'route-deviation' ? 'high' : 'medium',
+      actorUid: driverId,
+      driverId,
+      truckId,
+      tripId: dailyTripId(driverId, truckId),
+      metadata,
+      source: 'driver-gps',
+      recordedAtClient: new Date(now).toISOString(),
+      createdAt: serverTimestamp(),
+    });
+    this.lastAlertAt[type] = now;
+  }
+
+  private async updateLocationInFirestore(driverId: string, truckId: string, coords: Location.LocationObjectCoords, context: FleetTrackingContext) {
     if (!db) return;
     
     try {
@@ -136,6 +213,7 @@ class LocationService {
         lastUpdate: serverTimestamp(),
         status: 'active',
       });
+      await this.writeTripPoint(driverId, truckId, coords, context);
     } catch (error) {
       console.error('Error updating location in Firestore:', error);
     }

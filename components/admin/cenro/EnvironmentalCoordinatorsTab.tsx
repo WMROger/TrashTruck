@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { collection, query, where, doc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { db, firebaseConfig } from '@/config/firebase';
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, where, doc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/config/firebase';
+import { provisionCoordinatorOnSpark } from '@/services/coordinatorProvisioningService';
 
 export default function EnvironmentalCoordinatorsTab() {
   const [coordinators, setCoordinators] = useState<any[]>([]);
@@ -31,10 +30,7 @@ export default function EnvironmentalCoordinatorsTab() {
   const [existingBarangays, setExistingBarangays] = useState<string[]>([]);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const secondaryApp = getApps().find(app => app.name === 'SecondaryApp') 
-    || initializeApp(firebaseConfig, 'SecondaryApp');
-  const secondaryAuth = getAuth(secondaryApp);
+  const [directorySearch, setDirectorySearch] = useState('');
 
   useEffect(() => {
     if (!db) return;
@@ -91,8 +87,6 @@ export default function EnvironmentalCoordinatorsTab() {
 
     setIsSubmitting(true);
     try {
-      let targetUserId = '';
-
       if (mode === 'create') {
         if (!newEmail || !newPassword || !newFullName) {
           Alert.alert('Validation Error', 'Please fill in Email, Password, and Full Name for the new coordinator.');
@@ -100,23 +94,10 @@ export default function EnvironmentalCoordinatorsTab() {
           return;
         }
 
-        // Create Auth Account in secondary app
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newEmail.trim(), newPassword);
-        targetUserId = userCredential.user.uid;
-
-        // Create Firestore doc
-        await setDoc(doc(db, 'users', targetUserId), {
-          email: newEmail.toLowerCase().trim(),
-          displayName: newFullName,
-          contactInfo: newContact,
-          employeeId,
-          barangay,
-          zone,
-          role: 'coordinator',
-          status: 'CERTIFIED',
-          createdAt: serverTimestamp(),
+        await provisionCoordinatorOnSpark({
+          mode: 'create', email: newEmail, password: newPassword, fullName: newFullName,
+          contactInfo: newContact, employeeId, barangay, zone,
         });
-        
       } else {
         if (!foundUser) {
           Alert.alert('Validation Error', 'Please search and select a resident to upgrade.');
@@ -124,20 +105,16 @@ export default function EnvironmentalCoordinatorsTab() {
           return;
         }
 
-        targetUserId = foundUser.id;
-
-        // Update existing Firestore doc
-        await updateDoc(doc(db, 'users', targetUserId), {
-          employeeId,
-          barangay,
-          zone,
-          role: 'coordinator',
-          status: 'CERTIFIED',
-          updatedAt: serverTimestamp(),
+        await provisionCoordinatorOnSpark({
+          mode: 'upgrade', existingUserId: foundUser.id,
+          fullName: foundUser.displayName || foundUser.name || foundUser.email || 'Coordinator',
+          contactInfo: foundUser.contactInfo, employeeId, barangay, zone,
         });
       }
 
-      Alert.alert('Success', `Coordinator successfully ${mode === 'create' ? 'created' : 'upgraded'}.`);
+      Alert.alert('Success', mode === 'create'
+        ? 'Coordinator created. A verification link was sent before first sign-in.'
+        : 'Resident account successfully upgraded to coordinator.');
       
       // Reset form and go back
       setNewEmail('');
@@ -195,6 +172,30 @@ export default function EnvironmentalCoordinatorsTab() {
     }
   };
 
+  const filteredCoordinators = coordinators.filter(row => {
+    const search = directorySearch.trim().toLowerCase();
+    if (!search) return true;
+    return [row.displayName, row.email, row.employeeId, row.barangay, row.zone]
+      .some(value => String(value || '').toLowerCase().includes(search));
+  });
+
+  const exportCoordinators = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      Alert.alert('Web export only', 'Open the CENRO dashboard on web to download the coordinator directory.');
+      return;
+    }
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      ['Name', 'Email', 'Employee ID', 'Barangay', 'Zone', 'Contact', 'Status'].join(','),
+      ...filteredCoordinators.map(row => [row.displayName, row.email, row.employeeId, row.barangay, row.zone, row.contactInfo, row.status].map(escape).join(',')),
+    ].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `trashtrack-coordinators-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.headerRow}>
@@ -204,7 +205,7 @@ export default function EnvironmentalCoordinatorsTab() {
         </View>
         {!isAddingCoordinator && (
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.outlineBtn}>
+            <TouchableOpacity style={styles.outlineBtn} onPress={exportCoordinators}>
               <MaterialIcons name="file-download" size={18} color="#374151" />
               <Text style={styles.outlineBtnText}>Export</Text>
             </TouchableOpacity>
@@ -435,22 +436,10 @@ export default function EnvironmentalCoordinatorsTab() {
           <View style={styles.filtersRow}>
             <View style={styles.searchBox}>
               <MaterialIcons name="search" size={20} color="#9CA3AF" />
-              <TextInput style={styles.searchInput} placeholder="Search by name, ID..." placeholderTextColor="#9CA3AF" />
+              <TextInput style={styles.searchInput} placeholder="Search by name, ID, or barangay..." placeholderTextColor="#9CA3AF" value={directorySearch} onChangeText={setDirectorySearch} />
             </View>
             
-            <View style={styles.dropdownsContainer}>
-              <View style={styles.dropdown}>
-                <Text style={styles.dropdownText}>All Barangays</Text>
-                <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
-              </View>
-              <View style={styles.dropdown}>
-                <Text style={styles.dropdownText}>Status: All</Text>
-                <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
-              </View>
-              <TouchableOpacity style={styles.iconBtn}>
-                <MaterialIcons name="filter-list" size={20} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.pageInfo}>{filteredCoordinators.length} matching coordinator{filteredCoordinators.length === 1 ? '' : 's'}</Text>
           </View>
 
           {/* Table */}
@@ -462,7 +451,7 @@ export default function EnvironmentalCoordinatorsTab() {
             <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
           </View>
 
-          {coordinators.map((row) => {
+          {filteredCoordinators.map((row) => {
             const status = row.status || 'CERTIFIED';
             const statusColor = status === 'PENDING' ? '#ef4444' : '#2E8B57';
             const statusBg = status === 'PENDING' ? '#FEF2F2' : '#F6FBF7';
@@ -499,17 +488,17 @@ export default function EnvironmentalCoordinatorsTab() {
             );
           })}
 
-          {coordinators.length === 0 && (
+          {filteredCoordinators.length === 0 && (
             <View style={{ padding: 24, alignItems: 'center' }}>
               <Text style={{ color: '#6B7280' }}>No coordinators found.</Text>
             </View>
           )}
 
-          {coordinators.length > 0 && (
+          {filteredCoordinators.length > 0 && (
             <View style={styles.pagination}>
-              <Text style={styles.pageInfo}>Showing 1-{coordinators.length} of {coordinators.length} coordinators</Text>
+              <Text style={styles.pageInfo}>Showing 1-{filteredCoordinators.length} of {filteredCoordinators.length} coordinators</Text>
               <View style={styles.pageControls}>
-                <TouchableOpacity style={styles.pageBtnActive}><Text style={styles.pageTextActive}>1</Text></TouchableOpacity>
+                <View style={styles.pageBtnActive}><Text style={styles.pageTextActive}>1</Text></View>
               </View>
             </View>
           )}
@@ -610,5 +599,5 @@ const styles = StyleSheet.create({
   revokeBtn: { paddingHorizontal: 8, paddingVertical: 6, backgroundColor: '#FEF2F2', borderRadius: 6, borderWidth: 1, borderColor: '#FECACA' },
   revokeBtnText: { fontSize: 10, color: '#DC2626', fontWeight: 'bold' },
   pickerContainer: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, backgroundColor: '#F9FAFB', overflow: 'hidden' },
-  picker: { height: 48, width: '100%', color: '#111827', backgroundColor: 'transparent', outlineStyle: 'none' },
+  picker: { height: 48, width: '100%', color: '#111827', backgroundColor: 'transparent' },
 });

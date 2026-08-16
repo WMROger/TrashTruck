@@ -1,17 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Platform } from 'react-native';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tabId: string) => void;
   onLogout: () => void;
+  collapsed?: boolean;
 }
 
-export default function DictSidebar({ activeTab, onTabChange, onLogout }: SidebarProps) {
-  const router = useRouter();
-  
+export default function DictSidebar({ activeTab, onTabChange, onLogout, collapsed = false }: SidebarProps) {
   const navigationItems = [
     { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
     { id: 'rewards', label: 'REWARDS', icon: 'card-giftcard', activeIcon: 'card-giftcard' },
@@ -22,16 +20,16 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout }: Sideba
   ];
 
   return (
-    <View style={styles.sidebar}>
+    <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       <View style={styles.sidebarHeader}>
         <View style={styles.logoContainer}>
           <View style={styles.logoBg}>
             <MaterialIcons name="computer" size={24} color="#FFF" />
           </View>
-          <View>
+          {!collapsed && <View>
             <Text style={styles.logoTitle}>DICT</Text>
             <Text style={styles.logoSubtitle}>SUPER ADMIN PORTAL</Text>
-          </View>
+          </View>}
         </View>
       </View>
 
@@ -55,16 +53,16 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout }: Sideba
                     color={isActive ? '#FFF' : '#6B7280'} 
                   />
                 </View>
-                <Text style={[
+                {!collapsed && <Text style={[
                   styles.navItemText,
                   isActive && styles.navItemTextActive
                 ]}>
                   {item.label}
-                </Text>
+                </Text>}
               </TouchableOpacity>
               
               {/* Divider after Fleet Ops */}
-              {item.id === 'fleet-ops' && (
+              {item.id === 'fleet-ops' && !collapsed && (
                 <View style={styles.dividerContainer}>
                   <Text style={styles.dividerText}>INTER-AGENCY CHANNELS</Text>
                 </View>
@@ -75,22 +73,22 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout }: Sideba
       </ScrollView>
 
       <View style={styles.sidebarFooter}>
-        <View style={styles.systemStatusContainer}>
+        {!collapsed && <View style={styles.systemStatusContainer}>
           <View style={styles.statusIndicator} />
           <View>
             <Text style={styles.statusTitle}>SYSTEM STATUS</Text>
-            <Text style={styles.statusValue}>System Status: Optimal</Text>
+            <Text style={styles.statusValue}>Authenticated session</Text>
           </View>
-        </View>
+        </View>}
 
-        <TouchableOpacity style={styles.footerLink}>
+        <TouchableOpacity style={styles.footerLink} onPress={() => Alert.alert('DICT Support', 'For portal assistance, contact the designated TrashTrack system administrator.')}>
           <MaterialIcons name="help-outline" size={18} color="#6B7280" />
-          <Text style={styles.footerLinkText}>SUPPORT</Text>
+          {!collapsed && <Text style={styles.footerLinkText}>SUPPORT</Text>}
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.footerLink} onPress={onLogout}>
           <MaterialIcons name="logout" size={18} color="#6B7280" />
-          <Text style={styles.footerLinkText}>LOGOUT</Text>
+          {!collapsed && <Text style={styles.footerLinkText}>LOGOUT</Text>}
         </TouchableOpacity>
       </View>
     </View>
@@ -108,6 +106,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     ...(Platform.OS === 'web' ? { position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 50 } : {})
   },
+  sidebarCollapsed: { width: 80 },
   sidebarHeader: {
     padding: 24,
     borderBottomWidth: 1,

@@ -48,7 +48,7 @@ export default function DriverEditProfile() {
 
   const handleUpdate = async () => {
     if (!auth.currentUser || !db) {
-      Alert.alert('Notice', 'Profile updating is disabled in mockup mode. Please log in with a real driver account.');
+      Alert.alert('Sign-in required', 'Log in with an active driver account before updating the profile.');
       return;
     }
     setLoading(true);
@@ -95,13 +95,16 @@ export default function DriverEditProfile() {
         {/* Avatar */}
         <View style={styles.avatarContainer}>
           <View style={styles.avatarWrapper}>
-            <Image 
-              source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
-              style={styles.avatar} 
-            />
+            {user?.photoURL ? (
+              <Image source={{ uri: user.photoURL }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#DDE9DF' }]}>
+                <Feather name="user" size={42} color="#3B5241" />
+              </View>
+            )}
           </View>
-          <Text style={[styles.name, isDark && styles.textLight]}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
-          <Text style={styles.email}>{user?.email ? user.email : 'louissea@gmail.com'}</Text>
+          <Text style={[styles.name, isDark && styles.textLight]}>{user?.displayName || 'Driver Account'}</Text>
+          <Text style={styles.email}>{user?.email || ''}</Text>
         </View>
 
         {/* Form Fields */}

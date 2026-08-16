@@ -4,7 +4,7 @@ import { auth } from '@/config/firebase';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, Alert, Modal, Pressable } from 'react-native';
+import { Image, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, Modal, Pressable } from 'react-native';
 
 export default function DriverProfileSettings() {
   const router = useRouter();
@@ -43,13 +43,16 @@ export default function DriverProfileSettings() {
 
         {/* Profile Card */}
         <View style={styles.profileCard}>
-          <Image 
-            source={{ uri: user?.photoURL || 'https://i.pravatar.cc/150?img=33' }} 
-            style={styles.avatar} 
-          />
+          {user?.photoURL ? (
+            <Image source={{ uri: user.photoURL }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#DDE9DF' }]}>
+              <Feather name="user" size={38} color="#3B5241" />
+            </View>
+          )}
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{user?.displayName || 'Louisse Natasha Valeria'}</Text>
-            <Text style={styles.profileHandle}>{user?.email ? user.email : '@jellylace'}</Text>
+            <Text style={styles.profileName}>{user?.displayName || 'Driver Account'}</Text>
+            <Text style={styles.profileHandle}>{user?.email || ''}</Text>
           </View>
           <TouchableOpacity 
             style={styles.editButton} 
@@ -77,14 +80,14 @@ export default function DriverProfileSettings() {
 
           <TouchableOpacity 
             style={styles.menuItem}
-            onPress={() => Alert.alert('Coming Soon', 'Beneficiary management will be available in the next update.')}
+            onPress={() => router.push('/profile/change-password' as any)}
           >
             <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
-              <Feather name="user-check" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+              <Feather name="lock" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
             </View>
             <View style={styles.menuTextContainer}>
-              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Saved Beneficiary</Text>
-              <Text style={styles.menuSubtitle}>Manage your saved accounts</Text>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Change Password</Text>
+              <Text style={styles.menuSubtitle}>Update your driver account password</Text>
             </View>
             <Feather name="chevron-right" size={20} color="#9CA3AF" />
           </TouchableOpacity>
@@ -104,20 +107,6 @@ export default function DriverProfileSettings() {
               thumbColor={isDarkMode ? '#FFFFFF' : '#FFFFFF'}
             />
           </View>
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => Alert.alert('2FA Settings', 'Two-factor authentication setup instructions have been sent to your email.')}
-          >
-            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
-              <Feather name="shield" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Two-Factor Authentication</Text>
-              <Text style={styles.menuSubtitle}>Further secure your account for safety</Text>
-            </View>
-            <Feather name="chevron-right" size={20} color="#9CA3AF" />
-          </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
             <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
@@ -212,7 +201,7 @@ export default function DriverProfileSettings() {
             
             <Text style={styles.modalBody}>
               Version 1.0.0{'\n\n'}
-              An intelligent, AI-optimized waste management and tracking system designed exclusively for Cebu City CENRO drivers.
+              An intelligent, route-aware waste management and tracking system designed for Danao City CENRO drivers.
             </Text>
             
             <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setIsAboutModalVisible(false)}>

@@ -1,7 +1,6 @@
-import { httpsCallable } from 'firebase/functions';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { functions } from '../../config/firebase';
+import { provisionDriverOnSpark } from '../../services/driverProvisioningService';
 import ErrorModal from '../ErrorModal';
 
 const CreateDriverTab: React.FC = () => {
@@ -40,14 +39,9 @@ const CreateDriverTab: React.FC = () => {
       showError('Email, full name, password, employee ID, and license number are required.', 'Missing Fields', 'warning');
       return;
     }
-    if (!functions) {
-      showError('Cloud Functions are not available in this environment.', 'Service Unavailable', 'error');
-      return;
-    }
     try {
       setIsBusy(true);
-      const callable = httpsCallable(functions, 'provisionDriver');
-      const res: any = await callable({
+      const res = await provisionDriverOnSpark({
         mode: 'create',
         email: trimmedUsername,
         password: trimmedPassword,
@@ -55,8 +49,8 @@ const CreateDriverTab: React.FC = () => {
         employeeId: employeeId.trim(),
         licenseNumber: licenseNumber.trim(),
       });
-      const email = res?.data?.email;
-      showError(`Driver account created: ${email || trimmedUsername}`, 'Success', 'success');
+      const email = res?.email;
+      showError(`Driver account created: ${email || trimmedUsername}. A verification link was sent before first sign-in.`, 'Success', 'success');
       setUsername('');
       setPassword('');
       setFullName('');
@@ -113,7 +107,7 @@ const CreateDriverTab: React.FC = () => {
       >
         <Text style={styles.buttonText}>{isBusy ? 'Creating...' : 'Create Driver'}</Text>
       </TouchableOpacity>
-      <Text style={styles.hint}>The protected server workflow creates the account, reserves the employee ID, and assigns the driver role.</Text>
+      <Text style={styles.hint}>The Spark-compatible workflow creates the Auth account without signing out the current admin, reserves the employee ID, and assigns the driver role.</Text>
 
       {/* Error Modal */}
       <ErrorModal

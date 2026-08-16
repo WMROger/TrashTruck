@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 
 interface UserData {
@@ -29,8 +29,7 @@ export default function IdentityAccessTab() {
     if (!db) return;
     try {
       setLoading(true);
-      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(collection(db, 'users'));
       
       const userData: UserData[] = [];
       snapshot.forEach((doc) => {
@@ -45,6 +44,11 @@ export default function IdentityAccessTab() {
         });
       });
       
+      userData.sort((a, b) => {
+        const left = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+        const right = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+        return right - left;
+      });
       setUsers(userData);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -68,8 +72,7 @@ export default function IdentityAccessTab() {
           onPress: async () => {
             try {
               setUpdatingRole(true);
-              const userRef = doc(db, 'users', selectedUser.id);
-              await updateDoc(userRef, { role: newRole });
+              await updateDoc(doc(db, 'users', selectedUser.id), { role: newRole, updatedAt: serverTimestamp() });
               
               // Update local state
               setUsers(users.map(u => u.id === selectedUser.id ? { ...u, role: newRole } : u));
@@ -232,7 +235,7 @@ export default function IdentityAccessTab() {
               </Text>
 
               <View style={styles.roleOptions}>
-                {['user', 'driver', 'admin', 'dict'].map((role) => (
+                {['user', 'coordinator', 'admin', 'dict'].map((role) => (
                   <TouchableOpacity 
                     key={role}
                     style={[
@@ -247,7 +250,7 @@ export default function IdentityAccessTab() {
                         name={
                           role === 'dict' ? 'security' : 
                           role === 'admin' ? 'admin-panel-settings' : 
-                          role === 'driver' ? 'directions-car' : 'person'
+                          role === 'coordinator' ? 'groups' : 'person'
                         } 
                         size={24} 
                         color={getRoleBadgeColor(role)} 
@@ -258,7 +261,7 @@ export default function IdentityAccessTab() {
                       <Text style={styles.roleOptionDesc}>
                         {role === 'dict' ? 'Full system access & IT management' : 
                          role === 'admin' ? 'CENRO dashboard & operational control' : 
-                         role === 'driver' ? 'Mobile driver app access' : 'Standard citizen access'}
+                         role === 'coordinator' ? 'Environmental coordination access' : 'Standard citizen access'}
                       </Text>
                     </View>
                     {selectedUser?.role === role && (
@@ -346,7 +349,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     fontSize: 15,
     color: '#111827',
-    ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
   },
   tableContainer: {
     flex: 1,

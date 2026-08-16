@@ -1,6 +1,6 @@
 import { auth, db } from '@/config/firebase';
+import { takePendingAuthRequest } from '@/services/pendingAuthService';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
-import { storage } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Animated,
     Dimensions,
+    Platform,
     SafeAreaView,
     StyleSheet,
     Text,
@@ -81,16 +82,6 @@ export default function LoadingPage() {
     }
   };
 
-  // Clear credentials helper
-  const clearCredentials = async () => {
-    try {
-      await storage.deleteItem('loginCredentials');
-      console.log('Credentials cleared');
-    } catch (error) {
-      console.error('Failed to clear credentials:', error);
-    }
-  };
-
   useEffect(() => {
     // Start animations
     Animated.parallel([
@@ -110,17 +101,12 @@ export default function LoadingPage() {
     // Start authentication process
     const handleAuthentication = async () => {
       try {
-        // Check if we have stored credentials to process
-        const tempCredentials = await storage.getItem('temp_login_credentials');
-        const tempAuthType = await storage.getItem('temp_auth_type');
+        const pendingAuth = takePendingAuthRequest();
 
-        if (tempCredentials) {
-          // Handle email/password authentication
-          const credentials = JSON.parse(tempCredentials);
-          await handleEmailPasswordAuth(credentials);
-        } else if (tempAuthType) {
-          // Handle social authentication
-          await handleSocialAuth(tempAuthType);
+        if (pendingAuth?.kind === 'email') {
+          await handleEmailPasswordAuth(pendingAuth);
+        } else if (pendingAuth?.kind === 'social') {
+          await handleSocialAuth(pendingAuth.provider);
         } else {
           // No authentication data found - this shouldn't happen
           showError('No authentication data found. Please try logging in again.', 'Authentication Error', 'error');
@@ -151,9 +137,6 @@ export default function LoadingPage() {
       setLoadingText('Verifying credentials...');
       setProgress(25);
 
-      // Clean up temp credentials
-      await storage.deleteItem('temp_login_credentials');
-
       if (!auth) {
         throw new Error('Firebase auth not available');
       }
@@ -176,7 +159,6 @@ export default function LoadingPage() {
           if (userRole === 'admin' || userRole === 'dict') {
             try { 
               await signOut(auth);
-              await clearCredentials();
             } catch {}
             
             const message = Platform.OS === 'web' 
@@ -195,37 +177,20 @@ export default function LoadingPage() {
       setLoadingText('Verifying email...');
       setProgress(75);
 
-      // Check email verification for password providers (allow drivers to bypass)
+      // Password accounts must verify their email before any role can proceed.
       const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
       if (isPasswordProvider && !user.emailVerified) {
-        let allowBypass = false;
-        if (db) {
-          try {
-            const snap = await getDoc(doc(db, 'users', user.uid));
-            if (snap.exists()) {
-              const data = snap.data();
-              if ((data as any)?.role === 'driver') {
-                allowBypass = true;
-              }
-            }
-          } catch {}
+        try {
+          await sendEmailVerification(user);
+          showError('A verification link has been sent to your email. Please verify before logging in.', 'Email Verification Required', 'info');
+        } catch {
+          showError('Could not send a verification email. Please check spam and try again.', 'Email Verification Error', 'warning');
         }
-        if (!allowBypass) {
-          try {
-            await sendEmailVerification(user);
-            showError('A verification link has been sent to your email. Please verify before logging in.', 'Email Verification Required', 'info');
-          } catch (e: any) {
-            showError('Could not send verification email. Please check spam and try again.', 'Email Verification Error', 'warning');
-          }
-          try { 
-            await signOut(auth);
-            await clearCredentials();
-          } catch {}
-          setTimeout(() => {
-            router.replace('/(auth)/login' as any);
-          }, 3000);
-          return;
-        }
+        try { await signOut(auth); } catch {}
+        setTimeout(() => {
+          router.replace('/(auth)/login' as any);
+        }, 3000);
+        return;
       }
 
       setLoadingText('Setting up profile...');
@@ -270,9 +235,6 @@ export default function LoadingPage() {
     try {
       setLoadingText(`Signing in with ${authType}...`);
       setProgress(25);
-
-      // Clean up temp auth type
-      await storage.deleteItem('temp_auth_type');
 
       let result;
       if (authType === 'google') {
@@ -338,6 +300,8 @@ export default function LoadingPage() {
             router.replace('/(tabs)/home' as any);
           }
         }, 1000);
+      } else {
+        throw new Error('Authentication profile services are unavailable.');
       }
     } catch (error: any) {
       console.error('Error during navigation decision:', error);

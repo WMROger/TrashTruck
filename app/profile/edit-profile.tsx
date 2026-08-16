@@ -203,7 +203,7 @@ export default function EditProfileScreen() {
         <View style={styles.formSection}>
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: colors.textSecondary }]}>
-              What's your first name?
+              What’s your first name?
             </Text>
             <TextInput
               value={firstName}

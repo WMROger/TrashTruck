@@ -1,9 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, doc, endAt, getDocs, limit, orderBy, query, startAt, updateDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
+import { collection, doc, endAt, getDocs, limit, orderBy, query, serverTimestamp, startAt, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { db, functions } from '../../config/firebase';
+import { FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { db } from '../../config/firebase';
 import ErrorModal from '../ErrorModal';
 
 type UserRow = {
@@ -197,31 +196,12 @@ const ManageAccountsTab: React.FC = () => {
     setBusyMap((m) => ({ ...m, [userId]: true }));
     
     try {
-      // For web platform, use direct Firestore update to avoid CORS issues
-      // For mobile platforms, try Cloud Function first, then fallback to direct update
-      if (Platform.OS === 'web') {
-        // Direct Firestore update for web
-        await updateDoc(doc(db, 'users', userId), { role: nextRole });
-        setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
-        showError(`Role updated to ${nextRole}`, 'Success', 'success');
-      } else {
-        // Try Cloud Function first for mobile, then fallback to direct update
-        try {
-          if (functions) {
-            const callable = httpsCallable(functions, 'setUserRole');
-            await callable({ userId, role: nextRole });
-            setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
-            showError(`Role updated to ${nextRole}`, 'Success', 'success');
-          } else {
-            throw new Error('Functions not available');
-          }
-        } catch (err) {
-          // Fallback to direct write for admins if rules allow
-          await updateDoc(doc(db, 'users', userId), { role: nextRole });
-          setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
-          showError(`Role updated to ${nextRole}`, 'Success', 'success');
-        }
-      }
+      await updateDoc(doc(db, 'users', userId), {
+        role: nextRole,
+        updatedAt: serverTimestamp(),
+      });
+      setUsers((list) => list.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)));
+      showError(`Role updated to ${nextRole}`, 'Success', 'success');
     } catch (e) {
       console.error('Role update failed:', e);
       showError('Failed to update role', 'Update Error', 'error');
@@ -452,7 +432,7 @@ const ManageAccountsTab: React.FC = () => {
             
             <View style={styles.modalContent}>
               <Text style={styles.modalMessage}>
-                Are you sure you want to change this user's role?
+                Are you sure you want to change this user’s role?
               </Text>
               
               {roleChangeTarget && (
@@ -473,7 +453,7 @@ const ManageAccountsTab: React.FC = () => {
               )}
               
               <Text style={styles.warningText}>
-                This will immediately update the user's permissions.
+                This will immediately update the user’s permissions.
               </Text>
             </View>
             

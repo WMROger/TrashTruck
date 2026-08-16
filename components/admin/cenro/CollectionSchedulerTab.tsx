@@ -4,6 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, doc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import { DANAO_CITY_BARANGAYS } from '../../../constants/danaoBarangays';
 import AnalogTimePicker from './AnalogTimePicker';
 
 const WebDatePicker = ({ value, onChange }: { value: string, onChange: (val: string) => void }) => {
@@ -156,13 +157,18 @@ export default function CollectionSchedulerTab() {
       }
       return;
     }
+    if (!selectedDays.length) {
+      if (Platform.OS === 'web') window.alert('Missing Fields: Select at least one regular collection day.');
+      else Alert.alert('Missing Fields', 'Select at least one regular collection day.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'barangay_schedules'), {
         barangayName: barangayName.trim(),
         streetName: streetName.trim(),
-        days: [],
+        days: selectedDays,
         truck: truckName.trim(),
         wasteCategory: wasteCategory,
         createdAt: serverTimestamp(),
@@ -340,10 +346,6 @@ export default function CollectionSchedulerTab() {
         </View>
 
         <View style={styles.buttonsRow}>
-          <TouchableOpacity style={styles.outlineBtn}>
-            <MaterialIcons name="edit" size={18} color="#374151" />
-            <Text style={styles.outlineBtnText}>Update Schedule</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.primaryBtn} onPress={() => setModalVisible(true)}>
             <MaterialIcons name="add" size={18} color="#fff" />
             <Text style={styles.primaryBtnText}>Add New Barangay</Text>
@@ -487,9 +489,9 @@ export default function CollectionSchedulerTab() {
         <View style={styles.pagination}>
           <Text style={styles.pageInfo}>Showing {schedules.length} Barangays</Text>
           <View style={styles.pageControls}>
-            <TouchableOpacity><MaterialIcons name="chevron-left" size={20} color="#D1D5DB" /></TouchableOpacity>
+            <View><MaterialIcons name="chevron-left" size={20} color="#D1D5DB" /></View>
             <Text style={[styles.pageNum, styles.pageNumActive]}>1</Text>
-            <TouchableOpacity><MaterialIcons name="chevron-right" size={20} color="#D1D5DB" /></TouchableOpacity>
+            <View><MaterialIcons name="chevron-right" size={20} color="#D1D5DB" /></View>
           </View>
         </View>
       </View>
@@ -524,13 +526,7 @@ export default function CollectionSchedulerTab() {
                   onChange={(e: any) => setBarangayName(e.target.value)}
                 />
                 <datalist id="barangay-list">
-                  {[
-                    'Baliang', 'Bayabas', 'Binaliw', 'Cabungahan', 'Cagat-Lapu-Lapu', 'Cahumayan', 'Cambanay', 'Cambubho', 
-                    'Cogon-Cruz', 'Danasan', 'Dumolog', 'Dunggoan', 'Guinacot', 'Guinsay', 'Ibo', 'Langosig', 'Lawaan', 
-                    'Looc', 'Magtagobtob', 'Malapoc', 'Manlayag', 'Mantija', 'Masaba', 'Maslog', 'Nangka', 'Oguis', 
-                    'Pili', 'Poblacion', 'Quisol', 'Sabang', 'Sacsac', 'Sandayong Norte', 'Sandayong Sur', 'Santa Rosa', 
-                    'Santican', 'Sibacan', 'Suba', 'Taboc', 'Taytay', 'Togonon', 'Tuburan Sur'
-                  ]
+                  {DANAO_CITY_BARANGAYS
                   .filter(b => !schedules.some(s => s.barangayName === b))
                   .map(b => (
                     <option key={b} value={b} />
@@ -553,6 +549,16 @@ export default function CollectionSchedulerTab() {
               value={streetName}
               onChangeText={setStreetName}
             />
+
+            <Text style={styles.inputLabel}>Regular Collection Days</Text>
+            <View style={styles.modalDaysRow}>
+              {DAYS_OF_WEEK.map(day => {
+                const selected = selectedDays.includes(day);
+                return <TouchableOpacity key={day} style={[styles.modalDay, selected && styles.modalDaySelected]} onPress={() => toggleDay(day)}>
+                  <Text style={[styles.modalDayText, selected && styles.modalDayTextSelected]}>{day}</Text>
+                </TouchableOpacity>;
+              })}
+            </View>
 
             <Text style={styles.inputLabel}>Assigned Truck / Driver</Text>
             <TextInput
@@ -779,6 +785,11 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 20 },
   inputLabel: { fontSize: 12, fontWeight: '700', color: '#4B5563', marginBottom: 8, marginTop: 16 },
   textInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 14, color: '#111827' },
+  modalDaysRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  modalDay: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB' },
+  modalDaySelected: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
+  modalDayText: { fontSize: 11, fontWeight: '800', color: '#475569' },
+  modalDayTextSelected: { color: '#FFFFFF' },
   daysContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   daySelectBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB' },
   daySelectBtnActive: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },

@@ -109,10 +109,6 @@ export default function DriverAccountsTab() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>All System Users</Text>
-          <View style={styles.tableActions}>
-            <TouchableOpacity style={styles.iconBtn}><MaterialIcons name="filter-list" size={18} color="#6B7280" /></TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn}><MaterialIcons name="search" size={18} color="#6B7280" /></TouchableOpacity>
-          </View>
         </View>
 
         <View style={styles.table}>
@@ -135,7 +131,7 @@ export default function DriverAccountsTab() {
           ) : (
             users.map((row) => (
               <View key={row.id} style={styles.tableRow}>
-                <View style={[styles.td, { flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                <View style={{ flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={styles.avatarBadge}>
                     <Text style={styles.avatarText}>{row.displayName.substring(0, 2).toUpperCase()}</Text>
                   </View>
@@ -145,11 +141,11 @@ export default function DriverAccountsTab() {
                   </View>
                 </View>
                 
-                <View style={[styles.td, { flex: 1.5, alignItems: 'flex-start' }]}>
+                <View style={{ flex: 1.5, alignItems: 'flex-start' }}>
                   {getRoleBadge(row.role)}
                 </View>
 
-                <View style={[styles.td, { flex: 2 }]}>
+                <View style={{ flex: 2 }}>
                   {row.role === 'driver' ? (
                     <>
                       <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '500' }}>ID: {row.employeeId || 'Not set'}</Text>
@@ -160,7 +156,7 @@ export default function DriverAccountsTab() {
                   )}
                 </View>
                 
-                <View style={[styles.td, { flex: 1.5 }]}>
+                <View style={{ flex: 1.5 }}>
                   {row.role === 'driver' && row.currentTruckId ? (
                     <View style={styles.truckBadge}>
                       <Text style={styles.truckBadgeText}>{row.currentTruckPlate}</Text>
@@ -172,7 +168,7 @@ export default function DriverAccountsTab() {
                   )}
                 </View>
                 
-                <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }]}>
+                <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
                   {row.role !== 'admin' && (
                     <TouchableOpacity 
                       onPress={() => handleToggleRole(row)} 

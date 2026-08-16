@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import SplashScreen from './SplashScreen';
+import SplashScreen from '@/components/SplashScreen';
 
 export default function SplashScreenRoute() {
   const router = useRouter();
@@ -11,4 +11,4 @@ export default function SplashScreenRoute() {
   };
 
   return <SplashScreen onGetStarted={handleGetStarted} />;
-} 
+}

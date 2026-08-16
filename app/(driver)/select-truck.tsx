@@ -238,7 +238,7 @@ export default function SelectTruckScreen() {
             <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
             <Text style={styles.headerTitle}>Select Your Truck</Text>
           </View>
-          <Text style={styles.headerSubtitle}>Choose a truck for today's shift</Text>
+          <Text style={styles.headerSubtitle}>Choose a truck for today’s shift</Text>
         </View>
       </View>
 
@@ -366,7 +366,7 @@ export default function SelectTruckScreen() {
               Confirm Truck Selection
             </Text>
             <Text style={[styles.modalSubtitle, isDark && styles.textMuted]}>
-              You're about to start your shift with this truck
+              You’re about to start your shift with this truck
             </Text>
 
             {/* Truck Detail Card */}

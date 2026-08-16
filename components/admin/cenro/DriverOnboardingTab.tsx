@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db, functions } from '@/config/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { db } from '@/config/firebase';
+import { provisionDriverOnSpark } from '@/services/driverProvisioningService';
 
 export default function DriverOnboardingTab() {
   const [mode, setMode] = useState<'create' | 'upgrade'>('create');
@@ -47,11 +47,10 @@ export default function DriverOnboardingTab() {
     });
 
     // Fetch residents (users who are not drivers/admins)
-    const qUsers = query(collection(db, 'users'), where('role', 'in', ['user', null, '']));
-    const unsubUsers = onSnapshot(qUsers, (snap) => {
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const residents: any[] = [];
       snap.forEach(d => {
-        residents.push({ id: d.id, ...d.data() });
+        if ((d.data().role || 'user') === 'user') residents.push({ id: d.id, ...d.data() });
       });
       setResidentsList(residents);
     });
@@ -84,9 +83,7 @@ export default function DriverOnboardingTab() {
         }
       }
 
-      if (!functions) throw new Error('Firebase Functions is unavailable.');
-      const provisionDriver = httpsCallable(functions, 'provisionDriver');
-      await provisionDriver({
+      await provisionDriverOnSpark({
         mode,
         email: newEmail,
         password: mode === 'create' ? newPassword : undefined,
@@ -98,7 +95,12 @@ export default function DriverOnboardingTab() {
         truckId: selectedTruckId || undefined,
       });
 
-      Alert.alert('Success', `Driver successfully ${mode === 'create' ? 'created' : 'upgraded'}.`);
+      Alert.alert(
+        'Success',
+        mode === 'create'
+          ? 'Driver created. A verification link was sent to the driver email and must be opened before first sign-in.'
+          : 'Resident account successfully upgraded to driver.',
+      );
       
       // Reset form
       setNewEmail('');

@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
 import { auth, db } from '../../../config/firebase';
-import { MapCoordinate, optimizeRoadRoute } from '../../../services/roadRouteOptimizationService';
+import { MapCoordinate } from '../../../services/roadRouteOptimizationService';
+import { buildConstraintAwareRoute } from '../../../services/routeConstraintService';
 import { writeAuditLog } from '../../../services/auditLogService';
 import { formatWasteAmount } from '../../../utils/wasteUnits';
 
@@ -19,6 +20,9 @@ interface Report {
   userEmail: string;
   userId: string;
   location?: { lat?: number; lng?: number; latitude?: number; longitude?: number } | null;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  timeWindowStart?: string;
+  timeWindowEnd?: string;
   aiAnalysis?: {
     wasteType: string;
     estimatedWeight: string;
@@ -33,6 +37,11 @@ interface Driver {
   email: string;
   currentTruckId?: string;
 }
+
+const reportPriority = (report: Report) => {
+  if (report.priority) return report.priority;
+  return report.aiAnalysis?.wasteType?.toLowerCase().includes('hazard') ? 'high' : 'normal';
+};
 
 export default function RouteOptimizationTab() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -51,6 +60,13 @@ export default function RouteOptimizationTab() {
     provider: string;
     roadPolyline: MapCoordinate[];
     fallbackReason?: string;
+    estimatedLoadTons: number;
+    capacityTons: number | null;
+    utilizationPercent: number | null;
+    warnings: string[];
+    deferredStops: Report[];
+    trafficAware: boolean;
+    serviceWindow: { start: string; end: string };
   } | null>(null);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
@@ -58,6 +74,9 @@ export default function RouteOptimizationTab() {
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<'all' | 'gps' | 'missing'>('all');
   const [reportSearch, setReportSearch] = useState('');
+  const [serviceWindowStart, setServiceWindowStart] = useState('08:00');
+  const [serviceWindowEnd, setServiceWindowEnd] = useState('17:00');
+  const [trafficAware, setTrafficAware] = useState(true);
 
   const visibleReports = reports.filter(report => {
     const hasGps = Number.isFinite(report.location?.lat ?? report.location?.latitude) && Number.isFinite(report.location?.lng ?? report.location?.longitude);
@@ -146,7 +165,23 @@ export default function RouteOptimizationTab() {
       const truckOrigin = Number.isFinite(latitude) && Number.isFinite(longitude)
         ? { latitude: Number(latitude), longitude: Number(longitude) }
         : null;
-      const result = await optimizeRoadRoute(selectedData, truckOrigin);
+      const driver = drivers.find(item => item.id === selectedDriver);
+      let capacityTons: number | null = null;
+      if (driver?.currentTruckId) {
+        const truckSnapshot = await getDoc(doc(db, 'trucks', driver.currentTruckId));
+        const rawCapacity = Number.parseFloat(String(truckSnapshot.data()?.capacity || '').replace(/[^\d.]/g, ''));
+        capacityTons = Number.isFinite(rawCapacity) && rawCapacity > 0 ? rawCapacity : null;
+      }
+      const result = await buildConstraintAwareRoute(selectedData, truckOrigin, {
+        truckCapacityTons: capacityTons,
+        serviceWindowStart,
+        serviceWindowEnd,
+        trafficAware,
+      });
+      if (result.orderedStops.length === 0) {
+        Alert.alert('Capacity Exceeded', 'None of the selected reports fit within the assigned truck capacity. Select fewer stops or another truck.');
+        return;
+      }
       setOptimizedRoute(result.orderedStops);
       setRouteSummary(result);
       setShowDispatchModal(true);
@@ -199,6 +234,12 @@ export default function RouteOptimizationTab() {
             provider: routeSummary.provider,
             roadPolyline: routeSummary.roadPolyline,
             fallbackReason: routeSummary.fallbackReason || null,
+            estimatedLoadTons: routeSummary.estimatedLoadTons,
+            capacityTons: routeSummary.capacityTons,
+            utilizationPercent: routeSummary.utilizationPercent,
+            trafficAware: routeSummary.trafficAware,
+            serviceWindow: routeSummary.serviceWindow,
+            warnings: routeSummary.warnings,
           } : null,
           isLiveDispatch: true,
           createdByUid: auth.currentUser?.uid || null,
@@ -244,10 +285,12 @@ export default function RouteOptimizationTab() {
         });
       }
 
+      const { deferredStops: deferredForAnotherTrip = [], ...auditRouteSummary } = routeSummary || {};
       await writeAuditLog('route.dispatched', 'driver', selectedDriver, {
         stopCount: optimizedRoute.length,
         reportIds: optimizedRoute.map(report => report.id),
-        routeSummary,
+        deferredReportIds: deferredForAnotherTrip.map(report => report.id),
+        routeSummary: Object.keys(auditRouteSummary).length ? auditRouteSummary : null,
       });
 
       Alert.alert('Dispatch Successful', `Successfully dispatched ${optimizedRoute.length} locations to ${driverName}.`);
@@ -329,6 +372,7 @@ export default function RouteOptimizationTab() {
                     <View style={styles.reportContent}>
                       <Text style={styles.reportStreet}>{report.street}, {report.barangay}</Text>
                       <Text style={styles.reportDesc} numberOfLines={1}>{report.description}</Text>
+                      <Text style={styles.priorityText}>{reportPriority(report).toUpperCase()} PRIORITY</Text>
                       {!hasGps && <Text style={styles.missingGpsText}>GPS missing — placed after geotagged stops</Text>}
                     </View>
                     <View style={[styles.badge, { backgroundColor: report.status === 'pending' ? '#FEF3C7' : '#DBEAFE' }]}>
@@ -377,7 +421,25 @@ export default function RouteOptimizationTab() {
               )}
             </View>
 
-            <Text style={styles.label}>2. OPTIMIZATION SUMMARY</Text>
+            <Text style={styles.label}>2. ROUTE CONSTRAINTS</Text>
+            <View style={styles.constraintRow}>
+              <View style={styles.constraintField}>
+                <Text style={styles.constraintLabel}>SERVICE START</Text>
+                <TextInput style={styles.constraintInput} value={serviceWindowStart} onChangeText={setServiceWindowStart} placeholder="08:00" maxLength={5} />
+              </View>
+              <View style={styles.constraintField}>
+                <Text style={styles.constraintLabel}>SERVICE END</Text>
+                <TextInput style={styles.constraintInput} value={serviceWindowEnd} onChangeText={setServiceWindowEnd} placeholder="17:00" maxLength={5} />
+              </View>
+            </View>
+            <TouchableOpacity style={[styles.trafficToggle, trafficAware && styles.trafficToggleActive]} onPress={() => setTrafficAware(value => !value)}>
+              <MaterialIcons name="traffic" size={18} color={trafficAware ? '#FFFFFF' : '#475569'} />
+              <Text style={[styles.trafficToggleText, trafficAware && styles.trafficToggleTextActive]}>
+                Traffic-aware ETA {trafficAware ? 'ON' : 'OFF'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.label}>3. OPTIMIZATION SUMMARY</Text>
             <View style={styles.statsBox}>
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{selectedReports.size}</Text>
@@ -432,6 +494,17 @@ export default function RouteOptimizationTab() {
             <ScrollView style={styles.modalBody}>
               <Text style={styles.modalSubtitle}>Optimized Collection Sequence:</Text>
               {routeSummary && (
+                <View style={styles.constraintSummary}>
+                  <Text style={styles.constraintSummaryTitle}>Constraint-aware plan</Text>
+                  <Text style={styles.constraintSummaryText}>
+                    {routeSummary.estimatedLoadTons.toFixed(3)} t planned
+                    {routeSummary.capacityTons ? ` / ${routeSummary.capacityTons} t capacity (${routeSummary.utilizationPercent}%)` : ' · capacity unavailable'}
+                    {` · ${routeSummary.serviceWindow.start}-${routeSummary.serviceWindow.end}`}
+                    {routeSummary.trafficAware ? ' · traffic aware' : ''}
+                  </Text>
+                </View>
+              )}
+              {routeSummary && (
                 <Text style={[styles.infoDesc, { marginBottom: 12 }]}>
                   {routeSummary.provider} · {routeSummary.distanceKm.toFixed(2)} km{routeSummary.durationMinutes ? ` · ${routeSummary.durationMinutes} min driving` : ''} · {routeSummary.unlocatedStops} without GPS
                 </Text>
@@ -439,6 +512,9 @@ export default function RouteOptimizationTab() {
               {routeSummary?.fallbackReason && (
                 <Text style={[styles.missingGpsText, { marginBottom: 12 }]}>Fallback active: {routeSummary.fallbackReason}</Text>
               )}
+              {routeSummary?.warnings.map((warning, index) => (
+                <Text key={`route-warning-${index}`} style={[styles.missingGpsText, { marginBottom: 6 }]}>• {warning}</Text>
+              ))}
               {optimizedRoute.map((report, idx) => (
                 <View key={report.id} style={styles.routeItem}>
                   <View style={styles.routeNumberBg}>
@@ -450,6 +526,12 @@ export default function RouteOptimizationTab() {
                   </View>
                 </View>
               ))}
+              {!!routeSummary?.deferredStops.length && (
+                <View style={styles.deferredBox}>
+                  <Text style={styles.deferredTitle}>Deferred for another trip ({routeSummary.deferredStops.length})</Text>
+                  {routeSummary.deferredStops.map(report => <Text key={report.id} style={styles.deferredText}>• {report.street}, {report.barangay}</Text>)}
+                </View>
+              )}
             </ScrollView>
 
             <View style={styles.modalFooter}>
@@ -627,6 +709,7 @@ const styles = StyleSheet.create({
   reportContent: { flex: 1 },
   reportStreet: { fontSize: 14, fontWeight: '600', color: '#111827' },
   reportDesc: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  priorityText: { fontSize: 9, color: '#7C3AED', fontWeight: '800', marginTop: 3, letterSpacing: 0.4 },
   missingGpsText: { color: '#B45309', fontSize: 11, fontWeight: '600', marginTop: 3 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 10, fontWeight: '700' },
@@ -638,6 +721,14 @@ const styles = StyleSheet.create({
   driverPillActive: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
   driverPillText: { fontSize: 13, fontWeight: '600', color: '#4B5563' },
   driverPillTextActive: { color: '#FFF' },
+  constraintRow: { flexDirection: 'row', gap: 10 },
+  constraintField: { flex: 1 },
+  constraintLabel: { color: '#64748B', fontSize: 9, fontWeight: '800', marginBottom: 5 },
+  constraintInput: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, color: '#0F172A', backgroundColor: '#FFFFFF' },
+  trafficToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#CBD5E1' },
+  trafficToggleActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  trafficToggleText: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  trafficToggleTextActive: { color: '#FFFFFF' },
 
   statsBox: { flexDirection: 'row', backgroundColor: '#F9FAFB', borderRadius: 8, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 24 },
   statItem: { flex: 1, alignItems: 'center' },
@@ -659,6 +750,12 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
   modalBody: { padding: 20 },
   modalSubtitle: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 16 },
+  constraintSummary: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 10, padding: 12, marginBottom: 12 },
+  constraintSummaryTitle: { color: '#1E3A8A', fontSize: 12, fontWeight: '800', marginBottom: 4 },
+  constraintSummaryText: { color: '#1D4ED8', fontSize: 11, lineHeight: 17, fontWeight: '600' },
+  deferredBox: { marginTop: 14, padding: 12, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', borderRadius: 10 },
+  deferredTitle: { color: '#9A3412', fontSize: 12, fontWeight: '800', marginBottom: 6 },
+  deferredText: { color: '#C2410C', fontSize: 11, marginTop: 3 },
   
   routeItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   routeNumberBg: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#2E8B57', justifyContent: 'center', alignItems: 'center' },

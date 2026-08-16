@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "trashtrack",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.trashtrack",
+      "bundleIdentifier": "com.trashtrack.danao",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to attach photos to reports.",
         "NSCameraUsageDescription": "We need access to your camera so you can take photos for reports.",
@@ -30,11 +30,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourcompany.trashtrack",
+      "package": "com.trashtrack.danao",
       "permissions": [
         "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ]
@@ -50,7 +48,8 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow TrashTrack to use your location."
+          "locationWhenInUsePermission": "Allow TrashTrack to use your location while reporting waste or completing an assigned collection.",
+          "locationAlwaysAndWhenInUsePermission": false
         }
       ],
       "@react-native-community/datetimepicker",

@@ -4,7 +4,7 @@ import { db, storage } from "@/config/firebase";
 import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { NotificationService } from "@/services/notificationService";
-import { formatAdaptiveMassFromMetricTons } from "@/utils/wasteUnits";
+import { formatAdaptiveMassFromMetricTons, toMetricTons, WasteMeasurementUnit } from "@/utils/wasteUnits";
 import { MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -25,8 +25,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  Alert
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -93,8 +92,10 @@ export default function HomePage() {
 
   // Gamification states
   const [userReports, setUserReports] = useState<any[]>([]);
-  const totalPoints = userReports.length * 50; // 50 points per report
-  const trashCollectedTons = userReports.length * 0.0025; // Existing 2.5 kg-per-report estimate, normalized in metric tons.
+  const [earnedRewardTokens, setEarnedRewardTokens] = useState(0);
+  const [redeemedRewardTokens, setRedeemedRewardTokens] = useState(0);
+  const [trashCollectedTons, setTrashCollectedTons] = useState(0);
+  const totalPoints = Math.max(0, earnedRewardTokens - redeemedRewardTokens);
 
   // Next Collection state
   const [userBarangay, setUserBarangay] = useState<string>('');
@@ -370,6 +371,39 @@ export default function HomePage() {
       setUserReports(items);
     });
     return () => unsub();
+  }, [user?.uid]);
+
+  // Use the immutable completion ledger for points and measured pickup totals.
+  useEffect(() => {
+    if (!db || !user?.uid) return;
+    const ownedAwards = query(collection(db, 'reward_awards'), where('userId', '==', user.uid));
+    const ownedRedemptions = query(collection(db, 'reward_redemptions'), where('userId', '==', user.uid));
+    const ownedSchedules = query(collection(db, 'schedules'), where('userId', '==', user.uid));
+
+    const unsubscribeAwards = onSnapshot(ownedAwards, snapshot => {
+      setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
+    });
+    const unsubscribeRedemptions = onSnapshot(ownedRedemptions, snapshot => {
+      setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0));
+    });
+    const unsubscribeSchedules = onSnapshot(ownedSchedules, snapshot => {
+      const measuredTons = snapshot.docs.reduce((sum, item) => {
+        const schedule = item.data();
+        if (!['completed', 'done'].includes(String(schedule.status || '').toLowerCase())) return sum;
+        const measurement = schedule.collectionMeasurement;
+        const value = Number(measurement?.value || 0);
+        const unit = String(measurement?.unit || '');
+        if (!(value > 0) || !['kg', 'ton', 'm3'].includes(unit)) return sum;
+        return sum + toMetricTons(value, unit as WasteMeasurementUnit);
+      }, 0);
+      setTrashCollectedTons(measuredTons);
+    });
+
+    return () => {
+      unsubscribeAwards();
+      unsubscribeRedemptions();
+      unsubscribeSchedules();
+    };
   }, [user?.uid]);
 
   // Subscribe to user notifications (inbox)
@@ -730,7 +764,7 @@ export default function HomePage() {
           </TouchableOpacity>
         )}
         
-        <TouchableOpacity style={styles.quickActionCard} onPress={() => Alert.alert('Coming Soon', 'Redeem Points feature is not yet available.')}>
+        <TouchableOpacity style={styles.quickActionCard} onPress={() => router.push('/rewards' as any)}>
           <IconSymbol name="gift" size={20} color="#4A6741" />
           <Text style={styles.quickActionText}>Redeem Points</Text>
         </TouchableOpacity>

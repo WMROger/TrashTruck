@@ -211,6 +211,29 @@ async function buildPickupsContext(userId: string): Promise<any | null> {
   }
 }
 
+const buildOfflineAssistantResponse = (queryText: string, context: any) => {
+  const normalized = queryText.toLowerCase();
+  if (/schedule|pickup|collection/.test(normalized)) {
+    const schedules = Array.isArray(context?.schedules?.items) ? context.schedules.items : [];
+    return schedules.length
+      ? `You have ${schedules.length} collection schedule${schedules.length === 1 ? '' : 's'} available. Open the Schedule tab for confirmed dates, route, and live truck status.`
+      : 'You do not have an assigned collection schedule yet. Confirmed schedules will appear in the Schedule tab when CENRO publishes them.';
+  }
+  if (/announcement|alert/.test(normalized)) {
+    const count = Number(context?.announcements?.total || 0);
+    return count
+      ? `There ${count === 1 ? 'is' : 'are'} ${count} published announcement${count === 1 ? '' : 's'}. Open the Alerts tab to review the official details.`
+      : 'There are no published announcements in your TrashTrack data right now.';
+  }
+  if (/notification|inbox/.test(normalized)) {
+    const count = Number(context?.notifications?.total || 0);
+    return count
+      ? `Your inbox contains ${count} notification${count === 1 ? '' : 's'}. Open the notification list to review them.`
+      : 'Your TrashTrack inbox is currently empty.';
+  }
+  return 'The online AI service is temporarily unavailable. You can still report waste, view collection schedules, read official announcements, and track submitted reports in TrashTrack.';
+};
+
 // Call Gemini API for AI processing
 async function generateAIResponse(query: string, options?: { context?: any; userId?: string }): Promise<string> {
   try {
@@ -328,15 +351,7 @@ When user asks "Can you tell me the schedules for trash collecting?" or similar:
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
     if (!apiKey) {
-      console.log('⚠️ No Gemini API key found, using mock response.');
-      const MOCK_AI_RESPONSES = [
-        "That's a great question about waste management! Based on your schedule, your next pickup is coming soon.",
-        "Remember to always separate your biodegradables from recyclables to help our environment.",
-        "I'm currently running in offline mode as the AI API key isn't set, but I'm here to help you navigate TrashTrack!"
-      ];
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return MOCK_AI_RESPONSES[Math.floor(Math.random() * MOCK_AI_RESPONSES.length)];
+      return buildOfflineAssistantResponse(query, options?.context);
     }
 
     console.log('🚀 Using Gemini SDK for AI response');
@@ -356,7 +371,7 @@ When user asks "Can you tell me the schedules for trash collecting?" or similar:
     return aiResponse;
   } catch (error) {
     console.error('❌ AI SDK error:', error);
-    throw error;
+    return buildOfflineAssistantResponse(query, options?.context);
   }
 }
 

@@ -246,7 +246,7 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
                   <Text style={[styles.td, { flex: 1, fontWeight: '500' }]}>{row.id}</Text>
                   <Text style={[styles.td, { flex: 2 }]}>{row.barangay}</Text>
                   <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{row.type}</Text>
-                  <View style={[styles.td, { flex: 1.5 }]}>
+                  <View style={{ flex: 1.5 }}>
                     <View style={[styles.badge, { backgroundColor: row.statusColor + '20' }]}>
                       <Text style={[styles.badgeText, { color: row.statusColor }]}>{row.status}</Text>
                     </View>
@@ -265,8 +265,8 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
           {/* Today's Schedule List */}
           <View style={styles.scheduleCard}>
             <View style={styles.scheduleHeaderRow}>
-              <Text style={styles.sectionTitle}>Today's Schedule</Text>
-              <TouchableOpacity>
+              <Text style={styles.sectionTitle}>Today’s Schedule</Text>
+              <TouchableOpacity onPress={() => onTabChange?.('collection-scheduler')}>
                 <Text style={styles.seeAllText}>See All</Text>
               </TouchableOpacity>
             </View>

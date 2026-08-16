@@ -22,3 +22,34 @@ Generated files are written to `output/ml/`:
 - `data/lstmForecastArtifact.json` is the versioned, presentation-safe candidate summary consumed by the analytics dashboard.
 
 The split is chronological. The final six months are never used for training or early stopping. The preceding six months are validation data. The LSTM should only replace the application baseline if its held-out MAE is lower and the result is stable across repeated runs or rolling-origin evaluation.
+
+## Local inference API
+
+After training, start the service from the repository root:
+
+```powershell
+.\.venv-ml\Scripts\python.exe ml\inference_api.py
+```
+
+The service listens on `http://127.0.0.1:8787`. Configure the Expo web app with:
+
+```text
+EXPO_PUBLIC_FORECAST_API_URL=http://127.0.0.1:8787
+```
+
+Endpoints:
+
+- `GET /health` and `GET /model` report model readiness and promotion status.
+- `POST /forecast` accepts `historyTons` with at least 12 observations and `horizonMonths` from 1 to 12.
+
+`ml/Dockerfile` builds a portable inference image and exposes port `8787` for deployment.
+
+## Monitoring and conditional retraining
+
+Enter approved monthly observations in `ml/data/production_actuals.csv` using `period,actual_tons`, then run:
+
+```powershell
+.\.venv-ml\Scripts\python.exe ml\monitor_and_retrain.py
+```
+
+The monitor waits for at least three forecast/actual matches. It runs the five-seed evaluation only when MAPE exceeds 15%, unless `--force` is supplied. The monthly GitHub workflow performs the same check and uploads the monitoring and registry reports as build artifacts. A newly evaluated model remains a candidate unless it passes the documented promotion gate.

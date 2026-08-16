@@ -8,7 +8,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../components/AuthContext';
 import { AdminSidebar } from '../../components/admin';
 import {
-  AddNewBarangayTab,
   CenroDashboardTab,
   CollectionSchedulerTab,
   DriverOnboardingTab,
@@ -21,6 +20,8 @@ import {
   TruckInventoryTab,
   DriverAccountsTab,
   AnnouncementsTab,
+  FleetMonitoringTab,
+  DictCommandsTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
@@ -113,8 +114,9 @@ export default function AdminDashboard() {
           router.replace('/admin/login');
         }
       } else {
-        console.log('Admin dashboard: Firestore not available, proceeding with auth only');
-        setIsAdmin(true);
+        Alert.alert('Access Unavailable', 'Admin privileges cannot be verified because Firestore is unavailable.');
+        try { await signOut(auth); } catch {}
+        router.replace('/admin/login');
         setIsLoading(false);
       }
     };
@@ -496,6 +498,8 @@ export default function AdminDashboard() {
         return <ServiceFeedbackTab />;
       case 'route-optimization':
         return <RouteOptimizationTab />;
+      case 'fleet-monitoring':
+        return <FleetMonitoringTab />;
       case 'truck-inventory':
         return <TruckInventoryTab />;
       case 'driver-onboarding':
@@ -508,8 +512,8 @@ export default function AdminDashboard() {
         return <OperationalOverridesTab />;
       case 'announcements':
         return <AnnouncementsTab />;
-      case 'add-barangay':
-        return <AddNewBarangayTab />;
+      case 'dict-commands':
+        return <DictCommandsTab />;
       case 'coordinators':
         return <EnvironmentalCoordinatorsTab />;
       case 'analytics':
@@ -554,12 +558,12 @@ export default function AdminDashboard() {
         )}
         <Text style={styles.topBarTitle}>{isNarrow ? 'CENRO' : 'CENRO Civic Steward'}</Text>
         <View style={styles.topBarRight}>
-          <TouchableOpacity style={styles.topBarIconBtn}>
+          <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('announcements')}>
             <MaterialIcons name="notifications-none" size={24} color="#374151" />
             <View style={styles.notificationDot} />
           </TouchableOpacity>
           {!isNarrow && (
-            <TouchableOpacity style={styles.topBarIconBtn}>
+            <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('operational-overrides')}>
               <MaterialIcons name="settings" size={24} color="#374151" />
             </TouchableOpacity>
           )}
@@ -571,7 +575,13 @@ export default function AdminDashboard() {
             </View>
           )}
           <TouchableOpacity onPress={handleLogout} activeOpacity={0.7}>
-            <Image source={{ uri: 'https://i.pravatar.cc/100?img=33' }} style={styles.topBarAvatar} />
+            {user?.photoURL ? (
+              <Image source={{ uri: user.photoURL }} style={styles.topBarAvatar} />
+            ) : (
+              <View style={[styles.topBarAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#DDE9DF' }]}>
+                <MaterialIcons name="person" size={22} color="#2E6B49" />
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -629,7 +639,7 @@ export default function AdminDashboard() {
             {/* Content */}
             <View style={styles.logoutModalContent}>
               <Text style={styles.logoutModalMessage}>
-                Are you sure you want to logout from the admin panel? You'll need to sign in again to access administrative features.
+                Are you sure you want to logout from the admin panel? You will need to sign in again to access administrative features.
               </Text>
             </View>
             
@@ -1555,4 +1565,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-}); 
+});

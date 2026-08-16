@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,17 +7,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
 import DictSidebar from '../../components/admin/DictSidebar';
-import { RewardsTab, IdentityAccessTab } from '../../components/admin/dict';
+import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab } from '../../components/admin/dict';
 
 export default function DictDashboard() {
-  const { user } = useAuthContext();
+  const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
   const [isDictAdmin, setIsDictAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('identity-access'); // Defaulting to identity-access for dict admins
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const { width } = useWindowDimensions();
+  const sidebarCollapsed = Platform.OS === 'web' && width < 980;
   
   useEffect(() => {
     const checkDictAccess = async () => {
+      if (authLoading) return;
       if (!user) {
         console.log('DICT dashboard: No user found, redirecting to login');
         router.replace('/admin/login');
@@ -54,14 +57,15 @@ export default function DictDashboard() {
           router.replace('/admin/login');
         }
       } else {
-        // Fallback for development without Firestore
-        setIsDictAdmin(true);
+        Alert.alert('Access Unavailable', 'DICT clearance cannot be verified because Firestore is unavailable.');
+        try { await signOut(auth); } catch {}
+        router.replace('/admin/login');
         setIsLoading(false);
       }
     };
 
     checkDictAccess();
-  }, [user]);
+  }, [authLoading, router, user]);
 
   const handleLogout = async () => {
     if (Platform.OS === 'web') {
@@ -103,19 +107,16 @@ export default function DictDashboard() {
         return <RewardsTab />;
       case 'identity-access':
         return <IdentityAccessTab />;
-      // TODO: Add other tabs here as they are built
       case 'dashboard':
+        return <DictDashboardTab />;
       case 'data-management':
+        return <DataManagementTab />;
       case 'fleet-ops':
+        return <FleetOpsTab />;
       case 'cenro-command':
+        return <CenroCommandTab />;
       default:
-        return (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText}>
-              {activeTab.replace('-', ' ').toUpperCase()} Tab (Under Construction)
-            </Text>
-          </View>
-        );
+        return <DictDashboardTab />;
     }
   };
 
@@ -139,12 +140,13 @@ export default function DictDashboard() {
           activeTab={activeTab} 
           onTabChange={setActiveTab} 
           onLogout={handleLogout} 
+          collapsed={sidebarCollapsed}
         />
         
-        <View style={styles.mainContent}>
+        <View style={[styles.mainContent, Platform.OS === 'web' ? { marginLeft: sidebarCollapsed ? 80 : 280 } : null]}>
           {/* Header Bar */}
           <View style={styles.headerBar}>
-            <Text style={styles.headerTitle}>CENRO Civic Steward</Text>
+            <Text style={styles.headerTitle}>TrashTrack DICT Oversight Portal</Text>
             <View style={styles.headerRight}>
               <View style={styles.adminInfo}>
                 <Text style={styles.adminName}>{user?.displayName || user?.email?.split('@')[0] || 'SUPER ADMIN'}</Text>
@@ -190,7 +192,6 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
     backgroundColor: '#F9FAFB',
-    ...(Platform.OS === 'web' ? { marginLeft: 280 } : {}), // Margin for fixed sidebar on web
   },
   headerBar: {
     height: 70,

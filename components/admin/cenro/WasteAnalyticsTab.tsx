@@ -11,6 +11,8 @@ import { buildHotspots, LocationLike } from '../../../services/hotspotAnalysisSe
 import { formatAdaptiveMassFromMetricTons, parseWasteAmountToMetricTons, toMetricTons, WasteMeasurementUnit } from '../../../utils/wasteUnits';
 import MapView, { Heatmap, Marker } from '../../MapView';
 import GpsHeatMap from './GpsHeatMap';
+import ForecastOperationsPanel from './ForecastOperationsPanel';
+import ExpenseBudgetPanel from './ExpenseBudgetPanel';
 
 type ForecastMode = 'baseline' | 'lstm-candidate';
 type BudgetConfig = { costPerTon: number; contingencyPercent: number };
@@ -443,6 +445,11 @@ export default function WasteAnalyticsTab() {
         </View>
       </View>
 
+      <ForecastOperationsPanel
+        historyTons={data.historicalSeries.map((point: any) => Number(point.value))}
+        candidate={data.lstmCandidate}
+      />
+
       {/* Bottom Row */}
       <View style={styles.bottomRow}>
         <View style={styles.financialCard}>
@@ -565,6 +572,7 @@ export default function WasteAnalyticsTab() {
           )}
         </View>
       </View>
+      <ExpenseBudgetPanel forecastTons={baselineForecastTons} contingencyPercent={budgetConfig.contingencyPercent} />
     </ScrollView>
   );
 }

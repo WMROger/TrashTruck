@@ -10,11 +10,17 @@ const {
   clampRadius,
   notificationPreferenceAllows,
 } = require('./lib/core');
+const { normalizeRewardConfig, findSouvenir } = require('./lib/rewards');
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
 const db = admin.firestore();
+
+async function loadRewardConfig() {
+  const snapshot = await db.collection('app_config').doc('rewards').get();
+  return normalizeRewardConfig(snapshot.exists ? snapshot.data() : {});
+}
 
 async function requireCenroAdmin(context) {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required.');
@@ -26,6 +32,18 @@ async function requireCenroAdmin(context) {
     throw new functions.https.HttpsError('permission-denied', 'Active CENRO administrator access is required.');
   }
   return context.auth.uid;
+}
+
+async function requireDictOversight(context) {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required.');
+  const profile = await db.collection('users').doc(context.auth.uid).get();
+  const data = profile.data();
+  const isActive = profile.exists && data?.disabled !== true && data?.status !== 'disabled';
+  const hasOversightRole = ['dict', 'admin'].includes(data?.role) || context.auth.token?.dict === true || context.auth.token?.admin === true;
+  if (!isActive || !hasOversightRole) {
+    throw new functions.https.HttpsError('permission-denied', 'Active DICT or CENRO administrator access is required.');
+  }
+  return { uid: context.auth.uid, role: data?.role };
 }
 
 async function provisionDriver(data, context) {
@@ -167,11 +185,14 @@ exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
 
 // Admin-only callable to set a user's role
 exports.setUserRole = functions.https.onCall(async (data, context) => {
-  await requireCenroAdmin(context);
+  const actor = await requireDictOversight(context);
   const userId = (data?.userId || '').toString();
   const role = (data?.role || '').toString();
-  if (!userId || !role || !['user', 'admin', 'dict', 'coordinator'].includes(role)) {
+  if (!userId || !role || !['user', 'driver', 'admin', 'dict', 'coordinator'].includes(role)) {
     throw new functions.https.HttpsError('invalid-argument', 'Valid userId and role are required');
+  }
+  if (userId === actor.uid && !['admin', 'dict'].includes(role)) {
+    throw new functions.https.HttpsError('failed-precondition', 'You cannot remove your own portal access.');
   }
   const target = await admin.auth().getUser(userId);
   const existingClaims = target.customClaims || {};
@@ -179,7 +200,7 @@ exports.setUserRole = functions.https.onCall(async (data, context) => {
     ...existingClaims,
     admin: role === 'admin',
     dict: role === 'dict',
-    driver: false,
+    driver: role === 'driver',
     role,
   });
   await db.collection('users').doc(userId).set({ role, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -194,6 +215,150 @@ exports.setUserRole = functions.https.onCall(async (data, context) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
   return { ok: true };
+});
+
+const isoTimestamp = value => {
+  try {
+    return value?.toDate ? value.toDate().toISOString() : value || null;
+  } catch {
+    return null;
+  }
+};
+
+const cleanDocument = snapshot => {
+  const data = snapshot.data() || {};
+  return Object.fromEntries(Object.entries({ id: snapshot.id, ...data }).map(([key, value]) => [
+    key,
+    value?.toDate ? isoTimestamp(value) : value,
+  ]));
+};
+
+exports.getDictOversightSnapshot = functions.https.onCall(async (_data, context) => {
+  await requireDictOversight(context);
+  const [users, reports, schedules, trucks, locations, auditLogs, errors, activity, expenses, messages, announcements] = await Promise.all([
+    db.collection('users').get(),
+    db.collection('reports').get(),
+    db.collection('schedules').get(),
+    db.collection('trucks').get(),
+    db.collection('truck_locations').get(),
+    db.collection('audit_logs').orderBy('createdAt', 'desc').limit(20).get(),
+    db.collection('error_logs').orderBy('createdAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
+    db.collection('client_activity').orderBy('createdAt', 'desc').limit(250).get(),
+    db.collection('analytics').doc('expense_records').collection('items').orderBy('period', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+    db.collection('interagency_messages').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
+    db.collection('announcements').get(),
+  ]);
+  const reportRows = reports.docs.map(cleanDocument);
+  const scheduleRows = schedules.docs.map(cleanDocument);
+  const locationRows = locations.docs.map(cleanDocument);
+  const now = Date.now();
+  const activeFleet = locationRows.filter(item => {
+    const timestamp = item.lastUpdate ? new Date(item.lastUpdate).getTime() : 0;
+    return item.status === 'active' && now - timestamp <= 2 * 60 * 1000;
+  }).length;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    counts: {
+      users: users.size,
+      reports: reports.size,
+      schedules: schedules.size,
+      trucks: trucks.size,
+      announcements: announcements.size,
+      expenses: expenses.docs.length,
+      auditEvents: auditLogs.size,
+      errorEvents: errors.docs.length,
+    },
+    roles: users.docs.reduce((summary, item) => {
+      const role = String(item.data().role || 'user');
+      summary[role] = (summary[role] || 0) + 1;
+      return summary;
+    }, {}),
+    operations: {
+      activeFleet,
+      staleFleet: locationRows.filter(item => item.status === 'active').length - activeFleet,
+      pendingReports: reportRows.filter(item => ['pending', 'acknowledged', 'in-progress'].includes(String(item.status))).length,
+      completedSchedules: scheduleRows.filter(item => ['completed', 'done'].includes(String(item.status))).length,
+      activeSchedules: scheduleRows.filter(item => ['pending', 'in-progress'].includes(String(item.status))).length,
+    },
+    dataQuality: {
+      reportsMissingGps: reportRows.filter(item => !Number.isFinite(item.location?.lat ?? item.location?.latitude) || !Number.isFinite(item.location?.lng ?? item.location?.longitude)).length,
+      completedSchedulesMissingMeasurement: scheduleRows.filter(item => ['completed', 'done'].includes(String(item.status)) && !(Number(item.collectionMeasurement?.value) > 0)).length,
+      expensePeriods: new Set(expenses.docs.map(item => item.data().period).filter(Boolean)).size,
+    },
+    fleetLocations: locationRows,
+    recentAudit: auditLogs.docs.map(cleanDocument),
+    recentErrors: errors.docs.map(cleanDocument),
+    recentActivity: activity.docs.map(cleanDocument),
+    expenseRecords: expenses.docs.map(cleanDocument),
+    messages: messages.docs.map(cleanDocument),
+  };
+});
+
+exports.sendDictCommand = functions.https.onCall(async (data, context) => {
+  const actor = await requireDictOversight(context);
+  const subject = String(data?.subject || '').trim();
+  const message = String(data?.message || '').trim();
+  const priority = String(data?.priority || 'normal').toLowerCase();
+  if (subject.length < 3 || subject.length > 120 || message.length < 5 || message.length > 2000 || !['normal', 'high', 'urgent'].includes(priority)) {
+    throw new functions.https.HttpsError('invalid-argument', 'A valid subject, message, and priority are required.');
+  }
+  const messageRef = await db.collection('interagency_messages').add({
+    subject, message, priority, senderUid: actor.uid, senderRole: actor.role,
+    status: 'sent', createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  const admins = await db.collection('users').where('role', '==', 'admin').get();
+  const batch = db.batch();
+  admins.docs.forEach(profile => batch.create(db.collection('userNotifications').doc(), {
+    userId: profile.id,
+    title: `DICT: ${subject}`,
+    body: message,
+    type: 'interagency_command',
+    priority,
+    read: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  }));
+  batch.create(db.collection('audit_logs').doc(), {
+    event: 'dict.command_sent', actorUid: actor.uid, targetType: 'interagency_message', targetId: messageRef.id,
+    metadata: { priority, recipientCount: admins.size }, source: 'server', createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+  return { id: messageRef.id, recipientCount: admins.size };
+});
+
+exports.getRewardCatalog = functions.https.onCall(async (_data, context) => {
+  await requireDictOversight(context);
+  return loadRewardConfig();
+});
+
+exports.redeemReward = functions.https.onCall(async (data, context) => {
+  const actor = await requireDictOversight(context);
+  const userId = String(data?.userId || '');
+  const souvenirId = String(data?.souvenirId || '');
+  const rewardConfig = await loadRewardConfig();
+  const souvenir = findSouvenir(rewardConfig, souvenirId);
+  if (!userId || !souvenir) {
+    throw new functions.https.HttpsError('invalid-argument', 'A valid reward recipient and item are required.');
+  }
+  const userRef = db.collection('users').doc(userId);
+  const redemptionRef = db.collection('reward_redemptions').doc();
+  await db.runTransaction(async transaction => {
+    const user = await transaction.get(userRef);
+    if (!user.exists || user.data()?.role !== 'user') throw new functions.https.HttpsError('not-found', 'Citizen account was not found.');
+    const tokens = Number(user.data()?.tokens || 0);
+    if (tokens < souvenir.cost) throw new functions.https.HttpsError('failed-precondition', 'The citizen does not have enough tokens.');
+    transaction.update(userRef, { tokens: tokens - souvenir.cost, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    transaction.create(redemptionRef, {
+      userId, userName: user.data()?.displayName || user.data()?.name || 'Citizen',
+      souvenirId: souvenir.id, souvenirName: souvenir.name, cost: souvenir.cost,
+      issuedByUid: actor.uid, issuedAt: admin.firestore.FieldValue.serverTimestamp(), status: 'completed',
+    });
+    transaction.create(db.collection('audit_logs').doc(), {
+      event: 'reward.redeemed', actorUid: actor.uid, targetType: 'user', targetId: userId,
+      metadata: { souvenirId: souvenir.id, cost: souvenir.cost }, source: 'server', createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+  return { redemptionId: redemptionRef.id };
 });
 
 // Backward-compatible callable for the older admin screen. New CENRO flows use provisionDriver.
@@ -390,6 +555,97 @@ exports.auditScheduleWrite = functions.firestore.document('schedules/{scheduleId
     source: 'server-trigger',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: false });
+});
+
+async function awardCompletedSchedule(scheduleId, schedule, configuredRewards = null) {
+  const status = String(schedule?.status || '').toLowerCase();
+  const measurement = Number(schedule?.collectionMeasurement?.value);
+  const reportId = String(schedule?.reportId || '').trim();
+  if (!['completed', 'done'].includes(status) || !reportId || !schedule?.completedByUid || !(measurement > 0)) {
+    return { status: 'ineligible' };
+  }
+
+  const reportRef = db.collection('reports').doc(reportId);
+  const reportSnapshot = await reportRef.get();
+  if (!reportSnapshot.exists) return { status: 'missing-report' };
+  const userId = String(schedule.userId || reportSnapshot.data()?.userId || '').trim();
+  if (!userId) return { status: 'missing-user' };
+
+  const rewardConfig = configuredRewards || await loadRewardConfig();
+  const awardRef = db.collection('reward_awards').doc(`report_${reportId}`);
+  const userRef = db.collection('users').doc(userId);
+  return db.runTransaction(async transaction => {
+    const [existingAward, userSnapshot] = await Promise.all([
+      transaction.get(awardRef),
+      transaction.get(userRef),
+    ]);
+    if (existingAward.exists) return { status: 'already-awarded' };
+    if (!userSnapshot.exists || userSnapshot.data()?.role !== 'user') return { status: 'missing-user' };
+
+    const currentTokens = Number(userSnapshot.data()?.tokens || 0);
+    const completedReports = Number(userSnapshot.data()?.totalReports || 0);
+    const awardedAt = admin.firestore.FieldValue.serverTimestamp();
+    transaction.update(userRef, {
+      tokens: currentTokens + rewardConfig.completionTokens,
+      totalReports: completedReports + 1,
+      updatedAt: awardedAt,
+    });
+    transaction.create(awardRef, {
+      userId,
+      reportId,
+      scheduleId,
+      tokens: rewardConfig.completionTokens,
+      reason: 'verified-collection-completed',
+      awardedAt,
+    });
+    transaction.set(reportRef, {
+      status: 'completed',
+      completedAt: awardedAt,
+      rewardAwarded: true,
+      rewardTokens: rewardConfig.completionTokens,
+      updatedAt: awardedAt,
+    }, { merge: true });
+    transaction.create(db.collection('userNotifications').doc(), {
+      userId,
+      title: 'TrashTrack Tokens Earned',
+      body: `You earned ${rewardConfig.completionTokens} tokens after your reported waste was collected.`,
+      type: 'reward',
+      read: false,
+      createdAt: awardedAt,
+    });
+    transaction.create(db.collection('audit_logs').doc(), {
+      event: 'reward.earned',
+      actorUid: schedule.completedByUid,
+      targetType: 'user',
+      targetId: userId,
+      metadata: { reportId, scheduleId, tokens: rewardConfig.completionTokens },
+      source: 'server-trigger',
+      createdAt: awardedAt,
+    });
+    return { status: 'awarded', userId, tokens: rewardConfig.completionTokens };
+  });
+}
+
+exports.awardReportCompletionTokens = functions.firestore.document('schedules/{scheduleId}').onWrite(async (change, context) => {
+  if (!change.after.exists) return null;
+  const beforeStatus = String(change.before.data()?.status || '').toLowerCase();
+  const afterStatus = String(change.after.data()?.status || '').toLowerCase();
+  if (['completed', 'done'].includes(beforeStatus) || !['completed', 'done'].includes(afterStatus)) return null;
+  return awardCompletedSchedule(context.params.scheduleId, change.after.data());
+});
+
+exports.reconcileRewardAwards = functions.https.onCall(async (_data, context) => {
+  await requireDictOversight(context);
+  const rewardConfig = await loadRewardConfig();
+  const completed = await db.collection('schedules').where('status', 'in', ['completed', 'done']).limit(200).get();
+  const summary = { scanned: completed.size, awarded: 0, alreadyAwarded: 0, ineligible: 0 };
+  for (const snapshot of completed.docs) {
+    const result = await awardCompletedSchedule(snapshot.id, snapshot.data(), rewardConfig);
+    if (result.status === 'awarded') summary.awarded += 1;
+    else if (result.status === 'already-awarded') summary.alreadyAwarded += 1;
+    else summary.ineligible += 1;
+  }
+  return summary;
 });
 
 // Sample documents for RAG (you can replace this with your own documents)

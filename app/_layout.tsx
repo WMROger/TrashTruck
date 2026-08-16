@@ -1,58 +1,54 @@
 import { AuthProvider, useAuthContext } from '@/components/AuthContext';
 import { db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
-import { ThemeProvider, useTheme } from '@/hooks/useTheme';
+import { ThemeProvider } from '@/hooks/useTheme';
 import '@/services/notificationService';
 import { getTransitionConfig } from '@/utils/transitions';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
   const segments = useSegments();
   const router = useRouter();
-  const lastAuthState = useRef<boolean | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const { theme } = useTheme();
-  const colors = Colors[theme ?? 'light'];
+  const [desktopRole, setDesktopRole] = useState<string | null>(null);
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleResolvedForUid, setRoleResolvedForUid] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
 
-  // Check if user has admin role
+  // Resolve the desktop portal before routing. DICT previously got redirected
+  // to the CENRO dashboard because this check only tracked an admin boolean.
   useEffect(() => {
-    const checkAdminRole = async () => {
+    const checkDesktopRole = async () => {
       if (!user || !db) {
-        setIsAdmin(false);
+        setDesktopRole(null);
+        setRoleResolvedForUid(null);
+        setRoleLoading(false);
         return;
       }
 
+      setRoleLoading(true);
       try {
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          setIsAdmin(userData.role === 'admin');
-        } else {
-          setIsAdmin(false);
-        }
+        setDesktopRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
       } catch (error) {
-        console.error('Error checking admin role:', error);
-        setIsAdmin(false);
+        console.error('Error checking desktop portal role:', error);
+        setDesktopRole('user');
+      } finally {
+        setRoleResolvedForUid(user.uid);
+        setRoleLoading(false);
       }
     };
 
-    checkAdminRole();
+    checkDesktopRole();
   }, [user]);
 
   useEffect(() => {
-    if (loading) return;
-    if (lastAuthState.current === isAuthenticated) return; // Prevent unnecessary navigation
-
-    lastAuthState.current = isAuthenticated;
+    if (loading || (isAuthenticated && (roleLoading || roleResolvedForUid !== user?.uid))) return;
     const currentSegment = segments[0];
 
     if (!isAuthenticated) {
@@ -64,16 +60,19 @@ function RootLayoutNav() {
         }
       } else {
         // Mobile: redirect to user auth
-        if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)') {
-          router.replace('/auth' as any);
-        }
+          if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)' && currentSegment !== 'driver-login') {
+            router.replace('/auth' as any);
+          }
       }
     } else if (isAuthenticated) {
       // Authenticated - redirect based on device type
       if (isDesktopWeb) {
-        // Desktop: redirect to admin dashboard
-        if (currentSegment !== 'admin') {
+        if (desktopRole === 'dict' && currentSegment !== 'dict') {
+          router.replace('/dict/dashboard' as any);
+        } else if (desktopRole === 'admin' && currentSegment !== 'admin') {
           router.replace('/admin/dashboard' as any);
+        } else if (!['admin', 'dict'].includes(String(desktopRole)) && ['admin', 'dict'].includes(String(currentSegment))) {
+          router.replace('/auth' as any);
         }
       } else {
         // Mobile: redirect to user tabs (but allow loading page to show first)
@@ -83,12 +82,12 @@ function RootLayoutNav() {
         // Don't redirect if user is on loading page - let it handle its own navigation
       }
     }
-  }, [isAuthenticated, loading, segments, router, isDesktopWeb, isAdmin]);
+  }, [desktopRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, isDesktopWeb, user?.uid]);
 
   // Route-scoped global font: Poppins on admin, SF Pro stack elsewhere
   useEffect(() => {
     const currentSegment = segments[0];
-    const isAdminRoute = currentSegment === 'admin';
+    const isAdminRoute = currentSegment === 'admin' || currentSegment === 'dict';
 
     const adminFont = Platform.select({
       web: 'Poppins, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
@@ -212,6 +211,20 @@ function RootLayoutNav() {
           headerShown: false,
           ...getTransitionConfig('admin'),
         }} 
+      />
+      <Stack.Screen
+        name="rewards"
+        options={{
+          headerShown: false,
+          ...getTransitionConfig('slideFromRight'),
+        }}
+      />
+      <Stack.Screen
+        name="dict"
+        options={{
+          headerShown: false,
+          ...getTransitionConfig('admin'),
+        }}
       />
       <Stack.Screen 
         name="+not-found" 

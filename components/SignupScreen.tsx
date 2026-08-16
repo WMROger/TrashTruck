@@ -1,4 +1,5 @@
 import { auth, db } from '@/config/firebase';
+import { DANAO_CITY_BARANGAYS, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { signInWithFacebook, signInWithGoogle } from '@/config/socialAuth';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +28,7 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [selectedBarangay, setSelectedBarangay] = useState('');
   const [barangayOpen, setBarangayOpen] = useState(false);
-  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
   
   React.useEffect(() => {
     const fetchBarangays = async () => {
@@ -41,11 +42,7 @@ export default function SignupScreen() {
             barangayNames.add(data.barangayName);
           }
         });
-        const sorted = Array.from(barangayNames).sort();
-        setAvailableBarangays(sorted);
-        if (sorted.length > 0) {
-          setSelectedBarangay(sorted[0]);
-        }
+        setAvailableBarangays(mergeDanaoBarangays(Array.from(barangayNames)));
       } catch (err) {
         console.error('Error fetching available barangays:', err);
       }
@@ -96,9 +93,10 @@ export default function SignupScreen() {
   // Password strength validation
   const validatePasswordStrength = (password: string) => {
     const requirements = {
-      length: password.length >= 8,
+      length: password.length >= 12,
       lowercase: /[a-z]/.test(password),
       uppercase: /[A-Z]/.test(password),
+      number: /\d/.test(password),
       special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
     };
     
@@ -200,6 +198,11 @@ export default function SignupScreen() {
       return;
     }
 
+    if (!selectedBarangay) {
+      showError('Please select your Danao City barangay');
+      return;
+    }
+
     // Validate email
     if (!email) {
       showError('Please enter your email address');
@@ -218,7 +221,7 @@ export default function SignupScreen() {
 
     const passwordValidation = validatePasswordStrength(password);
     if (!passwordValidation.isValid) {
-      showError('Password must contain at least 8 characters, 1 uppercase letter, 1 lowercase letter, and 1 special character');
+      showError('Password must contain at least 12 characters, 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character');
       return;
     }
 
@@ -259,10 +262,7 @@ export default function SignupScreen() {
         } catch {}
         router.replace('/(auth)/login' as any);
       } else {
-        // Fallback to mock signup if Firebase is not available
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('Mock signup - Firebase not available');
-        router.replace('/(auth)/login' as any);
+        throw new Error('Firebase authentication is unavailable. Check the app configuration and connection.');
       }
     } catch (error: any) {
       console.log('Signup failed:', error.code);
@@ -475,7 +475,7 @@ export default function SignupScreen() {
                     style={[
                       styles.passwordStrengthFill,
                       {
-                        width: `${(validatePasswordStrength(password).strength / 4) * 100}%`,
+                        width: `${(validatePasswordStrength(password).strength / 5) * 100}%`,
                         backgroundColor: getPasswordStrengthText(validatePasswordStrength(password).strength).color,
                       },
                     ]}

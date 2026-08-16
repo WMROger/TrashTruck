@@ -210,18 +210,18 @@ export default function AnnouncementsTab() {
               
               return (
                 <View key={row.id} style={styles.tableRow}>
-                  <View style={[styles.td, { flex: 2 }]}>
+                  <View style={{ flex: 2 }}>
                     <Text style={styles.rowTitle}>{row.title}</Text>
                     <Text style={styles.rowDesc} numberOfLines={1}>{row.description}</Text>
                   </View>
                   <Text style={[styles.td, { flex: 1, color: '#4B5563' }]}>{row.category}</Text>
-                  <View style={[styles.td, { flex: 1 }]}>
+                  <View style={{ flex: 1 }}>
                     <View style={[styles.badge, { backgroundColor: pColor.bg }]}>
                       <Text style={[styles.badgeText, { color: pColor.text }]}>{row.priority}</Text>
                     </View>
                   </View>
                   <Text style={[styles.td, { flex: 1.5, color: '#6B7280', fontSize: 13 }]}>{dateStr}</Text>
-                  <View style={[styles.td, { flex: 0.5, alignItems: 'flex-end' }]}>
+                  <View style={{ flex: 0.5, alignItems: 'flex-end' }}>
                     <TouchableOpacity onPress={() => handleDelete(row.id)}>
                       <MaterialIcons name="delete-outline" size={20} color="#EF4444" />
                     </TouchableOpacity>

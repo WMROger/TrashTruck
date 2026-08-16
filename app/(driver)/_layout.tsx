@@ -21,6 +21,8 @@ export default function DriverLayout() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [assignedTruckId, setAssignedTruckId] = useState<string | null>(null);
   const [activeRouteCount, setActiveRouteCount] = useState(0);
+  const [activeScheduleIds, setActiveScheduleIds] = useState<string[]>([]);
+  const [routePolyline, setRoutePolyline] = useState<{ latitude: number; longitude: number }[]>([]);
 
   // Check if user has driver role
   useEffect(() => {
@@ -67,8 +69,11 @@ export default function DriverLayout() {
     if (!user?.uid || !db) return;
     const assignedQuery = query(collection(db, 'schedules'), where('assignedDriverId', '==', user.uid));
     const unsubscribeSchedules = onSnapshot(assignedQuery, snapshot => {
-      const active = snapshot.docs.filter(schedule => ['pending', 'in-progress'].includes(String(schedule.data().status))).length;
-      setActiveRouteCount(active);
+      const active = snapshot.docs.filter(schedule => ['pending', 'in-progress'].includes(String(schedule.data().status)));
+      setActiveRouteCount(active.length);
+      setActiveScheduleIds(active.map(schedule => schedule.id));
+      const savedPolyline = active.find(schedule => Array.isArray(schedule.data().routeOptimization?.roadPolyline))?.data().routeOptimization?.roadPolyline || [];
+      setRoutePolyline(savedPolyline.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)));
     });
     const unsubscribeNetwork = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) syncOfflineDriverActions();
@@ -83,14 +88,14 @@ export default function DriverLayout() {
   // Start GPS Tracking
   useEffect(() => {
     if (user && !isLoading && isAuthorized && assignedTruckId && activeRouteCount > 0) {
-      locationService.startTracking(user.uid, assignedTruckId);
+      locationService.startTracking(user.uid, assignedTruckId, { activeScheduleIds, routePolyline });
     }
     return () => {
       if (user) {
         locationService.stopTracking(user.uid);
       }
     };
-  }, [user, isLoading, isAuthorized, assignedTruckId, activeRouteCount]);
+  }, [user, isLoading, isAuthorized, assignedTruckId, activeRouteCount, activeScheduleIds, routePolyline]);
 
   // Show loading while checking driver role
   if (isLoading || !isAuthorized) {

@@ -95,6 +95,7 @@ service cloud.firestore {
       && request.resource.data.role == 'user'
       && request.resource.data.uid == request.auth.uid
       && request.resource.data.email == request.auth.token.get('email', '')
+      && request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
       && request.resource.data.keys().hasOnly([
         'uid', 'email', 'displayName', 'name', 'photoURL', 'verified', 'role', 'provider',
         'barangay', 'contactInfo', 'phoneNumber', 'createdAt', 'updatedAt'
@@ -109,7 +110,40 @@ service cloud.firestore {
     ])
     && request.resource.data.get('role', '') == resource.data.get('role', '')
     && request.resource.data.get('uid', '') == resource.data.get('uid', '')
-    && request.resource.data.get('email', '') == request.auth.token.get('email', '');
+    && request.resource.data.get('email', '') == request.auth.token.get('email', '')
+    && (
+      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified'])
+      || request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
+    );
+  }
+
+  function validRewardRedemption() {
+    return request.resource.data.keys().hasOnly([
+      'userId', 'userName', 'souvenirId', 'souvenirName', 'cost',
+      'issuedByUid', 'issuedAt', 'status', 'mode'
+    ])
+    && request.resource.data.userId is string
+    && request.resource.data.userId.size() > 0
+    && request.resource.data.issuedByUid == request.auth.uid
+    && request.resource.data.status == 'completed'
+    && request.resource.data.mode == 'spark-ledger'
+    && (
+      (
+        request.resource.data.souvenirId == 'tumbler'
+        && request.resource.data.souvenirName == 'Eco-Friendly Tumbler'
+        && request.resource.data.cost == 1000
+      )
+      || (
+        request.resource.data.souvenirId == 'tote'
+        && request.resource.data.souvenirName == 'CENRO Tote Bag'
+        && request.resource.data.cost == 500
+      )
+      || (
+        request.resource.data.souvenirId == 'kit'
+        && request.resource.data.souvenirName == 'Reusable Utensil Kit'
+        && request.resource.data.cost == 2000
+      )
+    );
   }
 
   function driverTruckAssignmentOnly() {
@@ -123,6 +157,13 @@ service cloud.firestore {
       );
   }
 
+  function dictRoleUpdateOnly(userId) {
+    return isDict()
+      && userId != request.auth.uid
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'updatedAt'])
+      && request.resource.data.role in ['user', 'admin', 'dict', 'coordinator'];
+  }
+
   function ownDriverLocation(locationId) {
     return hasRole('driver')
       && locationId == request.auth.uid
@@ -131,7 +172,7 @@ service cloud.firestore {
   }
 
     match /schedules/{scheduleId} {
-      allow read: if isAdmin()
+      allow read: if isAdmin() || isDict()
         || isAssignedDriver(resource.data)
         || isOwner(resource.data.get('userId', ''));
       allow create, delete: if isAdmin();
@@ -178,7 +219,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow create: if validResidentProfileCreate(userId) || isAdmin();
       allow read: if isOwner(userId) || isAdmin() || isDict();
-      allow update: if isAdmin()
+      allow update: if isAdmin() || dictRoleUpdateOnly(userId)
         || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
       allow delete: if isAdmin();
 
@@ -190,11 +231,15 @@ service cloud.firestore {
     }
 
     match /employee_ids/{employeeId} {
-      allow read, write: if false;
+      allow read, write: if isAdmin();
     }
 
     match /license_numbers/{licenseNumber} {
-      allow read, write: if false;
+      allow read, write: if isAdmin();
+    }
+
+    match /coordinator_employee_ids/{employeeId} {
+      allow read, write: if isAdmin();
     }
 
     match /user_settings/{userId} {
@@ -207,7 +252,7 @@ service cloud.firestore {
       allow create: if hasActiveProfile()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending';
-      allow read: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || isDict() || resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
@@ -355,7 +400,49 @@ service cloud.firestore {
     }
 
     match /reward_redemptions/{redemptionId} {
-      allow read, write: if isAdmin() || isDict();
+      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
+      allow create: if (isAdmin() || isDict()) && validRewardRedemption();
+      allow update, delete: if false;
+    }
+
+    match /interagency_messages/{messageId} {
+      allow read: if isAdmin() || isDict();
+      allow create: if isDict()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.senderRole == 'dict'
+        && request.resource.data.status == 'sent'
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() >= 3
+        && request.resource.data.subject.size() <= 120
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 5
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.priority in ['normal', 'high', 'urgent'];
+      allow update, delete: if false;
+    }
+
+    match /reward_awards/{awardId} {
+      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
+      allow create: if hasActiveProfile()
+        && awardId == 'report_' + request.resource.data.reportId
+        && request.resource.data.tokens == 100
+        && request.resource.data.reason == 'verified-collection-completed'
+        && request.resource.data.createdByUid == request.auth.uid
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.reportId == request.resource.data.reportId
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.userId == request.resource.data.userId
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.status in ['completed', 'done']
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.collectionMeasurement.value is number
+        && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.collectionMeasurement.value > 0
+        && (
+          isAdmin()
+          || isDict()
+          || (
+            hasRole('driver')
+            && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.assignedDriverId == request.auth.uid
+            && get(/databases/$(database)/documents/schedules/$(request.resource.data.scheduleId)).data.completedByUid == request.auth.uid
+          )
+        );
+      allow update, delete: if false;
     }
 
     match /admin/{document=**} {

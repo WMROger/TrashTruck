@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
@@ -32,6 +32,14 @@ export default function DriverLoginScreen() {
         return;
       }
 
+      const usesPassword = credential.user.providerData.some(provider => provider.providerId === 'password');
+      if (usesPassword && !credential.user.emailVerified) {
+        try { await sendEmailVerification(credential.user); } catch {}
+        await signOut(auth);
+        Alert.alert('Email verification required', 'A verification link was sent to the driver email. Open it before signing in.');
+        return;
+      }
+
       router.replace('/(driver)');
     } catch (error: any) {
       const invalidCredentials = error?.code === 'auth/invalid-credential' ||
@@ -41,6 +49,28 @@ export default function DriverLoginScreen() {
         invalidCredentials
           ? 'The email or password is incorrect.'
           : 'Driver sign-in could not be completed. Check your connection and try again.'
+      );
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      Alert.alert('Password reset', 'Enter the driver email address first.');
+      return;
+    }
+    setIsSigningIn(true);
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      Alert.alert('Check your email', 'Password reset instructions were sent to the driver email.');
+    } catch (error: any) {
+      Alert.alert(
+        'Password reset failed',
+        error?.code === 'auth/too-many-requests'
+          ? 'Too many attempts. Please wait and try again.'
+          : 'The reset email could not be sent. Verify the address and connection.',
       );
     } finally {
       setIsSigningIn(false);
@@ -139,6 +169,10 @@ export default function DriverLoginScreen() {
               </View>
             </View>
 
+            <TouchableOpacity onPress={handleForgotPassword} disabled={isSigningIn} style={{ alignSelf: 'flex-end', marginTop: 12 }}>
+              <Text style={{ color: '#2F6B4D', fontSize: 12, fontWeight: '700' }}>Forgot password?</Text>
+            </TouchableOpacity>
+
             {/* Login Button */}
             <TouchableOpacity 
               style={[styles.loginButton, isSigningIn && { opacity: 0.65 }]}
@@ -160,8 +194,8 @@ export default function DriverLoginScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Cebu City Environmental & Natural Resources Office</Text>
-          <Text style={styles.footerSubText}>© 2024 Waste Management System</Text>
+          <Text style={styles.footerText}>Danao City Environment and Natural Resources Office</Text>
+          <Text style={styles.footerSubText}>© 2026 TrashTrack Waste Management System</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

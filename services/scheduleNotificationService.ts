@@ -89,7 +89,7 @@ export class ScheduleNotificationService {
       
       for (const notification of scheduledNotifications) {
         if (notification.content.data?.scheduleId && 
-            scheduleIds.includes(notification.content.data.scheduleId)) {
+            scheduleIds.includes(String(notification.content.data.scheduleId))) {
           await NotificationService.cancelNotification(notification.identifier);
         }
       }

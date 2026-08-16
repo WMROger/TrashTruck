@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db, auth } from '../../../config/firebase';
-import { doc, getDoc, setDoc, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import LiveOperationsMap, { LiveMapReport, LiveMapTruck } from './LiveOperationsMap';
 
 export default function OperationalOverridesTab() {
   const [settings, setSettings] = useState({
@@ -10,6 +11,8 @@ export default function OperationalOverridesTab() {
     activateBackupFleet: true,
   });
   const [logs, setLogs] = useState<any[]>([]);
+  const [liveTrucks, setLiveTrucks] = useState<LiveMapTruck[]>([]);
+  const [openReports, setOpenReports] = useState<(LiveMapReport & { barangay: string })[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,11 +41,66 @@ export default function OperationalOverridesTab() {
       console.error("Error fetching activity_logs:", error);
     });
 
+    const unsubLocations = onSnapshot(collection(db, 'truck_locations'), snapshot => {
+      setLiveTrucks(snapshot.docs.map(item => {
+        const data = item.data();
+        return {
+          id: item.id,
+          latitude: Number(data.lat ?? data.latitude),
+          longitude: Number(data.lng ?? data.longitude),
+          label: String(data.truckId || item.id),
+          active: String(data.status || '').toLowerCase() === 'active',
+        };
+      }).filter(item => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)));
+    }, error => console.error('Error fetching live truck locations:', error));
+
+    const unsubReports = onSnapshot(collection(db, 'reports'), snapshot => {
+      setOpenReports(snapshot.docs.map(item => {
+        const data = item.data();
+        const location = data.location || {};
+        return {
+          id: item.id,
+          latitude: Number(location.lat ?? location.latitude ?? data.lat ?? data.latitude),
+          longitude: Number(location.lng ?? location.longitude ?? data.lng ?? data.longitude),
+          label: String(data.title || data.barangay || 'Open report'),
+          barangay: String(data.barangay || 'Unspecified'),
+          status: String(data.status || 'pending'),
+        };
+      }).filter(item => !['resolved', 'completed', 'done', 'rejected'].includes(item.status.toLowerCase()) && Number.isFinite(item.latitude) && Number.isFinite(item.longitude)));
+    }, error => console.error('Error fetching report locations:', error));
+
     return () => {
       unsubDoc();
       unsubLogs();
+      unsubLocations();
+      unsubReports();
     };
   }, []);
+
+  const riskHotspots = useMemo(() => {
+    const counts = openReports.reduce<Record<string, number>>((result, report) => {
+      result[report.barangay] = (result[report.barangay] || 0) + 1;
+      return result;
+    }, {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  }, [openReports]);
+
+  const exportActivityLog = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      Alert.alert('Web export only', 'Open the CENRO dashboard on web to download this report.');
+      return;
+    }
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      ['Timestamp', 'Source', 'Action', 'Confidence'].join(','),
+      ...logs.map(row => [row.timestamp?.toDate?.()?.toISOString?.() || '', row.source, row.action, row.confidence].map(escape).join(',')),
+    ].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `trashtrack-operational-overrides-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   const handleToggle = async (key: string, value: boolean) => {
     // Optimistic update
@@ -153,43 +211,43 @@ export default function OperationalOverridesTab() {
           {/* Active Scenarios */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Active Scenarios</Text>
-            <Text style={styles.sectionCount}>2 EVENTS DETECTED</Text>
+            <Text style={styles.sectionCount}>{openReports.length} OPEN GPS REPORT{openReports.length === 1 ? '' : 'S'}</Text>
           </View>
 
-          <View style={[styles.scenarioCard, styles.scenarioCardActive]}>
-            <View style={styles.scenarioIconWrapperActive}>
-              <MaterialIcons name="water-drop" size={20} color="#fff" />
+          <View style={[styles.scenarioCard, settings.forcePauseCollection && styles.scenarioCardActive]}>
+            <View style={settings.forcePauseCollection ? styles.scenarioIconWrapperActive : styles.scenarioIconWrapper}>
+              <MaterialIcons name="pause-circle-outline" size={20} color={settings.forcePauseCollection ? '#fff' : '#6B7280'} />
             </View>
             <View style={styles.scenarioContent}>
-              <Text style={styles.scenarioTitle}>Heavy Rainfall Protocol</Text>
+              <Text style={styles.scenarioTitle}>Collection Pause Override</Text>
               <View style={styles.scenarioDetailsRow}>
                 <View style={styles.scenarioDetailCol}>
-                  <Text style={styles.scenarioLabel}>CAUSE</Text>
-                  <Text style={styles.scenarioValue}>Typhoon Signal #2 Alert</Text>
+                  <Text style={styles.scenarioLabel}>CURRENT STATE</Text>
+                  <Text style={styles.scenarioValue}>{settings.forcePauseCollection ? 'ACTIVE' : 'INACTIVE'}</Text>
                 </View>
                 <View style={styles.scenarioDetailCol}>
                   <Text style={styles.scenarioLabel}>IMPLICATION</Text>
-                  <Text style={styles.scenarioValue}>40% Route Delay Risk</Text>
+                  <Text style={styles.scenarioValue}>{settings.forcePauseCollection ? 'Dispatch is manually paused' : 'Collection may proceed normally'}</Text>
                 </View>
               </View>
             </View>
-            <View style={styles.activeDot} />
+            {settings.forcePauseCollection && <View style={styles.activeDot} />}
           </View>
 
           <View style={styles.scenarioCard}>
-            <View style={styles.scenarioIconWrapper}>
-              <MaterialIcons name="do-not-disturb" size={20} color="#6B7280" />
+            <View style={settings.activateBackupFleet ? styles.scenarioIconWrapperActive : styles.scenarioIconWrapper}>
+              <MaterialIcons name="local-shipping" size={20} color={settings.activateBackupFleet ? '#fff' : '#6B7280'} />
             </View>
             <View style={styles.scenarioContent}>
-              <Text style={styles.scenarioTitle}>Major Road Closure</Text>
+              <Text style={styles.scenarioTitle}>Backup Fleet Override</Text>
               <View style={styles.scenarioDetailsRow}>
                 <View style={styles.scenarioDetailCol}>
-                  <Text style={styles.scenarioLabel}>CAUSE</Text>
-                  <Text style={styles.scenarioValue}>Mainline Obstruction</Text>
+                  <Text style={styles.scenarioLabel}>CURRENT STATE</Text>
+                  <Text style={styles.scenarioValue}>{settings.activateBackupFleet ? 'ACTIVE' : 'STANDBY'}</Text>
                 </View>
                 <View style={styles.scenarioDetailCol}>
                   <Text style={styles.scenarioLabel}>IMPLICATION</Text>
-                  <Text style={styles.scenarioValue}>Route Diversion Required</Text>
+                  <Text style={styles.scenarioValue}>{settings.activateBackupFleet ? 'Backup trucks may be dispatched' : 'Primary fleet only'}</Text>
                 </View>
               </View>
             </View>
@@ -226,7 +284,7 @@ export default function OperationalOverridesTab() {
           {/* Protocol Activity Log */}
           <View style={[styles.sectionHeader, { marginTop: 16 }]}>
             <Text style={styles.sectionTitle}>Protocol Activity Log</Text>
-            <TouchableOpacity><Text style={styles.exportText}>Export Report</Text></TouchableOpacity>
+            <TouchableOpacity onPress={exportActivityLog}><Text style={styles.exportText}>Export Report</Text></TouchableOpacity>
           </View>
 
           <View style={styles.logCard}>
@@ -257,31 +315,22 @@ export default function OperationalOverridesTab() {
         {/* Right Column - Map View */}
         <View style={styles.rightColumn}>
           <View style={styles.mapContainer}>
-            <View style={styles.mapPlaceholder}>
-              <MaterialIcons name="map" size={64} color="#D1D5DB" />
-              <Text style={styles.mapPlaceholderText}>Live Map Integration</Text>
-            </View>
+            <LiveOperationsMap trucks={liveTrucks} reports={openReports} />
             
             <View style={styles.mapBadge}>
               <View style={styles.pulsingDot} />
-              <Text style={styles.mapBadgeText}>LIVE IMPACT VIEW</Text>
+              <Text style={styles.mapBadgeText}>{liveTrucks.filter(item => item.active).length} ACTIVE TRUCK{liveTrucks.filter(item => item.active).length === 1 ? '' : 'S'}</Text>
             </View>
 
-            {/* Simulated Risk Hotspots Overlay */}
+            {/* Firestore-derived report hotspots */}
             <View style={styles.riskCard}>
               <Text style={styles.riskTitle}>RISK HOTSPOTS</Text>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskBrgy}>San Isidro</Text>
-                <Text style={styles.riskHigh}>HIGH</Text>
-              </View>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskBrgy}>Santa Maria</Text>
-                <Text style={styles.riskModerate}>MODERATE</Text>
-              </View>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskBrgy}>Sto. Nino Central</Text>
-                <Text style={styles.riskModerate}>MODERATE</Text>
-              </View>
+              {riskHotspots.length === 0 ? <Text style={styles.noRisk}>No unresolved geotagged reports.</Text> : riskHotspots.map(([barangay, count]) => (
+                <View style={styles.riskRow} key={barangay}>
+                  <Text style={styles.riskBrgy}>{barangay}</Text>
+                  <Text style={count >= 4 ? styles.riskHigh : styles.riskModerate}>{count} OPEN · {count >= 4 ? 'HIGH' : 'MONITOR'}</Text>
+                </View>
+              ))}
             </View>
           </View>
         </View>
@@ -332,9 +381,7 @@ const styles = StyleSheet.create({
   tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   td: { fontSize: 13 },
 
-  mapContainer: { flex: 1, backgroundColor: '#E5E7EB', borderRadius: 16, minHeight: 600, overflow: 'hidden', position: 'relative' },
-  mapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mapPlaceholderText: { marginTop: 12, fontSize: 16, fontWeight: '500', color: '#9CA3AF' },
+  mapContainer: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, minHeight: 600, overflow: 'hidden', position: 'relative', padding: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   mapBadge: { position: 'absolute', top: 24, left: 24, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4 },
   pulsingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
   mapBadgeText: { fontSize: 11, fontWeight: 'bold', color: '#374151', letterSpacing: 0.5 },
@@ -345,4 +392,5 @@ const styles = StyleSheet.create({
   riskBrgy: { fontSize: 14, color: '#374151', fontWeight: '500' },
   riskHigh: { fontSize: 12, fontWeight: 'bold', color: '#ef4444' },
   riskModerate: { fontSize: 12, fontWeight: 'bold', color: '#2E8B57' },
+  noRisk: { color: '#6B7280', fontSize: 12 },
 });

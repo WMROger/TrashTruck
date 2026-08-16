@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Modal, ActivityIndicator } from 'react-native';
+import { Alert, View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Modal, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -143,6 +143,23 @@ export default function ServiceFeedbackTab() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginatedFeedbacks = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  const exportFeedback = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      Alert.alert('Web export only', 'Open the CENRO dashboard on web to download feedback records.');
+      return;
+    }
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      ['Citizen', 'Email', 'Rating', 'Message', 'Street', 'Created'].join(','),
+      ...filtered.map(item => [item.userName, item.userEmail, item.rating, item.message, item.street, formatDateFull(item.createdAt)].map(escape).join(',')),
+    ].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `trashtrack-service-feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   const getRatingBarWidth = (rating: string) => {
     if (totalCount === 0) return 0;
     const count = feedbacks.filter(f => f.rating.toLowerCase() === rating.toLowerCase()).length;
@@ -167,7 +184,7 @@ export default function ServiceFeedbackTab() {
           <Text style={styles.headerDesc}>Monitor citizen satisfaction and service quality ratings.</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.outlineBtn}>
+          <TouchableOpacity style={styles.outlineBtn} onPress={exportFeedback}>
             <MaterialIcons name="file-download" size={18} color="#374151" />
             <Text style={styles.outlineBtnText}>Export</Text>
           </TouchableOpacity>

@@ -11,6 +11,8 @@ web-build/
 # Generated documentation and exports
 output/
 .venv-ml/
+__pycache__/
+*.py[cod]
 
 # Native
 *.orig.*

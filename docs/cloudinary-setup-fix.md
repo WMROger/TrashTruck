@@ -19,8 +19,6 @@ Make sure you have these environment variables set in your `.env` file:
 ```env
 # Cloudinary Configuration
 EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-EXPO_PUBLIC_CLOUDINARY_API_KEY=your_cloudinary_api_key
-EXPO_PUBLIC_CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=trashtrack_reports
 ```
 

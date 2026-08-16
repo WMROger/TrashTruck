@@ -176,7 +176,7 @@ export default function TrashReportsTab() {
       return (
         <View style={[styles.actionContainer, { alignItems: 'center', paddingVertical: 16 }]}>
            <Text style={{color: '#6B7280', fontSize: 13, fontStyle: 'italic', textAlign: 'center'}}>
-             ✅ Report is Acknowledged.{"\n"}Head to the Route Optimization tab to assign a driver. This report will automatically move to "In Progress" once dispatched.
+             ✅ Report is Acknowledged.{"\n"}Head to the Route Optimization tab to assign a driver. This report will automatically move to “In Progress” once dispatched.
            </Text>
         </View>
       );
@@ -473,7 +473,7 @@ export default function TrashReportsTab() {
                           <View style={styles.timelineContent}>
                             <Text style={styles.timelineStatus}>{getStatusLabel(history.status)}</Text>
                             <Text style={styles.timelineTime}>{formatDate(history.timestamp)}</Text>
-                            {history.notes ? <Text style={styles.timelineNotes}>"{history.notes}"</Text> : null}
+                            {history.notes ? <Text style={styles.timelineNotes}>“{history.notes}”</Text> : null}
                           </View>
                         </View>
                       ))}

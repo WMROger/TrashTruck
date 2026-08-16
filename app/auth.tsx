@@ -15,6 +15,10 @@ export default function AuthScreen() {
     router.push('/(auth)/signup');
   };
 
+  const handleDriverLogin = () => {
+    router.push('/driver-login');
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#ECFEE5" />
@@ -58,10 +62,18 @@ export default function AuthScreen() {
           onPress={() => router.replace('/splash')}
           activeOpacity={0.7}
         >
-          <Text style={styles.devBackText}>Back to Splash (dev)</Text>
+          <Text style={styles.devBackText}>Back</Text>
         </TouchableOpacity>
 
-        {Platform.OS === 'web' && (
+        {Platform.OS !== 'web' ? (
+          <TouchableOpacity
+            style={styles.devBack}
+            onPress={handleDriverLogin}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.devBackText}>Driver Portal</Text>
+          </TouchableOpacity>
+        ) : (
           <TouchableOpacity
             style={styles.devBack}
             onPress={() => router.push('/admin/login')}
@@ -167,4 +179,4 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     fontSize: 12,
   },
-}); 
+});

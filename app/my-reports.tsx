@@ -247,7 +247,7 @@ export default function MyReportsScreen() {
               <Ionicons name="document-text-outline" size={64} color="#4A6741" />
             </View>
             <Text style={styles.emptyTitle}>No reports yet</Text>
-            <Text style={styles.emptyText}>You haven't submitted any trash reports.</Text>
+            <Text style={styles.emptyText}>You haven’t submitted any trash reports.</Text>
             <TouchableOpacity 
               style={styles.emptyButton} 
               onPress={() => router.push('/(tabs)/report')}

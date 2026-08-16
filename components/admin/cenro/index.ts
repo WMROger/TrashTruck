@@ -11,3 +11,5 @@ export { default as RouteOptimizationTab } from './RouteOptimizationTab';
 export { default as TruckInventoryTab } from './TruckInventoryTab';
 export { default as DriverAccountsTab } from './DriverAccountsTab';
 export { default as AnnouncementsTab } from './AnnouncementsTab';
+export { default as FleetMonitoringTab } from './FleetMonitoringTab';
+export { default as DictCommandsTab } from './DictCommandsTab';

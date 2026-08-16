@@ -1,13 +1,14 @@
 import { auth, db } from '@/config/firebase';
+import { setPendingEmailAuth, setPendingSocialAuth } from '@/services/pendingAuthService';
 import { Ionicons } from '@expo/vector-icons';
 // Note: Using basic state management for remember me functionality
 import { storage } from '@/utils/storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
@@ -64,40 +65,48 @@ export default function LoginScreen() {
     setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
-  // Remember me functionality with secure storage
-  const CREDENTIALS_KEY = 'loginCredentials';
+  // Remember only the email address. Firebase Auth owns session persistence;
+  // plaintext passwords are never retained in browser or device storage.
+  const CREDENTIALS_KEY = 'rememberedLogin';
+  const LEGACY_CREDENTIALS_KEY = 'loginCredentials';
 
-  const saveCredentials = async (email: string, password: string) => {
+  const saveRememberedEmail = async (savedEmail: string) => {
     try {
-      const credentials = JSON.stringify({ email, password });
-      await storage.setItem(CREDENTIALS_KEY, credentials);
-      console.log('Credentials saved securely for:', email);
+      await storage.setItem(CREDENTIALS_KEY, JSON.stringify({ email: savedEmail }));
+      await storage.deleteItem(LEGACY_CREDENTIALS_KEY).catch(() => undefined);
     } catch (error) {
-      console.error('Failed to save credentials:', error);
+      console.error('Failed to remember email:', error);
     }
   };
 
-  const loadCredentials = async () => {
+  const loadRememberedEmail = async () => {
     try {
-      const credentials = await storage.getItem(CREDENTIALS_KEY);
-      if (credentials) {
-        const { email: savedEmail, password: savedPassword } = JSON.parse(credentials);
+      // Remove legacy records that may contain passwords from older builds.
+      const legacy = await storage.getItem(LEGACY_CREDENTIALS_KEY);
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
+        if (typeof parsed?.email === 'string' && parsed.email) {
+          await saveRememberedEmail(parsed.email);
+        }
+        await storage.deleteItem(LEGACY_CREDENTIALS_KEY);
+      }
+      const remembered = await storage.getItem(CREDENTIALS_KEY);
+      if (remembered) {
+        const { email: savedEmail } = JSON.parse(remembered);
         setEmail(savedEmail);
-        setPassword(savedPassword);
         setRememberMe(true);
-        console.log('Credentials loaded for:', savedEmail);
       }
     } catch (error) {
-      console.error('Failed to load credentials:', error);
+      console.error('Failed to load remembered email:', error);
     }
   };
 
-  const clearCredentials = async () => {
+  const clearRememberedEmail = async () => {
     try {
       await storage.deleteItem(CREDENTIALS_KEY);
-      console.log('Credentials cleared from secure storage');
+      await storage.deleteItem(LEGACY_CREDENTIALS_KEY).catch(() => undefined);
     } catch (error) {
-      console.error('Failed to clear credentials:', error);
+      console.error('Failed to clear remembered email:', error);
     }
   };
 
@@ -157,19 +166,7 @@ export default function LoginScreen() {
 
   // Configure authentication on component mount
   useEffect(() => {
-    // Debug: Check Firebase auth status
-    console.log('LoginScreen - Firebase auth object:', auth);
-    if (auth) {
-      console.log('LoginScreen - Auth methods available:');
-      console.log('- signInWithRedirect:', typeof auth.signInWithRedirect);
-      console.log('- signInWithPopup:', typeof auth.signInWithPopup);
-      console.log('- signInWithEmailAndPassword:', typeof auth.signInWithEmailAndPassword);
-    } else {
-      console.log('LoginScreen - Firebase auth is null/undefined');
-    }
-    
-    // Load saved credentials
-    loadCredentials();
+    loadRememberedEmail();
   }, []);
 
   const handleLogin = async () => {
@@ -197,54 +194,51 @@ export default function LoginScreen() {
       return;
     }
 
-    // Store credentials for remember me and immediately redirect to loading
+    // Remember the identifier only; the password stays in memory for this request.
     if (rememberMe) {
-      await saveCredentials(email, password);
+      await saveRememberedEmail(loginEmail);
     } else {
-      await clearCredentials();
+      await clearRememberedEmail();
     }
 
-    // Store login credentials in temp storage for loading page to process
-    try {
-      await storage.setItem('temp_login_credentials', JSON.stringify({
-        email: loginEmail,
-        password: password,
-        rememberMe: rememberMe
-      }));
-    } catch (error) {
-      console.error('Failed to store temp credentials:', error);
-    }
+    setPendingEmailAuth(loginEmail, password);
 
     // Immediately redirect to loading page
     router.replace('/(auth)/loading' as any);
   };
 
   const handleGoogleLogin = async () => {
-    // Store auth type for loading page
-    try {
-      await storage.setItem('temp_auth_type', 'google');
-    } catch (error) {
-      console.error('Failed to store auth type:', error);
-    }
-    
+    setPendingSocialAuth('google');
     // Immediately redirect to loading page
     router.replace('/(auth)/loading' as any);
   };
 
   const handleFacebookLogin = async () => {
-    // Store auth type for loading page
-    try {
-      await storage.setItem('temp_auth_type', 'facebook');
-    } catch (error) {
-      console.error('Failed to store auth type:', error);
-    }
-    
+    setPendingSocialAuth('facebook');
     // Immediately redirect to loading page
     router.replace('/(auth)/loading' as any);
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert('Forgot Password', 'Password reset functionality would be implemented here');
+  const handleForgotPassword = async () => {
+    const resetEmail = email.trim().toLowerCase();
+    if (!validateEmail(resetEmail)) {
+      showError('Enter your registered email address first.', 'Password Reset', 'warning');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      showError('Password reset instructions have been sent to your email.', 'Check Your Email', 'success');
+    } catch (error: any) {
+      const message = error?.code === 'auth/too-many-requests'
+        ? 'Too many reset attempts. Please wait and try again.'
+        : error?.code === 'auth/network-request-failed'
+          ? 'Check your internet connection and try again.'
+          : 'The reset email could not be sent. Verify the address and try again.';
+      showError(message, 'Password Reset Failed', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSignUp = () => {
@@ -261,7 +255,7 @@ export default function LoginScreen() {
     
     // If unchecking remember me, clear saved credentials
     if (!newRememberMe) {
-      await clearCredentials();
+      await clearRememberedEmail();
     }
   };
 
@@ -400,7 +394,7 @@ export default function LoginScreen() {
 
             {/* Sign Up Link */}
             <View style={styles.signUpContainer}>
-              <Text style={styles.signUpText}>Don't have an account? </Text>
+              <Text style={styles.signUpText}>Don’t have an account? </Text>
               <TouchableOpacity onPress={handleSignUp}>
                 <Text style={styles.signUpLink}>Signup</Text>
               </TouchableOpacity>

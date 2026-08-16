@@ -3,6 +3,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { auth, db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { DANAO_CITY_BARANGAYS, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { useTheme } from '@/hooks/useTheme';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
@@ -10,8 +11,8 @@ import { writeAuditLog } from '@/services/auditLogService';
 import { setFcmPushEnabled } from '@/services/pushTokenService';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
-import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { addDoc, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,7 +51,7 @@ export default function SettingsPage() {
   const [showBarangayModal, setShowBarangayModal] = useState(false);
   const [editBarangay, setEditBarangay] = useState('');
   const [barangayOpen, setBarangayOpen] = useState(false);
-  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
   const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [pushEnabled, setPushEnabled] = useState(true);
@@ -59,7 +60,11 @@ export default function SettingsPage() {
   const [announcementNotificationsEnabled, setAnnouncementNotificationsEnabled] = useState(true);
   const [proximityAlertsEnabled, setProximityAlertsEnabled] = useState(true);
   const [proximityRadiusMeters, setProximityRadiusMeters] = useState(500);
+  const [verifiedRewardCount, setVerifiedRewardCount] = useState(0);
+  const [earnedRewardTokens, setEarnedRewardTokens] = useState(0);
+  const [redeemedRewardTokens, setRedeemedRewardTokens] = useState(0);
   const router = useRouter();
+  const availableRewardTokens = Math.max(0, earnedRewardTokens - redeemedRewardTokens);
 
   useEffect(() => {
     if (!user?.uid || !db) return;
@@ -73,6 +78,22 @@ export default function SettingsPage() {
       setProximityAlertsEnabled(preferences.proximityAlerts !== false);
       setProximityRadiusMeters([250, 500, 1000].includes(preferences.proximityRadiusMeters) ? preferences.proximityRadiusMeters : 500);
     }).catch(error => console.warn('Unable to load notification preferences:', error));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    const unsubscribeAwards = onSnapshot(
+      query(collection(db, 'reward_awards'), where('userId', '==', user.uid)),
+      snapshot => {
+        setVerifiedRewardCount(snapshot.size);
+        setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
+      },
+    );
+    const unsubscribeRedemptions = onSnapshot(
+      query(collection(db, 'reward_redemptions'), where('userId', '==', user.uid)),
+      snapshot => setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0)),
+    );
+    return () => { unsubscribeAwards(); unsubscribeRedemptions(); };
   }, [user?.uid]);
 
   const saveNotificationPreferences = async () => {
@@ -241,7 +262,7 @@ export default function SettingsPage() {
             barangayNames.add(data.barangayName);
           }
         });
-        setAvailableBarangays(Array.from(barangayNames).sort());
+        setAvailableBarangays(mergeDanaoBarangays(Array.from(barangayNames)));
       } catch (err) {
         console.error('Error fetching available barangays:', err);
       }
@@ -421,8 +442,8 @@ export default function SettingsPage() {
   };
 
   const validatePassword = (password: string) => {
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters long';
+    if (password.length < 12) {
+      return 'Password must be at least 12 characters long';
     }
     if (!/(?=.*[a-z])/.test(password)) {
       return 'Password must contain at least one lowercase letter';
@@ -462,8 +483,8 @@ export default function SettingsPage() {
         throw new Error('Authentication not available');
       }
 
-      // Re-authenticate user with current password
-      await signInWithEmailAndPassword(auth, user.email, currentPassword);
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
       
       // Update password
       await updatePassword(user, newPassword);
@@ -618,7 +639,7 @@ export default function SettingsPage() {
         {/* EnviroHero Badges */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitleSmall}>EnviroHero Badges</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/rewards' as any)}>
             <Text style={styles.viewAllText}>VIEW ALL</Text>
           </TouchableOpacity>
         </View>
@@ -628,15 +649,15 @@ export default function SettingsPage() {
             <View style={[styles.badgeIconBg, { backgroundColor: '#FDE68A' }]}>
               <IconSymbol name="leaf.fill" size={24} color="#D97706" />
             </View>
-            <Text style={styles.badgeTitle}>Master Composter</Text>
-            <Text style={styles.badgeSubtitle}>LEVEL 4</Text>
+            <Text style={styles.badgeTitle}>Verified Pickups</Text>
+            <Text style={styles.badgeSubtitle}>{verifiedRewardCount} REWARDED</Text>
           </View>
           <View style={styles.badgeCardSmall}>
             <View style={[styles.badgeIconBg, { backgroundColor: '#C8E6C9' }]}>
               <IconSymbol name="arrow.triangle.2.circlepath" size={24} color="#2E7D32" />
             </View>
-            <Text style={styles.badgeTitle}>Recycling Pro</Text>
-            <Text style={styles.badgeSubtitle}>EARNED JAN 24</Text>
+            <Text style={styles.badgeTitle}>Eco Tokens</Text>
+            <Text style={styles.badgeSubtitle}>{availableRewardTokens.toLocaleString()} AVAILABLE</Text>
           </View>
         </View>
 
@@ -644,8 +665,8 @@ export default function SettingsPage() {
           <View style={[styles.badgeIconBg, { backgroundColor: '#A5D6A7' }]}>
             <IconSymbol name="person.circle.fill" size={32} color="#1B5E20" />
           </View>
-          <Text style={styles.badgeTitle}>Green Neighbor</Text>
-          <Text style={styles.badgeSubtitle}>COMMUNITY TOP 5%</Text>
+          <Text style={styles.badgeTitle}>{availableRewardTokens >= 500 ? 'Souvenir Eligible' : 'Next Souvenir'}</Text>
+          <Text style={styles.badgeSubtitle}>{availableRewardTokens >= 500 ? 'OPEN REWARDS TO REVIEW OPTIONS' : `${500 - availableRewardTokens} TOKENS TO A CENRO TOTE`}</Text>
         </View>
 
         {/* Location & Service */}
@@ -668,13 +689,13 @@ export default function SettingsPage() {
             <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
           </TouchableOpacity>
           <View style={styles.divider} />
-          <TouchableOpacity style={styles.settingsRow}>
+          <TouchableOpacity style={styles.settingsRow} onPress={() => router.push('/(tabs)/schedule')}>
             <View style={styles.settingsIconBg}>
               <IconSymbol name="calendar" size={20} color="#2E7D32" />
             </View>
             <View style={styles.settingsTextContainer}>
               <Text style={styles.settingsRowTitle}>Area Schedule</Text>
-              <Text style={styles.settingsRowSubtitle}>Next: Monday, Jan 27</Text>
+              <Text style={styles.settingsRowSubtitle}>Open your published collection calendar</Text>
             </View>
             <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
           </TouchableOpacity>
@@ -1042,7 +1063,7 @@ export default function SettingsPage() {
               {/* Password Requirements */}
               <View style={styles.passwordRequirements}>
                 <Text style={[styles.requirementsTitle, { color: colors.textSecondary }]}>Password Requirements:</Text>
-                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 8 characters</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 12 characters</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One uppercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One lowercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One number</Text>

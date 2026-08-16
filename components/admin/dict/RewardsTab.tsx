@@ -1,8 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, orderBy, onSnapshot, limit, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, query, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import {
+  COMPLETION_REWARD_TOKENS,
+  reconcileCompletedRewardAwards,
+  redeemRewardFromLedger,
+  REWARD_SOUVENIRS,
+  RewardSouvenir,
+} from '../../../services/rewardService';
 
 interface UserScore {
   id: string;
@@ -16,27 +23,21 @@ interface UserScore {
 
 export default function RewardsTab() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState<UserScore[]>([]);
+  const [profiles, setProfiles] = useState<UserScore[]>([]);
+  const [awardEntries, setAwardEntries] = useState<{ userId: string; tokens: number }[]>([]);
+  const [redemptionEntries, setRedemptionEntries] = useState<{ userId: string; cost: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reconciling, setReconciling] = useState(false);
   
   // Modal State
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserScore | null>(null);
-  const [selectedSouvenir, setSelectedSouvenir] = useState<any>(null);
+  const [selectedSouvenir, setSelectedSouvenir] = useState<RewardSouvenir | null>(null);
   const [isIssuing, setIsIssuing] = useState(false);
-
-  const souvenirs = [
-    { id: 'tumbler', name: 'Eco-Friendly Tumbler', type: 'Matte Green, Double-walled insulation', cost: 1000 },
-    { id: 'tote', name: 'Cenro Tote Bag', type: 'Canvas, Heavy Duty', cost: 500 },
-    { id: 'kit', name: 'Reusable Utensil Kit', type: 'Bamboo with pouch', cost: 2000 }
-  ];
 
   useEffect(() => {
     if (!db) return;
-    // Fetch users ordered by tokens (assuming a users collection where tokens are tracked)
-    // Note: For a real production app we'd want to use a Cloud Function to securely handle tokens,
-    // but for this capstone we track it directly in the user document.
-    const q = query(collection(db, 'users'), orderBy('tokens', 'desc'), limit(50));
+    const q = query(collection(db, 'users'), limit(200));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: UserScore[] = [];
@@ -47,19 +48,38 @@ export default function RewardsTab() {
             id: docSnap.id,
             name: d.displayName || d.name || 'Anonymous',
             email: d.email || '',
-            tokens: d.tokens || 0,
-            reportCount: d.totalReports || 0,
+            tokens: 0,
+            reportCount: 0,
             location: d.barangay || 'Citizen',
             avatar: d.photoURL
           });
         }
       });
-      setUsers(data);
+      setProfiles(data.slice(0, 50));
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubscribeAwards = onSnapshot(collection(db, 'reward_awards'), snapshot => {
+      setAwardEntries(snapshot.docs.map(item => ({
+        userId: String(item.data().userId || ''),
+        tokens: Number(item.data().tokens || 0),
+      })));
+    });
+    const unsubscribeRedemptions = onSnapshot(collection(db, 'reward_redemptions'), snapshot => {
+      setRedemptionEntries(snapshot.docs.map(item => ({
+        userId: String(item.data().userId || ''),
+        cost: Number(item.data().cost || 0),
+      })));
+    });
+    return () => { unsubscribe(); unsubscribeAwards(); unsubscribeRedemptions(); };
   }, []);
+
+  const users = useMemo(() => profiles.map(profile => {
+    const awards = awardEntries.filter(item => item.userId === profile.id);
+    const earned = awards.reduce((total, item) => total + item.tokens, 0);
+    const spent = redemptionEntries.filter(item => item.userId === profile.id).reduce((total, item) => total + item.cost, 0);
+    return { ...profile, tokens: Math.max(0, earned - spent), reportCount: awards.length };
+  }).sort((a, b) => b.tokens - a.tokens), [awardEntries, profiles, redemptionEntries]);
 
   const handleIssueSouvenir = async () => {
     if (!selectedUser || !selectedSouvenir) return;
@@ -71,22 +91,7 @@ export default function RewardsTab() {
 
     setIsIssuing(true);
     try {
-      // 1. Create a transaction/history record
-      await addDoc(collection(db, 'reward_redemptions'), {
-        userId: selectedUser.id,
-        userName: selectedUser.name,
-        souvenirId: selectedSouvenir.id,
-        souvenirName: selectedSouvenir.name,
-        cost: selectedSouvenir.cost,
-        issuedAt: serverTimestamp(),
-        status: 'completed'
-      });
-
-      // 2. Deduct tokens from user
-      const userRef = doc(db, 'users', selectedUser.id);
-      await updateDoc(userRef, {
-        tokens: increment(-selectedSouvenir.cost)
-      });
+      await redeemRewardFromLedger(selectedUser.id, selectedUser.name, selectedSouvenir);
 
       Alert.alert('Success', `Issued ${selectedSouvenir.name} to ${selectedUser.name}!`);
       setShowIssueModal(false);
@@ -100,10 +105,40 @@ export default function RewardsTab() {
     }
   };
 
+  const reconcileCompletedPickups = async () => {
+    setReconciling(true);
+    try {
+      const summary = await reconcileCompletedRewardAwards();
+      Alert.alert('Reward Sync Complete', `${summary.awarded} new award(s) issued from ${summary.scanned} completed pickups. ${summary.alreadyAwarded} were already awarded; ${summary.ineligible} lacked verified report evidence.`);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'Failed to reconcile completed pickup rewards.');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     u.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const exportRegistry = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      Alert.alert('Web export only', 'Open the DICT portal on web to download the registry.');
+      return;
+    }
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      ['Rank', 'Citizen', 'Email', 'Barangay', 'Tokens', 'Reports'].join(','),
+      ...filteredUsers.map((user, index) => [index + 1, user.name, user.email, user.location, user.tokens, user.reportCount].map(escape).join(',')),
+    ].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `trashtrack-rewards-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   return (
     <View style={styles.container}>
@@ -112,10 +147,14 @@ export default function RewardsTab() {
         <View>
           <Text style={styles.pageSubtitle}>ICT CONTROLLER • Updated seconds ago</Text>
           <Text style={styles.pageTitle}>Citizen Reporter Rewards & Souvenir Registry</Text>
-          <Text style={styles.pageDesc}>Comprehensive management of souvenirs and rewards earned by citizens for reporting environmental issues and trash concerns across the city's districts.</Text>
+          <Text style={styles.pageDesc}>Comprehensive management of souvenirs and rewards earned by citizens for reporting environmental issues and trash concerns across the city’s districts.</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.secondaryBtn}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={reconcileCompletedPickups} disabled={reconciling}>
+            <MaterialIcons name="sync" size={16} color="#374151" />
+            <Text style={styles.secondaryBtnText}>{reconciling ? 'Syncing...' : 'Sync Completed Rewards'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={exportRegistry}>
             <MaterialIcons name="download" size={16} color="#374151" />
             <Text style={styles.secondaryBtnText}>Export Registry</Text>
           </TouchableOpacity>
@@ -175,7 +214,7 @@ export default function RewardsTab() {
               <View key={user.id} style={styles.tr}>
                 <Text style={[styles.td, { width: 50, fontWeight: '700', color: '#6B7280' }]}>#{index + 1}</Text>
                 
-                <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={styles.avatarBg}>
                     <Text style={styles.avatarInitial}>{user.name.charAt(0)}</Text>
                   </View>
@@ -185,17 +224,17 @@ export default function RewardsTab() {
                   </View>
                 </View>
 
-                <View style={[styles.td, { flex: 1 }]}>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.reportCountText}>{user.reportCount} Reports</Text>
                 </View>
 
-                <View style={[styles.td, { flex: 1 }]}>
+                <View style={{ flex: 1 }}>
                   <View style={styles.tokenBadge}>
                     <Text style={styles.tokenText}>🪙 {user.tokens.toLocaleString()}</Text>
                   </View>
                 </View>
 
-                <View style={[styles.td, { flex: 1.5, flexDirection: 'row', gap: 8 }]}>
+                <View style={{ flex: 1.5, flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity 
                     style={styles.actionBtnIssue}
                     onPress={() => {
@@ -215,8 +254,8 @@ export default function RewardsTab() {
       {/* Summary Footer */}
       <View style={styles.summaryGrid}>
         <View style={styles.summaryBox}>
-          <Text style={styles.summaryLabel}>TOTAL ONLINE VOLUNTEERS</Text>
-          <Text style={styles.summaryValue}>{users.length}</Text>
+          <Text style={styles.summaryLabel}>TOKENS PER VERIFIED PICKUP</Text>
+          <Text style={styles.summaryValue}>{COMPLETION_REWARD_TOKENS}</Text>
         </View>
         <View style={styles.summaryBox}>
           <Text style={styles.summaryLabel}>ACTIVE REPORTERS</Text>
@@ -224,7 +263,7 @@ export default function RewardsTab() {
         </View>
         <View style={styles.summaryBox}>
           <Text style={styles.summaryLabel}>ITEM DISTRIBUTIONS</Text>
-          <Text style={styles.summaryValue}>--</Text>
+          <Text style={styles.summaryValue}>{redemptionEntries.length}</Text>
         </View>
       </View>
 
@@ -260,7 +299,7 @@ export default function RewardsTab() {
 
               <View style={styles.modalFormGroup}>
                 <Text style={styles.modalLabel}>SELECT SOUVENIR TYPE</Text>
-                {souvenirs.map(item => (
+                {REWARD_SOUVENIRS.map(item => (
                   <TouchableOpacity 
                     key={item.id}
                     style={[

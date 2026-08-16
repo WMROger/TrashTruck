@@ -4,6 +4,7 @@ import { auth, db } from '@/config/firebase';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import { writeAuditLog } from '@/services/auditLogService';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { awardVerifiedCompletion } from '@/services/rewardService';
 
 const QUEUE_KEY = 'trashtrack.driver.offline-actions.v1';
 
@@ -58,6 +59,13 @@ const persist = async (item: QueueItem, imageUrl: string) => {
       completedByUid: item.driverUid,
       completedAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
+    try {
+      await awardVerifiedCompletion(item.scheduleId);
+    } catch (error) {
+      // Completion evidence is more important than the derived reward ledger.
+      // DICT can safely reconcile a missed deterministic award later.
+      console.warn('Reward award will require DICT reconciliation:', error);
+    }
     await writeAuditLog('pickup.completed', 'schedule', item.scheduleId, { measurement: item.measurement, offline: item.attempts > 0 });
   } else {
     await updateDoc(doc(db, 'schedules', item.scheduleId), {

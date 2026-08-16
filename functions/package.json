@@ -7,7 +7,7 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "lint": "node --check index.js && node --check lib/core.js",
+    "lint": "node --check index.js && node --check lib/core.js && node --check lib/rewards.js",
     "test": "node --test test/*.test.js",
     "test:rules": "firebase emulators:exec --config ../firebase.test.json --project trashtrack-rules-test --only firestore \"node --test test/firestore.rules.test.js\""
   },

@@ -27,6 +27,7 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker } from "@/components/MapView";
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 import { formatWasteAmount } from '@/utils/wasteUnits';
 
 export default function ReportScreen() {
@@ -157,7 +158,7 @@ export default function ReportScreen() {
     }
   };
 
-  const BARANGAYS = useMemo(() => ["Sambag 2"], []);
+  const BARANGAYS = useMemo(() => [...DANAO_CITY_BARANGAYS], []);
 
   const LANDMARKS = useMemo(
     () => ["Barangay Hall", "Market", "Church", "School", "Park", "Main Road"],
@@ -718,7 +719,7 @@ export default function ReportScreen() {
               <TextInput
                 value={barangay}
                 onChangeText={setBarangay}
-                placeholder="e.g. Sambag 2"
+                placeholder="e.g. Poblacion"
                 placeholderTextColor="#7C8E80"
                 style={styles.inputText}
               />
