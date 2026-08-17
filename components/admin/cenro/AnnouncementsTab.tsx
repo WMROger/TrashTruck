@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -15,6 +15,8 @@ interface Announcement {
 }
 
 export default function AnnouncementsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -104,12 +106,12 @@ export default function AnnouncementsTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
       <Text style={styles.headerSubtitle}>COMMUNICATIONS</Text>
       <Text style={styles.headerTitle}>Announcement Creator</Text>
 
       {/* Creator Card */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 16 }]}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
             <MaterialIcons name="campaign" size={20} color="#2E8B57" style={styles.cardIcon} />
@@ -117,18 +119,18 @@ export default function AnnouncementsTab() {
           </View>
         </View>
 
-        <View style={styles.formGrid}>
+        <View style={[styles.formGrid, isMobile && { flexDirection: 'column' }]}>
           <View style={[styles.formGroup, { width: '100%' }]}>
             <Text style={styles.label}>ANNOUNCEMENT TITLE</Text>
             <TextInput style={styles.input} placeholder="e.g. Holiday Schedule Changes" value={title} onChangeText={setTitle} />
           </View>
           
-          <View style={styles.formGroup}>
+          <View style={[styles.formGroup, isMobile && { width: '100%' }]}>
             <Text style={styles.label}>CATEGORY</Text>
             <TextInput style={styles.input} placeholder="e.g. Schedule, Alert, General" value={category} onChangeText={setCategory} />
           </View>
 
-          <View style={styles.formGroup}>
+          <View style={[styles.formGroup, isMobile && { width: '100%' }]}>
             <Text style={styles.label}>PRIORITY</Text>
             <View style={{ position: 'relative', zIndex: 10 }}>
               <TouchableOpacity style={styles.dropdown} onPress={() => setShowPriorityDropdown(!showPriorityDropdown)}>
@@ -168,7 +170,7 @@ export default function AnnouncementsTab() {
 
         <View style={styles.actionsRow}>
           <TouchableOpacity 
-            style={styles.primaryBtn} 
+            style={[styles.primaryBtn, isMobile && { width: '100%', justifyContent: 'center' }]} 
             onPress={handlePublish}
             disabled={isSubmitting}
           >
@@ -185,53 +187,61 @@ export default function AnnouncementsTab() {
       </View>
 
       {/* History Table */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Published Announcements</Text>
         </View>
 
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { flex: 2 }]}>TITLE</Text>
-            <Text style={[styles.th, { flex: 1 }]}>CATEGORY</Text>
-            <Text style={[styles.th, { flex: 1 }]}>PRIORITY</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>DATE</Text>
-            <Text style={[styles.th, { flex: 0.5, textAlign: 'right' }]}>ACTION</Text>
-          </View>
-          
-          {loading ? (
-            <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color="#2E8B57" /></View>
-          ) : announcements.length === 0 ? (
-            <View style={{ padding: 40, alignItems: 'center' }}><Text style={{ color: '#6B7280' }}>No announcements published.</Text></View>
-          ) : (
-            announcements.map((row) => {
-              const pColor = getPriorityColor(row.priority);
-              const dateStr = row.createdAt?.toDate ? row.createdAt.toDate().toLocaleString() : 'Just now';
-              
-              return (
-                <View key={row.id} style={styles.tableRow}>
-                  <View style={{ flex: 2 }}>
-                    <Text style={styles.rowTitle}>{row.title}</Text>
-                    <Text style={styles.rowDesc} numberOfLines={1}>{row.description}</Text>
-                  </View>
-                  <Text style={[styles.td, { flex: 1, color: '#4B5563' }]}>{row.category}</Text>
-                  <View style={{ flex: 1 }}>
-                    <View style={[styles.badge, { backgroundColor: pColor.bg }]}>
-                      <Text style={[styles.badgeText, { color: pColor.text }]}>{row.priority}</Text>
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%', marginTop: 16 }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 2 }]}>TITLE</Text>
+              <Text style={[styles.th, { flex: 1 }]}>CATEGORY</Text>
+              <Text style={[styles.th, { flex: 1 }]}>PRIORITY</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>DATE</Text>
+              <Text style={[styles.th, { flex: 0.5, textAlign: 'right' }]}>ACTION</Text>
+            </View>
+            
+            {loading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color="#2E8B57" /></View>
+            ) : announcements.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}><Text style={{ color: '#6B7280' }}>No announcements published.</Text></View>
+            ) : (
+              announcements.map((row) => {
+                const pColor = getPriorityColor(row.priority);
+                const dateStr = row.createdAt?.toDate ? row.createdAt.toDate().toLocaleString() : 'Just now';
+                
+                return (
+                  <View key={row.id} style={styles.tableRow}>
+                    <View style={{ flex: 2 }}>
+                      <Text style={styles.rowTitle}>{row.title}</Text>
+                      <Text style={styles.rowDesc} numberOfLines={1}>{row.description}</Text>
+                    </View>
+                    <Text style={[styles.td, { flex: 1, color: '#4B5563' }]}>{row.category}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={[styles.badge, { backgroundColor: pColor.bg }]}>
+                        <Text style={[styles.badgeText, { color: pColor.text }]}>{row.priority}</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.td, { flex: 1.5, color: '#6B7280', fontSize: 13 }]}>{dateStr}</Text>
+                    <View style={{ flex: 0.5, alignItems: 'flex-end' }}>
+                      <TouchableOpacity onPress={() => handleDelete(row.id)}>
+                        <MaterialIcons name="delete-outline" size={20} color="#DC2626" />
+                      </TouchableOpacity>
                     </View>
                   </View>
-                  <Text style={[styles.td, { flex: 1.5, color: '#6B7280', fontSize: 13 }]}>{dateStr}</Text>
-                  <View style={{ flex: 0.5, alignItems: 'flex-end' }}>
-                    <TouchableOpacity onPress={() => handleDelete(row.id)}>
-                      <MaterialIcons name="delete-outline" size={20} color="#EF4444" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
+                );
+              })
+            )}
+          </View>
+        </ScrollView>
       </View>
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }

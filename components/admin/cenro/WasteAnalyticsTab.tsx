@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform, TextInput, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
 import { auth, db } from '../../../config/firebase';
@@ -18,6 +18,8 @@ type ForecastMode = 'baseline' | 'lstm-candidate';
 type BudgetConfig = { costPerTon: number; contingencyPercent: number };
 
 export default function WasteAnalyticsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [historyRange, setHistoryRange] = useState<12 | 24 | 'all'>(12);
@@ -220,9 +222,8 @@ export default function WasteAnalyticsTab() {
     );
   }
 
-  // Calculate chart width based on screen width (roughly 60% for the left chart card on web)
-  const screenWidth = Dimensions.get("window").width;
-  const chartWidth = Math.max(screenWidth * 0.5, 300);
+  // Calculate chart width based on screen width
+  const chartWidth = isMobile ? Math.max(width - 64, 280) : Math.max(width * 0.5, 300);
   const visibleHistory = historyRange === 'all' ? data.historicalSeries : data.historicalSeries.slice(-historyRange);
   const selectedForecast = forecastMode === 'lstm-candidate'
     ? data.lstmCandidate.forecast.slice(0, 2).map((point: any) => point.valueTons)
@@ -276,8 +277,8 @@ export default function WasteAnalyticsTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerRow}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12, marginBottom: 16 }]}>
         <View>
           <Text style={styles.headerSubtitle}>PORTAL / PREDICTIVE INTELLIGENCE</Text>
           <Text style={styles.headerTitle}>Waste Intelligence Analytics</Text>
@@ -585,8 +586,8 @@ const styles = StyleSheet.create({
   refreshBadge: { backgroundColor: '#F3F4F6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   refreshText: { fontSize: 11, fontWeight: '700', color: '#6B7280', letterSpacing: 0.5 },
 
-  topRow: { flexDirection: 'row', gap: 24, marginBottom: 24 },
-  metricCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
+  topRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 24 },
+  metricCard: { flex: 1, minWidth: 260, backgroundColor: '#fff', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
   metricTitle: { fontSize: 11, fontWeight: '700', color: '#6B7280', letterSpacing: 0.5, marginBottom: 12 },
   metricValueRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 16, gap: 8 },
   metricValue: { fontSize: 36, fontWeight: 'bold', color: '#111827' },
@@ -599,9 +600,9 @@ const styles = StyleSheet.create({
   efficiencyBars: { flexDirection: 'row', gap: 4, height: 8 },
   effBar: { flex: 1, backgroundColor: '#2E8B57', borderRadius: 4 },
 
-  middleRow: { flexDirection: 'row', gap: 24, marginBottom: 24 },
-  chartCard: { flex: 2, backgroundColor: '#fff', borderRadius: 12, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, overflow: 'hidden' },
-  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 },
+  middleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, marginBottom: 24 },
+  chartCard: { flex: 2, minWidth: 280, backgroundColor: '#fff', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, overflow: 'hidden' },
+  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   chartTitle: { fontSize: 16, fontWeight: 'bold', color: '#111827', marginBottom: 4 },
   chartDesc: { fontSize: 13, color: '#6B7280' },
   legendRow: { flexDirection: 'row', gap: 16 },
@@ -628,18 +629,18 @@ const styles = StyleSheet.create({
   modelStatusText: { fontSize: 10, fontWeight: '900' },
   hotspotMap: { height: 280, borderRadius: 12, marginTop: 18, overflow: 'hidden' },
 
-  aiInsightCard: { flex: 1, backgroundColor: '#4b6354', borderRadius: 12, padding: 24, justifyContent: 'space-between' },
-  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 24 },
+  aiInsightCard: { flex: 1, minWidth: 280, backgroundColor: '#4b6354', borderRadius: 12, padding: 20, justifyContent: 'space-between' },
+  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
   aiHeaderText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  aiTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
-  aiDesc: { fontSize: 14, color: '#d1fae5', lineHeight: 20, marginBottom: 24 },
-  aiActionBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(255,255,255,0.1)', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', marginBottom: 24 },
+  aiTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+  aiDesc: { fontSize: 14, color: '#d1fae5', lineHeight: 20, marginBottom: 20 },
+  aiActionBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(255,255,255,0.1)', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', marginBottom: 20 },
   aiActionText: { color: '#fff', fontSize: 13, fontWeight: '500', flex: 1 },
-  aiBtn: { backgroundColor: '#fff', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
+  aiBtn: { backgroundColor: '#fff', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   aiBtnText: { color: '#4b6354', fontWeight: 'bold', fontSize: 14 },
 
-  bottomRow: { flexDirection: 'row', gap: 24, paddingBottom: 40 },
-  financialCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
+  bottomRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingBottom: 40 },
+  financialCard: { flex: 1, minWidth: 280, backgroundColor: '#fff', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
   sectionTitle: { fontSize: 12, fontWeight: '700', color: '#6B7280', letterSpacing: 1, marginBottom: 24 },
   finRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   finLabel: { fontSize: 14, color: '#374151', fontWeight: '500' },

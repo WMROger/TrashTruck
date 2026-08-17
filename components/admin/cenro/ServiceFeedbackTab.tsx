@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Modal, ActivityIndicator, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Alert, View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Modal, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -18,6 +18,8 @@ interface Feedback {
 }
 
 export default function ServiceFeedbackTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
@@ -176,9 +178,9 @@ export default function ServiceFeedbackTab() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
       {/* Header */}
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Service Feedback</Text>
           <Text style={styles.headerDesc}>Monitor citizen satisfaction and service quality ratings.</Text>
@@ -192,29 +194,29 @@ export default function ServiceFeedbackTab() {
       </View>
 
       {/* Summary Cards */}
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
+      <View style={[styles.summaryRow, isMobile && { flexWrap: 'wrap', gap: 10 }]}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#EFF6FF' }]}>
             <MaterialIcons name="chat-bubble-outline" size={22} color="#2563EB" />
           </View>
           <Text style={styles.summaryValue}>{totalCount}</Text>
           <Text style={styles.summaryLabel}>Total Feedback</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#ECFDF5' }]}>
             <MaterialIcons name="thumb-up" size={22} color="#059669" />
           </View>
           <Text style={styles.summaryValue}>{positiveRate}%</Text>
           <Text style={styles.summaryLabel}>Positive Rate</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#ECFDF5' }]}>
             <MaterialIcons name="sentiment-very-satisfied" size={22} color="#059669" />
           </View>
           <Text style={styles.summaryValue}>{lovedCount}</Text>
           <Text style={styles.summaryLabel}>Loved It</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#FEF2F2' }]}>
             <MaterialIcons name="sentiment-very-dissatisfied" size={22} color="#DC2626" />
           </View>
@@ -224,7 +226,7 @@ export default function ServiceFeedbackTab() {
       </View>
 
       {/* Rating Breakdown */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         <Text style={styles.cardTitle}>Rating Breakdown</Text>
         {['Loved it', 'Good', 'Bad', 'Terrible'].map((rating) => {
           const color = getRatingColor(rating);
@@ -245,10 +247,10 @@ export default function ServiceFeedbackTab() {
       </View>
 
       {/* Feedback List */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         {/* Filters */}
-        <View style={styles.filtersRow}>
-          <View style={styles.searchBox}>
+        <View style={[styles.filtersRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 12 }]}>
+          <View style={[styles.searchBox, isMobile && { width: '100%' }]}>
             <MaterialIcons name="search" size={20} color="#9CA3AF" />
             <TextInput
               style={styles.searchInput}
@@ -259,7 +261,7 @@ export default function ServiceFeedbackTab() {
             />
           </View>
 
-          <View style={styles.filterChips}>
+          <View style={[styles.filterChips, isMobile && { flexWrap: 'wrap', gap: 6 }]}>
             {(['all', 'loved it', 'good', 'bad', 'terrible'] as const).map((filter) => (
               <TouchableOpacity
                 key={filter}
@@ -281,66 +283,75 @@ export default function ServiceFeedbackTab() {
         </View>
 
         {/* Table */}
-        <View style={styles.tableHead}>
-          <Text style={[styles.th, { flex: 2 }]}>USER</Text>
-          <Text style={[styles.th, { flex: 1 }]}>RATING</Text>
-          <Text style={[styles.th, { flex: 3 }]}>MESSAGE</Text>
-          <Text style={[styles.th, { flex: 1 }]}>DATE</Text>
-          <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
-        </View>
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 2 }]}>USER</Text>
+              <Text style={[styles.th, { flex: 1 }]}>RATING</Text>
+              <Text style={[styles.th, { flex: 3 }]}>MESSAGE</Text>
+              <Text style={[styles.th, { flex: 1 }]}>DATE</Text>
+              <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
+            </View>
 
-        {paginatedFeedbacks.length === 0 ? (
-          <View style={styles.emptyRow}>
-            <MaterialIcons name="inbox" size={40} color="#D1D5DB" />
-            <Text style={styles.emptyText}>No feedback found</Text>
-          </View>
-        ) : (
-          paginatedFeedbacks.map((feedback) => {
-            const ratingColor = getRatingColor(feedback.rating);
-            return (
-              <TouchableOpacity
-                key={feedback.id}
-                style={styles.tableRow}
-                onPress={() => { setSelectedFeedback(feedback); setShowDetailModal(true); }}
-              >
-                <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
-                  <View style={styles.avatarPlaceholder}>
-                    {feedback.photoURL ? (
-                      <Image source={{ uri: feedback.photoURL }} style={styles.avatarImage} />
-                    ) : (
-                      <MaterialIcons name="person" size={20} color="#9CA3AF" />
-                    )}
-                  </View>
-                  <View>
-                    <Text style={styles.userName}>{feedback.userName}</Text>
-                    <Text style={styles.userEmail}>{feedback.userEmail}</Text>
-                  </View>
-                </View>
-                <View style={[styles.td, { flex: 1 }]}>
-                  <View style={[styles.ratingBadge, { backgroundColor: ratingColor.bg }]}>
-                    <Text style={{ fontSize: 14 }}>{getRatingEmoji(feedback.rating)}</Text>
-                    <Text style={[styles.ratingBadgeText, { color: ratingColor.text }]}>
-                      {feedback.rating}
+            {paginatedFeedbacks.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <MaterialIcons name="inbox" size={40} color="#D1D5DB" />
+                <Text style={styles.emptyText}>No feedback found</Text>
+              </View>
+            ) : (
+              paginatedFeedbacks.map((feedback) => {
+                const ratingColor = getRatingColor(feedback.rating);
+                return (
+                  <TouchableOpacity
+                    key={feedback.id}
+                    style={styles.tableRow}
+                    onPress={() => { setSelectedFeedback(feedback); setShowDetailModal(true); }}
+                  >
+                    <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                      <View style={styles.avatarPlaceholder}>
+                        {feedback.photoURL ? (
+                          <Image source={{ uri: feedback.photoURL }} style={styles.avatarImage} />
+                        ) : (
+                          <MaterialIcons name="person" size={20} color="#9CA3AF" />
+                        )}
+                      </View>
+                      <View>
+                        <Text style={styles.userName}>{feedback.userName}</Text>
+                        <Text style={styles.userEmail}>{feedback.userEmail}</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.td, { flex: 1 }]}>
+                      <View style={[styles.ratingBadge, { backgroundColor: ratingColor.bg }]}>
+                        <Text style={{ fontSize: 14 }}>{getRatingEmoji(feedback.rating)}</Text>
+                        <Text style={[styles.ratingBadgeText, { color: ratingColor.text }]}>
+                          {feedback.rating}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.td, { flex: 3 }]}>
+                      <Text style={styles.messageText} numberOfLines={2}>
+                        {feedback.message}
+                      </Text>
+                    </View>
+                    <Text style={[styles.td, { flex: 1, color: '#6B7280', fontSize: 13 }]}>
+                      {formatDate(feedback.createdAt)}
                     </Text>
-                  </View>
-                </View>
-                <View style={[styles.td, { flex: 3 }]}>
-                  <Text style={styles.messageText} numberOfLines={2}>
-                    {feedback.message}
-                  </Text>
-                </View>
-                <Text style={[styles.td, { flex: 1, color: '#6B7280', fontSize: 13 }]}>
-                  {formatDate(feedback.createdAt)}
-                </Text>
-                <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
-                  <TouchableOpacity onPress={() => { setSelectedFeedback(feedback); setShowDetailModal(true); }}>
-                    <MaterialIcons name="visibility" size={20} color="#6B7280" />
+                    <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
+                      <TouchableOpacity onPress={() => { setSelectedFeedback(feedback); setShowDetailModal(true); }}>
+                        <MaterialIcons name="visibility" size={20} color="#6B7280" />
+                      </TouchableOpacity>
+                    </View>
                   </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
+                );
+              })
+            )}
+          </View>
+        </ScrollView>
 
         {/* Pagination */}
         {totalPages > 1 && (

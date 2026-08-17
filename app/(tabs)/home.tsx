@@ -31,7 +31,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   markAsRead as markAsReadHelper,
   sendTestNotification as sendTestNotificationHelper
-} from "./home.notifications";
+} from "@/services/homeNotifications";
 
 export default function HomePage() {
   const router = useRouter();
@@ -699,29 +699,51 @@ export default function HomePage() {
           </View>
         </View>
 
-        {/* Driver Portal Button - Only for drivers */}
+        {/* Driver Portal Section - Only for drivers */}
         {isDriver && (
-          <TouchableOpacity
-            style={styles.driverPortalCard}
-            onPress={() => router.push('/(driver)/select-truck')}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#1B5E20', '#2E7D32', '#388E3C']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.driverPortalGradient}
+          <View style={styles.driverSectionContainer}>
+            <TouchableOpacity
+              style={styles.driverPortalCard}
+              onPress={() => router.push('/(driver)')}
+              activeOpacity={0.85}
             >
-              <View style={styles.driverPortalIcon}>
-                <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
-              </View>
-              <View style={styles.driverPortalTextContainer}>
-                <Text style={styles.driverPortalTitle}>Driver Portal</Text>
-                <Text style={styles.driverPortalSubtitle}>Start your shift & select a truck</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#1B5E20', '#2E7D32', '#388E3C']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.driverPortalGradient}
+              >
+                <View style={styles.driverPortalIcon}>
+                  <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
+                </View>
+                <View style={styles.driverPortalTextContainer}>
+                  <Text style={styles.driverPortalTitle}>Driver Portal</Text>
+                  <Text style={styles.driverPortalSubtitle}>View schedules, routes & histories</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <View style={styles.driverActionButtonsRow}>
+              <TouchableOpacity
+                style={styles.driverStartShiftBtn}
+                onPress={() => router.push('/(driver)/select-truck')}
+                activeOpacity={0.85}
+              >
+                <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+                <Text style={styles.driverStartShiftBtnText}>Start Shift</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.driverViewDataBtn}
+                onPress={() => router.push('/(driver)')}
+                activeOpacity={0.85}
+              >
+                <MaterialIcons name="analytics" size={18} color="#2E7D32" />
+                <Text style={styles.driverViewDataBtnText}>Driver Records</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
         {/* Quick Actions */}
@@ -1201,5 +1223,51 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     marginTop: 2,
     fontWeight: "500",
+  },
+  driverSectionContainer: {
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  driverActionButtonsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+  },
+  driverStartShiftBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2E7D32",
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+    elevation: 2,
+    shadowColor: "#1B5E20",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  driverStartShiftBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  driverViewDataBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E8F5E9",
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#C8E6C9",
+  },
+  driverViewDataBtnText: {
+    color: "#2E7D32",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

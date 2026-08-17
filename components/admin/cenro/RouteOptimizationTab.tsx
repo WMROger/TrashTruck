@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, TextInput, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
 import { auth, db } from '../../../config/firebase';
@@ -44,6 +44,8 @@ const reportPriority = (report: Report) => {
 };
 
 export default function RouteOptimizationTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [reports, setReports] = useState<Report[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
@@ -314,17 +316,17 @@ export default function RouteOptimizationTab() {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerRow}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { marginBottom: 16 }]}>
         <View>
           <Text style={styles.headerTitle}>Automatic Route Optimization</Text>
           <Text style={styles.headerDesc}>Optimize GPS-tagged reports on drivable roads, then dispatch the route directly to the driver’s in-app map.</Text>
         </View>
       </View>
 
-      <View style={styles.mainGrid}>
+      <View style={[styles.mainGrid, isMobile && { flexDirection: 'column', gap: 16 }]}>
         {/* Left Column - Report Selection */}
-        <View style={styles.leftColumn}>
+        <View style={[styles.leftColumn, isMobile && { flex: undefined, width: '100%' }]}>
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>Verified Reports Queue</Text>
@@ -397,7 +399,7 @@ export default function RouteOptimizationTab() {
         </View>
 
         {/* Right Column - Routing Controls */}
-        <View style={styles.rightColumn}>
+        <View style={[styles.rightColumn, isMobile && { flex: undefined, width: '100%' }]}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Routing Engine</Text>
             

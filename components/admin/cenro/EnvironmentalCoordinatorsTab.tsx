@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { collection, query, where, doc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
@@ -7,6 +7,8 @@ import { db } from '@/config/firebase';
 import { provisionCoordinatorOnSpark } from '@/services/coordinatorProvisioningService';
 
 export default function EnvironmentalCoordinatorsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [coordinators, setCoordinators] = useState<any[]>([]);
   const [isAddingCoordinator, setIsAddingCoordinator] = useState(false);
   const [mode, setMode] = useState<'create' | 'upgrade'>('create');
@@ -197,19 +199,19 @@ export default function EnvironmentalCoordinatorsTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerRow}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Environmental Coordinators</Text>
           <Text style={styles.headerDesc}>Manage field leads across urban barangays.</Text>
         </View>
         {!isAddingCoordinator && (
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.outlineBtn} onPress={exportCoordinators}>
+          <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%', gap: 8 }]}>
+            <TouchableOpacity style={[styles.outlineBtn, isMobile && { justifyContent: 'center' }]} onPress={exportCoordinators}>
               <MaterialIcons name="file-download" size={18} color="#374151" />
               <Text style={styles.outlineBtnText}>Export</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryBtn} onPress={() => setIsAddingCoordinator(true)}>
+            <TouchableOpacity style={[styles.primaryBtn, isMobile && { justifyContent: 'center' }]} onPress={() => setIsAddingCoordinator(true)}>
               <MaterialIcons name="person-add" size={18} color="#fff" />
               <Text style={styles.primaryBtnText}>Add Coordinator</Text>
             </TouchableOpacity>
@@ -226,15 +228,15 @@ export default function EnvironmentalCoordinatorsTab() {
           </TouchableOpacity>
 
           {/* Mode Toggle */}
-          <View style={styles.toggleContainer}>
+          <View style={[styles.toggleContainer, isMobile && { flexDirection: 'column', gap: 8, height: 'auto', padding: 4 }]}>
             <TouchableOpacity 
-              style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive]}
+              style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
               onPress={() => setMode('create')}
             >
               <Text style={[styles.toggleText, mode === 'create' && styles.toggleTextActive]}>Create New Account</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive]}
+              style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
               onPress={() => setMode('upgrade')}
             >
               <Text style={[styles.toggleText, mode === 'upgrade' && styles.toggleTextActive]}>Upgrade Existing Resident</Text>
@@ -431,10 +433,10 @@ export default function EnvironmentalCoordinatorsTab() {
           <View style={{ height: 40 }} />
         </View>
       ) : (
-        <View style={styles.card}>
+        <View style={[styles.card, isMobile && { padding: 14 }]}>
           {/* Filters Row */}
-          <View style={styles.filtersRow}>
-            <View style={styles.searchBox}>
+          <View style={[styles.filtersRow, isMobile && { flexDirection: 'column', gap: 12, alignItems: 'stretch' }]}>
+            <View style={[styles.searchBox, isMobile && { width: '100%' }]}>
               <MaterialIcons name="search" size={20} color="#9CA3AF" />
               <TextInput style={styles.searchInput} placeholder="Search by name, ID, or barangay..." placeholderTextColor="#9CA3AF" value={directorySearch} onChangeText={setDirectorySearch} />
             </View>
@@ -443,56 +445,65 @@ export default function EnvironmentalCoordinatorsTab() {
           </View>
 
           {/* Table */}
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { flex: 2 }]}>COORDINATOR</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>BARANGAY</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>CONTACT</Text>
-            <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
-          </View>
+          <ScrollView 
+            horizontal={isMobile} 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+            style={{ width: '100%' }}
+          >
+            <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+              <View style={styles.tableHead}>
+                <Text style={[styles.th, { flex: 2 }]}>COORDINATOR</Text>
+                <Text style={[styles.th, { flex: 1.5 }]}>BARANGAY</Text>
+                <Text style={[styles.th, { flex: 1.5 }]}>CONTACT</Text>
+                <Text style={[styles.th, { flex: 1 }]}>STATUS</Text>
+                <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
+              </View>
 
-          {filteredCoordinators.map((row) => {
-            const status = row.status || 'CERTIFIED';
-            const statusColor = status === 'PENDING' ? '#ef4444' : '#2E8B57';
-            const statusBg = status === 'PENDING' ? '#FEF2F2' : '#F6FBF7';
+              {filteredCoordinators.map((row) => {
+                const status = row.status || 'CERTIFIED';
+                const statusColor = status === 'PENDING' ? '#ef4444' : '#2E8B57';
+                const statusBg = status === 'PENDING' ? '#FEF2F2' : '#F6FBF7';
 
-            return (
-            <View key={row.id} style={styles.tableRow}>
-              <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={{ fontWeight: 'bold', color: '#6B7280' }}>
-                    {row.displayName?.substring(0, 2).toUpperCase() || 'NA'}
-                  </Text>
+                return (
+                <View key={row.id} style={styles.tableRow}>
+                  <View style={[styles.td, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={{ fontWeight: 'bold', color: '#6B7280' }}>
+                        {row.displayName?.substring(0, 2).toUpperCase() || 'NA'}
+                      </Text>
+                    </View>
+                    <View>
+                      <Text style={styles.coordName}>{row.displayName || 'Unknown'}</Text>
+                      <Text style={styles.coordId}>{row.employeeId || 'No ID'}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.td, { flex: 1.5 }]}>
+                    <Text style={styles.brgyName}>{row.barangay || 'N/A'}</Text>
+                    <Text style={styles.brgyZone}>{row.zone || ''}</Text>
+                  </View>
+                  <Text style={[styles.td, { flex: 1.5, color: '#4B5563', fontSize: 13 }]}>{row.contactInfo || row.email || 'N/A'}</Text>
+                  <View style={[styles.td, { flex: 1 }]}>
+                    <View style={[styles.statusBadge, { borderColor: statusColor, backgroundColor: statusBg }]}>
+                      <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
+                    <TouchableOpacity onPress={() => handleRevoke(row.id)} style={styles.revokeBtn}>
+                      <Text style={styles.revokeBtnText}>REVOKE</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View>
-                  <Text style={styles.coordName}>{row.displayName || 'Unknown'}</Text>
-                  <Text style={styles.coordId}>{row.employeeId || 'No ID'}</Text>
+                );
+              })}
+
+              {filteredCoordinators.length === 0 && (
+                <View style={{ padding: 24, alignItems: 'center' }}>
+                  <Text style={{ color: '#6B7280' }}>No coordinators found.</Text>
                 </View>
-              </View>
-              <View style={[styles.td, { flex: 1.5 }]}>
-                <Text style={styles.brgyName}>{row.barangay || 'N/A'}</Text>
-                <Text style={styles.brgyZone}>{row.zone || ''}</Text>
-              </View>
-              <Text style={[styles.td, { flex: 1.5, color: '#4B5563', fontSize: 13 }]}>{row.contactInfo || row.email || 'N/A'}</Text>
-              <View style={[styles.td, { flex: 1 }]}>
-                <View style={[styles.statusBadge, { borderColor: statusColor, backgroundColor: statusBg }]}>
-                  <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
-                </View>
-              </View>
-              <View style={[styles.td, { flex: 0.5, alignItems: 'center' }]}>
-                <TouchableOpacity onPress={() => handleRevoke(row.id)} style={styles.revokeBtn}>
-                  <Text style={styles.revokeBtnText}>REVOKE</Text>
-                </TouchableOpacity>
-              </View>
+              )}
             </View>
-            );
-          })}
-
-          {filteredCoordinators.length === 0 && (
-            <View style={{ padding: 24, alignItems: 'center' }}>
-              <Text style={{ color: '#6B7280' }}>No coordinators found.</Text>
-            </View>
-          )}
+          </ScrollView>
 
           {filteredCoordinators.length > 0 && (
             <View style={styles.pagination}>

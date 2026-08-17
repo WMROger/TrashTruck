@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db, auth } from '../../../config/firebase';
 import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import LiveOperationsMap, { LiveMapReport, LiveMapTruck } from './LiveOperationsMap';
 
 export default function OperationalOverridesTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [settings, setSettings] = useState({
     forcePauseCollection: false,
     activateBackupFleet: true,
@@ -190,25 +192,23 @@ export default function OperationalOverridesTab() {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerTextContainer}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12, marginBottom: 16 }]}>
+        <View style={[styles.headerTextContainer, isMobile && { paddingRight: 0 }]}>
           <Text style={styles.headerTitle}>Operational Overrides</Text>
           <Text style={styles.headerDesc}>
             Configure emergency responses based on real-time environmental hazards and logistical obstructions.
           </Text>
         </View>
-        <TouchableOpacity style={styles.dangerBtn} onPress={handleEmergencyBroadcast}>
+        <TouchableOpacity style={[styles.dangerBtn, isMobile && { width: '100%', justifyContent: 'center' }]} onPress={handleEmergencyBroadcast}>
           <MaterialIcons name="emergency" size={18} color="#fff" />
           <Text style={styles.dangerBtnText}>Emergency Broadcast</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.mainRow}>
-        {/* Left Column - Controls & Logs */}
-        <View style={styles.leftColumn}>
+      <View style={[styles.mainRow, isMobile && { flexDirection: 'column', gap: 20 }]}>
+        <View style={[styles.leftColumn, isMobile && { flex: undefined, width: '100%' }]}>
           
-          {/* Active Scenarios */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Active Scenarios</Text>
             <Text style={styles.sectionCount}>{openReports.length} OPEN GPS REPORT{openReports.length === 1 ? '' : 'S'}</Text>
@@ -251,9 +251,9 @@ export default function OperationalOverridesTab() {
                 </View>
               </View>
             </View>
+            {settings.activateBackupFleet && <View style={styles.activeDot} />}
           </View>
 
-          {/* System Controls */}
           <Text style={[styles.sectionTitle, { marginTop: 16 }]}>System Controls</Text>
           <View style={styles.controlsCard}>
             <View style={styles.controlRow}>
@@ -281,48 +281,56 @@ export default function OperationalOverridesTab() {
             </View>
           </View>
 
-          {/* Protocol Activity Log */}
           <View style={[styles.sectionHeader, { marginTop: 16 }]}>
             <Text style={styles.sectionTitle}>Protocol Activity Log</Text>
             <TouchableOpacity onPress={exportActivityLog}><Text style={styles.exportText}>Export Report</Text></TouchableOpacity>
           </View>
 
-          <View style={styles.logCard}>
-            <View style={styles.tableHead}>
-              <Text style={[styles.th, { flex: 1 }]}>TIMESTAMP</Text>
-              <Text style={[styles.th, { flex: 1.5 }]}>SOURCE</Text>
-              <Text style={[styles.th, { flex: 2 }]}>EVENT ACTION</Text>
-              <Text style={[styles.th, { flex: 1 }]}>CONFIDENCE</Text>
-            </View>
-            
-            {logs.length === 0 ? (
-              <Text style={{ padding: 16, color: '#6B7280', textAlign: 'center' }}>No recent activity logs.</Text>
-            ) : (
-              logs.map((row, i) => (
-                <View key={i} style={styles.tableRow}>
-                  <Text style={[styles.td, { flex: 1, color: '#6B7280', fontSize: 12 }]}>
-                    {row.timestamp ? new Date(row.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}
-                  </Text>
-                  <Text style={[styles.td, { flex: 1.5, color: '#4B5563' }]}>{row.source}</Text>
-                  <Text style={[styles.td, { flex: 2, color: '#111827' }]}>{row.action}</Text>
-                  <Text style={[styles.td, { flex: 1, color: row.confidence === 'Manual' ? '#374151' : '#ef4444', fontWeight: '600' }]}>{row.confidence}</Text>
+          <View style={[styles.logCard, isMobile && { padding: 12 }]}>
+            <ScrollView 
+              horizontal={isMobile} 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+              style={{ width: '100%' }}
+            >
+              <View style={{ minWidth: isMobile ? 550 : '100%', width: '100%' }}>
+                <View style={styles.tableHead}>
+                  <Text style={[styles.th, { flex: 1 }]}>TIMESTAMP</Text>
+                  <Text style={[styles.th, { flex: 1.5 }]}>SOURCE</Text>
+                  <Text style={[styles.th, { flex: 2 }]}>EVENT ACTION</Text>
+                  <Text style={[styles.th, { flex: 1 }]}>CONFIDENCE</Text>
                 </View>
-              ))
-            )}
+                {logs.length === 0 ? (
+                  <Text style={{ padding: 16, color: '#6B7280', textAlign: 'center' }}>No recent activity logs.</Text>
+                ) : (
+                  logs.map((log) => (
+                    <View key={log.id} style={styles.tableRow}>
+                      <Text style={[styles.td, { flex: 1, color: '#6B7280' }]}>
+                        {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}
+                      </Text>
+                      <Text style={[styles.td, { flex: 1.5, fontWeight: '600' }]}>{log.source}</Text>
+                      <Text style={[styles.td, { flex: 2, color: '#374151' }]}>{log.action}</Text>
+                      <View style={[styles.td, { flex: 1 }]}>
+                        <View style={styles.badge}>
+                          <Text style={styles.badgeText}>{log.confidence}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            </ScrollView>
           </View>
         </View>
 
-        {/* Right Column - Map View */}
-        <View style={styles.rightColumn}>
+        <View style={[styles.rightColumn, isMobile && { flex: undefined, width: '100%' }]}>
+          <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Live Operational Map</Text>
           <View style={styles.mapContainer}>
             <LiveOperationsMap trucks={liveTrucks} reports={openReports} />
-            
             <View style={styles.mapBadge}>
               <View style={styles.pulsingDot} />
               <Text style={styles.mapBadgeText}>{liveTrucks.filter(item => item.active).length} ACTIVE TRUCK{liveTrucks.filter(item => item.active).length === 1 ? '' : 'S'}</Text>
             </View>
-
-            {/* Firestore-derived report hotspots */}
             <View style={styles.riskCard}>
               <Text style={styles.riskTitle}>RISK HOTSPOTS</Text>
               {riskHotspots.length === 0 ? <Text style={styles.noRisk}>No unresolved geotagged reports.</Text> : riskHotspots.map(([barangay, count]) => (
@@ -379,7 +387,7 @@ const styles = StyleSheet.create({
   tableHead: { flexDirection: 'row', paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', marginBottom: 8 },
   th: { fontSize: 10, fontWeight: '700', color: '#6B7280', letterSpacing: 0.5 },
   tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  td: { fontSize: 13 },
+  td: { justifyContent: 'center' },
 
   mapContainer: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, minHeight: 600, overflow: 'hidden', position: 'relative', padding: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   mapBadge: { position: 'absolute', top: 24, left: 24, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4 },
@@ -393,4 +401,6 @@ const styles = StyleSheet.create({
   riskHigh: { fontSize: 12, fontWeight: 'bold', color: '#ef4444' },
   riskModerate: { fontSize: 12, fontWeight: 'bold', color: '#2E8B57' },
   noRisk: { color: '#6B7280', fontSize: 12 },
+  badge: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
+  badgeText: { fontSize: 11, fontWeight: '700', color: '#374151' },
 });

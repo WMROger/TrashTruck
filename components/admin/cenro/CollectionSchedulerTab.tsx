@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createElement } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, addDoc, onSnapshot, serverTimestamp, query, orderBy, doc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
@@ -37,6 +37,8 @@ const WebDatePicker = ({ value, onChange }: { value: string, onChange: (val: str
 // WebTimePicker is removed, replaced by AnalogTimePicker
 
 export default function CollectionSchedulerTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [schedules, setSchedules] = useState<any[]>([]);
   const [isModalVisible, setModalVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -319,34 +321,36 @@ export default function CollectionSchedulerTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.headerSubtitle}>RESOURCE MANAGEMENT</Text>
-      <Text style={styles.headerTitle}>Barangay Collection Scheduler</Text>
-      <Text style={styles.headerDesc}>
-        Streamline waste collection workflows across city districts. Manage recurring routes, assign specialized vehicles, and monitor service status in real-time.
-      </Text>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      {/* Header */}
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+        <View>
+          <Text style={styles.headerTitle}>Collection Schedules</Text>
+          <Text style={styles.headerDesc}>Manage waste collection days, assigned trucks, and regular routes.</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.outlineBtn} onPress={() => Alert.alert('Export', 'Schedule export initiated.')}>
+            <MaterialIcons name="file-download" size={18} color="#374151" />
+            <Text style={styles.outlineBtnText}>Export</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      {/* Header Actions */}
-      <View style={styles.actionsContainer}>
-        <View style={styles.filtersRow}>
-          <View style={styles.dropdown}>
-            <Text style={styles.dropdownText}>All Barangays</Text>
+      {/* Controls Bar */}
+      <View style={[styles.controlsBar, isMobile && { flexDirection: 'column', gap: 12, padding: 12 }]}>
+        <View style={[styles.dropdownsRow, isMobile && { flexDirection: 'column', width: '100%', gap: 8 }]}>
+          <View style={[styles.dropdown, isMobile && { width: '100%' }]}>
+            <Text style={styles.dropdownText}>Any Barangay</Text>
             <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
           </View>
-          <View style={styles.dropdown}>
+          <View style={[styles.dropdown, isMobile && { width: '100%' }]}>
             <Text style={styles.dropdownText}>Any Day of the Week</Text>
             <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
           </View>
-          
-          <View style={styles.viewStyleGroup}>
-            <Text style={styles.viewStyleLabel}>VIEW STYLE</Text>
-            <View style={styles.viewToggleActive}><MaterialIcons name="view-list" size={18} color="#fff" /></View>
-            <View style={styles.viewToggle}><MaterialIcons name="grid-view" size={18} color="#6B7280" /></View>
-          </View>
         </View>
 
-        <View style={styles.buttonsRow}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setModalVisible(true)}>
+        <View style={[styles.buttonsRow, isMobile && { width: '100%' }]}>
+          <TouchableOpacity style={[styles.primaryBtn, isMobile && { width: '100%', justifyContent: 'center' }]} onPress={() => setModalVisible(true)}>
             <MaterialIcons name="add" size={18} color="#fff" />
             <Text style={styles.primaryBtnText}>Add New Barangay</Text>
           </TouchableOpacity>
@@ -354,14 +358,21 @@ export default function CollectionSchedulerTab() {
       </View>
 
       {/* Scheduler Table */}
-      <View style={styles.card}>
-        <View style={styles.tableHead}>
-          <Text style={[styles.th, { flex: 2.5 }]}>BARANGAY NAME</Text>
-          <Text style={[styles.th, { flex: 2 }]}>COLLECTION DAYS</Text>
-          <Text style={[styles.th, { flex: 2 }]}>ASSIGNED TRUCK</Text>
-          <Text style={[styles.th, { flex: 1.5 }]}>STATUS</Text>
-          <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
-        </View>
+      <View style={[styles.card, isMobile && { padding: 12 }]}>
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 2.5 }]}>BARANGAY NAME</Text>
+              <Text style={[styles.th, { flex: 2 }]}>COLLECTION DAYS</Text>
+              <Text style={[styles.th, { flex: 2 }]}>ASSIGNED TRUCK</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>STATUS</Text>
+              <Text style={[styles.th, { flex: 0.5, textAlign: 'center' }]}>ACTIONS</Text>
+            </View>
 
         {loading ? (
           <View style={{ padding: 40, alignItems: 'center' }}>
@@ -485,6 +496,8 @@ export default function CollectionSchedulerTab() {
             </View>
           ))
         )}
+          </View>
+        </ScrollView>
 
         <View style={styles.pagination}>
           <Text style={styles.pageInfo}>Showing {schedules.length} Barangays</Text>
@@ -738,6 +751,10 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#111827', marginBottom: 12 },
   headerDesc: { fontSize: 14, color: '#4B5563', lineHeight: 22, maxWidth: 600, marginBottom: 32 },
 
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  headerActions: { flexDirection: 'row', gap: 16 },
+  controlsBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, zIndex: 10 },
+  dropdownsRow: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   actionsContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24, zIndex: 10 },
   filtersRow: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   dropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', width: 200 },

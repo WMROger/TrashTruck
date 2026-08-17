@@ -16,7 +16,7 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
     { id: 'identity-access', label: 'IDENTITY & ACCESS', icon: 'security', activeIcon: 'security' },
     { id: 'data-management', label: 'DATA MANAGEMENT', icon: 'storage', activeIcon: 'storage' },
     { id: 'fleet-ops', label: 'FLEET OPS', icon: 'directions-car', activeIcon: 'directions-car' },
-    { id: 'cenro-command', label: 'CENRO Command', icon: 'message', activeIcon: 'message' },
+    { id: 'cenro-command', label: 'CENRO COMMAND & CHAT', icon: 'forum', activeIcon: 'forum' },
   ];
 
   return (

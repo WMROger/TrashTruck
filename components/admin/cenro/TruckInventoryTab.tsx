@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { collection, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -17,6 +17,8 @@ interface Truck {
 }
 
 export default function TruckInventoryTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -211,21 +213,21 @@ export default function TruckInventoryTab() {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerRow}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Fleet Inventory</Text>
           <Text style={styles.headerDesc}>Manage and monitor municipal garbage trucks.</Text>
         </View>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowAddForm(!showAddForm)}>
+        <TouchableOpacity style={[styles.primaryBtn, isMobile && { width: '100%', justifyContent: 'center' }]} onPress={() => setShowAddForm(!showAddForm)}>
           <MaterialIcons name={showAddForm ? "close" : "add"} size={20} color="#FFF" />
           <Text style={styles.primaryBtnText}>{showAddForm ? "Cancel" : "Add New Truck"}</Text>
         </TouchableOpacity>
       </View>
 
       {/* Summary Cards */}
-      <View style={styles.summaryGrid}>
-        <View style={styles.summaryCard}>
+      <View style={[styles.summaryGrid, isMobile && { gap: 10 }]}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={styles.summaryIconBg}>
             <MaterialIcons name="local-shipping" size={24} color="#2E8B57" />
           </View>
@@ -235,7 +237,7 @@ export default function TruckInventoryTab() {
           </View>
         </View>
         
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#ECFDF5' }]}>
             <MaterialIcons name="check-circle" size={24} color="#059669" />
           </View>
@@ -245,27 +247,27 @@ export default function TruckInventoryTab() {
           </View>
         </View>
 
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#EDE9FE' }]}>
             <MaterialIcons name="person-pin" size={24} color="#7C3AED" />
           </View>
           <View>
-            <Text style={styles.summaryTitle}>Deployed (Driver Assigned)</Text>
+            <Text style={styles.summaryTitle}>Deployed</Text>
             <Text style={[styles.summaryValue, { color: '#7C3AED' }]}>{deployedCount}</Text>
           </View>
         </View>
 
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#FEF3C7' }]}>
             <MaterialIcons name="build" size={24} color="#D97706" />
           </View>
           <View>
-            <Text style={styles.summaryTitle}>Under Maintenance</Text>
+            <Text style={styles.summaryTitle}>Maintenance</Text>
             <Text style={[styles.summaryValue, { color: '#D97706' }]}>{maintenanceCount}</Text>
           </View>
         </View>
 
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <View style={[styles.summaryIconBg, { backgroundColor: '#FEE2E2' }]}>
             <MaterialIcons name="block" size={24} color="#DC2626" />
           </View>
@@ -342,101 +344,108 @@ export default function TruckInventoryTab() {
       )}
 
       {/* Trucks Table */}
-      <View style={styles.tableCard}>
+      <View style={[styles.tableCard, isMobile && { padding: 12 }]}>
         <Text style={styles.cardTitle}>Fleet Roster</Text>
         
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { flex: 1.5 }]}>VEHICLE INFO</Text>
-            <Text style={[styles.th, { flex: 1 }]}>CAPACITY</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>ASSIGNED DRIVER</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>STATUS</Text>
-            <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>ACTIONS</Text>
-          </View>
-
-          {trucks.length === 0 ? (
-            <View style={styles.emptyTable}>
-              <Text style={styles.emptyText}>No trucks registered in the fleet.</Text>
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 1.5 }]}>VEHICLE INFO</Text>
+              <Text style={[styles.th, { flex: 1 }]}>CAPACITY</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>ASSIGNED DRIVER</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>STATUS</Text>
+              <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>ACTIONS</Text>
             </View>
-          ) : (
-            trucks.map(truck => (
-              <View key={truck.id} style={styles.tr}>
-                <View style={[styles.td, { flex: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
-                  <View style={styles.avatarBg}>
-                    <FontAwesome5 name="truck" size={16} color="#4B5563" />
-                  </View>
-                  <View>
-                    <Text style={styles.truckPlate}>{truck.plateNumber}</Text>
-                    <Text style={styles.truckType}>{truck.type}</Text>
-                  </View>
-                </View>
-                
-                <View style={[styles.td, { flex: 1, justifyContent: 'center' }]}>
-                  <Text style={styles.capacityText}>{truck.capacity} Tons</Text>
-                </View>
 
-                <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
-                  {truck.assignedDriverId ? (
-                    <View style={styles.driverAssignedBadge}>
-                      <MaterialIcons name="person" size={14} color="#7C3AED" />
-                      <Text style={styles.driverAssignedText} numberOfLines={1}>{truck.assignedDriverName || 'Unknown'}</Text>
+            {trucks.length === 0 ? (
+              <View style={styles.emptyTable}>
+                <Text style={styles.emptyText}>No trucks registered in the fleet.</Text>
+              </View>
+            ) : (
+              trucks.map(truck => (
+                <View key={truck.id} style={styles.tr}>
+                  <View style={[styles.td, { flex: 1.5, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                    <View style={styles.avatarBg}>
+                      <FontAwesome5 name="truck" size={16} color="#4B5563" />
                     </View>
-                  ) : (
-                    <Text style={styles.unassignedText}>Unassigned</Text>
-                  )}
-                </View>
-                
-                <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
-                  <View style={[
-                    styles.statusBadge, 
-                    truck.status === 'active' ? styles.statusActive : 
-                    truck.status === 'maintenance' ? styles.statusMaintenance : styles.statusOut
-                  ]}>
+                    <View>
+                      <Text style={styles.truckPlate}>{truck.plateNumber}</Text>
+                      <Text style={styles.truckType}>{truck.type}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={[styles.td, { flex: 1, justifyContent: 'center' }]}>
+                    <Text style={styles.capacityText}>{truck.capacity} Tons</Text>
+                  </View>
+
+                  <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
+                    {truck.assignedDriverId ? (
+                      <View style={styles.driverAssignedBadge}>
+                        <MaterialIcons name="person" size={14} color="#7C3AED" />
+                        <Text style={styles.driverAssignedText} numberOfLines={1}>{truck.assignedDriverName || 'Unknown'}</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.unassignedText}>Unassigned</Text>
+                    )}
+                  </View>
+                  
+                  <View style={[styles.td, { flex: 1.5, justifyContent: 'center' }]}>
                     <View style={[
-                      styles.statusDot, 
-                      truck.status === 'active' ? {backgroundColor: '#059669'} : 
-                      truck.status === 'maintenance' ? {backgroundColor: '#D97706'} : {backgroundColor: '#DC2626'}
-                    ]} />
-                    <Text style={[
-                      styles.statusText,
-                      truck.status === 'active' ? {color: '#059669'} : 
-                      truck.status === 'maintenance' ? {color: '#D97706'} : {color: '#DC2626'}
+                      styles.statusBadge, 
+                      truck.status === 'active' ? styles.statusActive : 
+                      truck.status === 'maintenance' ? styles.statusMaintenance : styles.statusOut
                     ]}>
-                      {truck.status === 'active' ? 'Active' : 
-                       truck.status === 'maintenance' ? 'Maintenance' : 'Out of Service'}
-                    </Text>
+                      <View style={[
+                        styles.statusDot, 
+                        truck.status === 'active' ? {backgroundColor: '#059669'} : 
+                        truck.status === 'maintenance' ? {backgroundColor: '#D97706'} : {backgroundColor: '#DC2626'}
+                      ]} />
+                      <Text style={[
+                        styles.statusText,
+                        truck.status === 'active' ? {color: '#059669'} : 
+                        truck.status === 'maintenance' ? {color: '#D97706'} : {color: '#DC2626'}
+                      ]}>
+                        {truck.status === 'active' ? 'Active' : 
+                         truck.status === 'maintenance' ? 'Maintenance' : 'Out of Service'}
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
+                    <TouchableOpacity onPress={() => { setSelectedTruck(truck); setHistoryModalVisible(true); }} style={styles.actionBtn}>
+                      <MaterialIcons name="history" size={20} color="#4B5563" />
+                    </TouchableOpacity>
+                    {truck.assignedDriverId && (
+                      <TouchableOpacity onPress={() => handleUnassignDriver(truck.id)} style={styles.actionBtn}>
+                        <MaterialIcons name="person-remove" size={18} color="#7C3AED" />
+                      </TouchableOpacity>
+                    )}
+                    {truck.status !== 'active' && (
+                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'active')} style={styles.actionBtn}>
+                        <MaterialIcons name="check-circle" size={20} color="#059669" />
+                      </TouchableOpacity>
+                    )}
+                    {truck.status !== 'maintenance' && (
+                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'maintenance')} style={styles.actionBtn}>
+                        <MaterialIcons name="build" size={20} color="#D97706" />
+                      </TouchableOpacity>
+                    )}
+                    {truck.status !== 'out_of_service' && (
+                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'out_of_service')} style={styles.actionBtn}>
+                        <MaterialIcons name="block" size={20} color="#DC2626" />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
-                
-                <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
-                  <TouchableOpacity onPress={() => { setSelectedTruck(truck); setHistoryModalVisible(true); }} style={styles.actionBtn}>
-                    <MaterialIcons name="history" size={20} color="#4B5563" />
-                  </TouchableOpacity>
-                  {truck.assignedDriverId && (
-                    <TouchableOpacity onPress={() => handleUnassignDriver(truck.id)} style={styles.actionBtn}>
-                      <MaterialIcons name="person-remove" size={18} color="#7C3AED" />
-                    </TouchableOpacity>
-                  )}
-                  {truck.status !== 'active' && (
-                    <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'active')} style={styles.actionBtn}>
-                      <MaterialIcons name="check-circle" size={20} color="#059669" />
-                    </TouchableOpacity>
-                  )}
-                  {truck.status !== 'maintenance' && (
-                    <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'maintenance')} style={styles.actionBtn}>
-                      <MaterialIcons name="build" size={20} color="#D97706" />
-                    </TouchableOpacity>
-                  )}
-                  {truck.status !== 'out_of_service' && (
-                    <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'out_of_service')} style={styles.actionBtn}>
-                      <MaterialIcons name="block" size={20} color="#DC2626" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            ))
-          )}
-        </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
       </View>
 
       <View style={{ height: 40 }} />

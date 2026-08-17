@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform, useWindowDimensions, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
 import DictSidebar from '../../components/admin/DictSidebar';
-import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab } from '../../components/admin/dict';
+import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, DictLogoutModal } from '../../components/admin/dict';
 
 export default function DictDashboard() {
   const { user, loading: authLoading } = useAuthContext();
@@ -15,6 +15,7 @@ export default function DictDashboard() {
   const [isDictAdmin, setIsDictAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const { width } = useWindowDimensions();
   const sidebarCollapsed = Platform.OS === 'web' && width < 980;
   
@@ -67,37 +68,18 @@ export default function DictDashboard() {
     checkDictAccess();
   }, [authLoading, router, user]);
 
-  const handleLogout = async () => {
-    if (Platform.OS === 'web') {
-      const confirmLog = window.confirm('Are you sure you want to log out?');
-      if (confirmLog) {
-        try {
-          await signOut(auth);
-          router.replace('/admin/login');
-        } catch (error) {
-          console.error('Logout error:', error);
-        }
-      }
-    } else {
-      Alert.alert(
-        'Logout',
-        'Are you sure you want to log out?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Logout', 
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await signOut(auth);
-                router.replace('/admin/login');
-              } catch (error) {
-                console.error('Logout error:', error);
-              }
-            }
-          }
-        ]
-      );
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    try {
+      await signOut(auth);
+      setShowLogoutModal(false);
+      router.replace('/admin/login');
+    } catch (error) {
+      console.error('DICT logout error:', error);
+      Alert.alert('Logout Error', 'Failed to sign out. Please try again.');
     }
   };
 
@@ -148,13 +130,19 @@ export default function DictDashboard() {
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>TrashTrack DICT Oversight Portal</Text>
             <View style={styles.headerRight}>
-              <View style={styles.adminInfo}>
-                <Text style={styles.adminName}>{user?.displayName || user?.email?.split('@')[0] || 'SUPER ADMIN'}</Text>
-                <Text style={styles.adminRole}>Administrator Console</Text>
-              </View>
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>{(user?.displayName || user?.email || 'A').charAt(0).toUpperCase()}</Text>
-              </View>
+              <TouchableOpacity 
+                style={styles.profileBtn} 
+                onPress={handleLogout}
+                activeOpacity={0.8}
+              >
+                <View style={styles.adminInfo}>
+                  <Text style={styles.adminName}>{user?.displayName || user?.email?.split('@')[0] || 'SUPER ADMIN'}</Text>
+                  <Text style={styles.adminRole}>Administrator Console</Text>
+                </View>
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarText}>{(user?.displayName || user?.email || 'A').charAt(0).toUpperCase()}</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -164,6 +152,15 @@ export default function DictDashboard() {
           </View>
         </View>
       </View>
+
+      {/* DICT Admin Logout Confirmation Modal */}
+      <DictLogoutModal
+        visible={showLogoutModal}
+        userEmail={user?.email}
+        userName={user?.displayName}
+        onConfirm={handleConfirmLogout}
+        onCancel={() => setShowLogoutModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -212,6 +209,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+  },
+  profileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
   },
   adminInfo: {
     alignItems: 'flex-end',

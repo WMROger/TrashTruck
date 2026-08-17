@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 import { db } from '@/config/firebase';
 import FleetReplayMap, { ReplayPoint } from './FleetReplayMap';
@@ -28,6 +28,8 @@ const eventTime = (event: FleetEvent) => {
 };
 
 export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTROL' }: { oversightLabel?: string }) {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTrip, setSelectedTrip] = useState('');
@@ -105,25 +107,25 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color="#2563EB" /><Text style={styles.loadingText}>Loading fleet telemetry…</Text></View>;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, isMobile && { padding: 16 }]}>
       <View style={styles.headerRow}>
         <View><Text style={styles.eyebrow}>{oversightLabel} / FEATURE 30</Text><Text style={styles.title}>Fleet Monitoring, Trip Replay & Alerts</Text><Text style={styles.subtitle}>Driver GPS points are retained as append-only trip telemetry while an active route is assigned.</Text></View>
       </View>
       <View style={styles.metrics}>
-        <View style={styles.metric}><Text style={styles.metricLabel}>ACTIVE ≤2 MIN</Text><Text style={styles.metricValue}>{activeCount}</Text></View>
-        <View style={styles.metric}><Text style={styles.metricLabel}>RECORDED TRIPS</Text><Text style={styles.metricValue}>{trips.length}</Text></View>
-        <View style={styles.metric}><Text style={styles.metricLabel}>TRIP POINTS</Text><Text style={styles.metricValue}>{locations.length}</Text></View>
-        <View style={[styles.metric, alerts.length ? styles.alertMetric : null]}><Text style={styles.metricLabel}>OPERATIONAL ALERTS</Text><Text style={[styles.metricValue, alerts.length ? { color: '#B91C1C' } : null]}>{alerts.length}</Text></View>
+        <View style={[styles.metric, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>ACTIVE ≤2 MIN</Text><Text style={styles.metricValue}>{activeCount}</Text></View>
+        <View style={[styles.metric, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>RECORDED TRIPS</Text><Text style={styles.metricValue}>{trips.length}</Text></View>
+        <View style={[styles.metric, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>TRIP POINTS</Text><Text style={styles.metricValue}>{locations.length}</Text></View>
+        <View style={[styles.metric, alerts.length ? styles.alertMetric : null, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>OPERATIONAL ALERTS</Text><Text style={[styles.metricValue, alerts.length ? { color: '#B91C1C' } : null]}>{alerts.length}</Text></View>
       </View>
 
-      <View style={styles.mainGrid}>
-        <View style={styles.replayCard}>
-          <View style={styles.cardHeader}><View><Text style={styles.cardTitle}>Trip Replay</Text><Text style={styles.cardSubtitle}>{trip ? `${trip.truckId} · ${trip.points.length} recorded points` : 'No trip selected'}</Text></View><View style={styles.replayActions}><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.max(0, index - 1))}><MaterialIcons name="skip-previous" size={20} color="#334155" /></TouchableOpacity><TouchableOpacity style={styles.playButton} onPress={() => setPlaying(value => !value)} disabled={replayPoints.length < 2}><MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" /><Text style={styles.playText}>{playing ? 'Pause' : 'Replay'}</Text></TouchableOpacity><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}><MaterialIcons name="skip-next" size={20} color="#334155" /></TouchableOpacity></View></View>
+      <View style={[styles.mainGrid, isMobile && { flexDirection: 'column' }]}>
+        <View style={[styles.replayCard, isMobile && { minWidth: 0, width: '100%' }]}>
+          <View style={[styles.cardHeader, isMobile && { flexDirection: 'column', alignItems: 'flex-start' }]}><View><Text style={styles.cardTitle}>Trip Replay</Text><Text style={styles.cardSubtitle}>{trip ? `${trip.truckId} · ${trip.points.length} recorded points` : 'No trip selected'}</Text></View><View style={styles.replayActions}><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.max(0, index - 1))}><MaterialIcons name="skip-previous" size={20} color="#334155" /></TouchableOpacity><TouchableOpacity style={styles.playButton} onPress={() => setPlaying(value => !value)} disabled={replayPoints.length < 2}><MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" /><Text style={styles.playText}>{playing ? 'Pause' : 'Replay'}</Text></TouchableOpacity><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}><MaterialIcons name="skip-next" size={20} color="#334155" /></TouchableOpacity></View></View>
           <FleetReplayMap points={replayPoints} activeIndex={replayIndex} />
           {!!replayPoints.length && <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${((replayIndex + 1) / replayPoints.length) * 100}%` }]} /></View>}
         </View>
 
-        <View style={styles.tripListCard}><Text style={styles.cardTitle}>Recorded Trips</Text><ScrollView style={{ maxHeight: 430 }}>{trips.length === 0 ? <Text style={styles.empty}>Trip history appears after an assigned driver begins moving.</Text> : trips.map(item => <TouchableOpacity key={item.id} style={[styles.tripRow, selectedTrip === item.id && styles.tripRowActive]} onPress={() => setSelectedTrip(item.id)}><View style={styles.truckIcon}><MaterialIcons name="local-shipping" size={18} color={selectedTrip === item.id ? '#FFFFFF' : '#2563EB'} /></View><View style={{ flex: 1 }}><Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.truckId}</Text><Text style={[styles.tripMeta, selectedTrip === item.id && { color: '#DBEAFE' }]}>{item.points.length} points · {new Date(item.lastUpdate).toLocaleString()}</Text></View></TouchableOpacity>)}</ScrollView></View>
+        <View style={[styles.tripListCard, isMobile && { minWidth: 0, width: '100%' }]}><Text style={styles.cardTitle}>Recorded Trips</Text><ScrollView style={{ maxHeight: 430 }}>{trips.length === 0 ? <Text style={styles.empty}>Trip history appears after an assigned driver begins moving.</Text> : trips.map(item => <TouchableOpacity key={item.id} style={[styles.tripRow, selectedTrip === item.id && styles.tripRowActive]} onPress={() => setSelectedTrip(item.id)}><View style={styles.truckIcon}><MaterialIcons name="local-shipping" size={18} color={selectedTrip === item.id ? '#FFFFFF' : '#2563EB'} /></View><View style={{ flex: 1 }}><Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.truckId}</Text><Text style={[styles.tripMeta, selectedTrip === item.id && { color: '#DBEAFE' }]}>{item.points.length} points · {new Date(item.lastUpdate).toLocaleString()}</Text></View></TouchableOpacity>)}</ScrollView></View>
       </View>
 
       <View style={styles.alertCard}><Text style={styles.cardTitle}>Operational Alerts</Text><Text style={styles.cardSubtitle}>Speed ≥60 km/h and route deviation ≥500 m for three consecutive samples are flagged with a five-minute cooldown.</Text>{alerts.length === 0 ? <Text style={styles.empty}>No operational alerts recorded.</Text> : alerts.slice(0, 12).map(alert => <View key={alert.id} style={styles.alertRow}><View style={[styles.alertIcon, { backgroundColor: alert.severity === 'high' ? '#FEE2E2' : '#FEF3C7' }]}><MaterialIcons name={alert.alertType === 'route-deviation' ? 'wrong-location' : 'speed'} size={18} color={alert.severity === 'high' ? '#DC2626' : '#D97706'} /></View><View style={{ flex: 1 }}><Text style={styles.alertTitle}>{String(alert.alertType || 'fleet alert').replace('-', ' ').toUpperCase()}</Text><Text style={styles.alertMeta}>{alert.truckId} · {new Date(eventTime(alert)).toLocaleString()}</Text></View><Text style={styles.alertDetail}>{alert.metadata?.speedKph ? `${alert.metadata.speedKph} km/h` : alert.metadata?.deviationMeters ? `${alert.metadata.deviationMeters} m` : ''}</Text></View>)}</View>

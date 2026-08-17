@@ -351,8 +351,23 @@ export default function DriverIndex() {
 
       {!isShiftActive && (
         <View style={[styles.offlineCard, isDark && styles.emptyDashedDark]}>
-          <Feather name="moon" size={24} color={isDark ? "#6B7280" : "#6B7280"} />
-          <Text style={[styles.offlineText, isDark && styles.textMuted]}>Start your shift to receive live routes.</Text>
+          <View style={styles.offlineCardContent}>
+            <Feather name="moon" size={24} color={isDark ? "#86EFAC" : "#4E6C50"} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.offlineTitle, isDark && styles.textLight]}>You are currently Off Duty</Text>
+              <Text style={[styles.offlineText, isDark && styles.textMuted]}>
+                You can review schedules & history below, or start a shift to begin collections.
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.offlineStartShiftBtn}
+            onPress={() => router.push('/(driver)/select-truck')}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons name="play-arrow" size={18} color="#FFFFFF" />
+            <Text style={styles.offlineStartShiftBtnText}>Start Shift & Select Truck</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -822,21 +837,48 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   offlineCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
     backgroundColor: '#F9FAFB',
     borderRadius: 16,
-    padding: 24,
+    padding: 20,
     marginBottom: 24,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    gap: 16,
+  },
+  offlineCardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  offlineTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 2,
   },
   offlineText: {
     fontSize: 13,
     color: '#4B5563',
-    fontWeight: '500',
+    lineHeight: 18,
+  },
+  offlineStartShiftBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4E6C50',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+    shadowColor: '#4E6C50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  offlineStartShiftBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
 
   sectionHeader: {

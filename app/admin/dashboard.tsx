@@ -24,7 +24,7 @@ import {
   DictCommandsTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
-import { sendTestNotification as sendTestNotificationHelper } from '../(tabs)/home.notifications';
+import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
 
 export default function AdminDashboard() {
   const { user, isAuthenticated } = useAuthContext();
@@ -593,7 +593,7 @@ export default function AdminDashboard() {
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
         />
-        <View style={styles.contentContainer}>
+        <View style={[styles.contentContainer, isNarrow && styles.contentContainerNarrow]}>
           {isTabLoading ? (
             <View style={styles.tabLoaderContainer}>
               <View style={styles.tabLoader}>
@@ -887,6 +887,9 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
     padding: 20,
+  },
+  contentContainerNarrow: {
+    padding: 0,
   },
   content: {
     flex: 1,

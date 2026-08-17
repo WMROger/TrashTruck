@@ -11,34 +11,35 @@ export const adminStyles = StyleSheet.create({
     height: '100%',
   },
   overlay: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'flex-end', // Aligns the card to the right side
+    flexGrow: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingRight: '10%', // Keeps the card away from the very edge of the screen
+    padding: 20,
+    minHeight: '100%',
   },
   floatingCardContainer: {
     width: '100%',
-    maxWidth: 550,
+    maxWidth: 480,
+    alignSelf: 'center',
   },
   loginFloatingCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)', // Slight glass effect
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
     width: '100%',
-    padding: 60,
-    borderRadius: 24,
+    padding: 28,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.15,
-    shadowRadius: 40,
-    elevation: 16,
+    shadowRadius: 25,
+    elevation: 8,
   },
   
   // Form styles
   welcomeText: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#4a7c59',
-    marginBottom: 48,
+    marginBottom: 28,
     textAlign: 'left',
   },
   backButton: {

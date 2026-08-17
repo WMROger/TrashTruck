@@ -65,7 +65,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({ activeTab, onTabPress, isOp
       title: 'SYSTEM & COMMUNICATIONS',
       items: [
         { id: 'announcements', label: 'ANNOUNCEMENTS', icon: 'campaign' },
-        { id: 'dict-commands', label: 'DICT COMMANDS', icon: 'mark-email-unread' },
+        { id: 'dict-commands', label: 'DICT COMMAND & CHAT', icon: 'forum' },
         { id: 'coordinators', label: 'COORDINATOR DIRECTORY', icon: 'people' },
         { id: 'operational-overrides', label: 'SYSTEM OVERRIDES', icon: 'report-problem' },
         { id: 'analytics', label: 'ANALYTICS', icon: 'bar-chart' },

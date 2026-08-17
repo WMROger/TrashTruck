@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -17,6 +17,8 @@ interface UserAccount {
 }
 
 export default function DriverAccountsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -102,88 +104,95 @@ export default function DriverAccountsTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
       <Text style={styles.headerSubtitle}>ADMINISTRATIVE MANAGEMENT</Text>
       <Text style={styles.headerTitle}>Accounts Directory</Text>
 
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>All System Users</Text>
         </View>
 
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { flex: 2.5 }]}>USER NAME & EMAIL</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>ROLE</Text>
-            <Text style={[styles.th, { flex: 2 }]}>EMPLOYEE / LICENSE</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>ASSIGNMENT</Text>
-            <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>ACTIONS</Text>
-          </View>
-          
-          {loading ? (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <ActivityIndicator size="large" color="#2E8B57" />
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%', marginTop: 16 }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 2.5 }]}>USER NAME & EMAIL</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>ROLE</Text>
+              <Text style={[styles.th, { flex: 2 }]}>EMPLOYEE / LICENSE</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>ASSIGNMENT</Text>
+              <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>ACTIONS</Text>
             </View>
-          ) : users.length === 0 ? (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <Text style={{ color: '#6B7280' }}>No users found.</Text>
-            </View>
-          ) : (
-            users.map((row) => (
-              <View key={row.id} style={styles.tableRow}>
-                <View style={{ flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View style={styles.avatarBadge}>
-                    <Text style={styles.avatarText}>{row.displayName.substring(0, 2).toUpperCase()}</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.userName}>{row.displayName}</Text>
-                    <Text style={styles.userEmail}>{row.email}</Text>
-                  </View>
-                </View>
-                
-                <View style={{ flex: 1.5, alignItems: 'flex-start' }}>
-                  {getRoleBadge(row.role)}
-                </View>
-
-                <View style={{ flex: 2 }}>
-                  {row.role === 'driver' ? (
-                    <>
-                      <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '500' }}>ID: {row.employeeId || 'Not set'}</Text>
-                      <Text style={{ color: '#6B7280', fontSize: 12 }}>Lic: {row.licenseNumber || 'Not set'}</Text>
-                    </>
-                  ) : (
-                    <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>N/A</Text>
-                  )}
-                </View>
-                
-                <View style={{ flex: 1.5 }}>
-                  {row.role === 'driver' && row.currentTruckId ? (
-                    <View style={styles.truckBadge}>
-                      <Text style={styles.truckBadgeText}>{row.currentTruckPlate}</Text>
-                    </View>
-                  ) : row.role === 'driver' ? (
-                    <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>Unassigned</Text>
-                  ) : (
-                    <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>-</Text>
-                  )}
-                </View>
-                
-                <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
-                  {row.role !== 'admin' && (
-                    <TouchableOpacity 
-                      onPress={() => handleToggleRole(row)} 
-                      style={[styles.toggleBtn, row.role === 'driver' ? styles.demoteBtn : styles.promoteBtn]}
-                    >
-                      <Text style={[styles.toggleBtnText, row.role === 'driver' ? { color: '#B91C1C' } : { color: '#047857' }]}>
-                        {row.role === 'driver' ? 'Demote' : 'Make Driver'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+            
+            {loading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#2E8B57" />
               </View>
-            ))
-          )}
-        </View>
+            ) : users.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Text style={{ color: '#6B7280' }}>No users found.</Text>
+              </View>
+            ) : (
+              users.map((row) => (
+                <View key={row.id} style={styles.tableRow}>
+                  <View style={{ flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={styles.avatarBadge}>
+                      <Text style={styles.avatarText}>{row.displayName.substring(0, 2).toUpperCase()}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.userName}>{row.displayName}</Text>
+                      <Text style={styles.userEmail}>{row.email}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={{ flex: 1.5, alignItems: 'flex-start' }}>
+                    {getRoleBadge(row.role)}
+                  </View>
+
+                  <View style={{ flex: 2 }}>
+                    {row.role === 'driver' ? (
+                      <>
+                        <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '500' }}>ID: {row.employeeId || 'Not set'}</Text>
+                        <Text style={{ color: '#6B7280', fontSize: 12 }}>Lic: {row.licenseNumber || 'Not set'}</Text>
+                      </>
+                    ) : (
+                      <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>N/A</Text>
+                    )}
+                  </View>
+                  
+                  <View style={{ flex: 1.5 }}>
+                    {row.role === 'driver' && row.currentTruckId ? (
+                      <View style={styles.truckBadge}>
+                        <Text style={styles.truckBadgeText}>{row.currentTruckPlate}</Text>
+                      </View>
+                    ) : row.role === 'driver' ? (
+                      <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>Unassigned</Text>
+                    ) : (
+                      <Text style={{ color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' }}>-</Text>
+                    )}
+                  </View>
+                  
+                  <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+                    {row.role !== 'admin' && (
+                      <TouchableOpacity 
+                        onPress={() => handleToggleRole(row)} 
+                        style={[styles.toggleBtn, row.role === 'driver' ? styles.demoteBtn : styles.promoteBtn]}
+                      >
+                        <Text style={[styles.toggleBtnText, row.role === 'driver' ? { color: '#B91C1C' } : { color: '#047857' }]}>
+                          {row.role === 'driver' ? 'Demote' : 'Make Driver'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
       </View>
       <View style={{ height: 40 }} />
     </ScrollView>

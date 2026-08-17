@@ -7,24 +7,21 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { Platform, useWindowDimensions } from 'react-native';
+import { Platform } from 'react-native';
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
   const segments = useSegments();
   const router = useRouter();
-  const [desktopRole, setDesktopRole] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [roleLoading, setRoleLoading] = useState(false);
   const [roleResolvedForUid, setRoleResolvedForUid] = useState<string | null>(null);
-  const { width } = useWindowDimensions();
-  const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
 
-  // Resolve the desktop portal before routing. DICT previously got redirected
-  // to the CENRO dashboard because this check only tracked an admin boolean.
+  // Resolve user role for access control
   useEffect(() => {
-    const checkDesktopRole = async () => {
+    const checkUserRole = async () => {
       if (!user || !db) {
-        setDesktopRole(null);
+        setUserRole(null);
         setRoleResolvedForUid(null);
         setRoleLoading(false);
         return;
@@ -34,17 +31,17 @@ function RootLayoutNav() {
       try {
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
-        setDesktopRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
+        setUserRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
       } catch (error) {
-        console.error('Error checking desktop portal role:', error);
-        setDesktopRole('user');
+        console.error('Error checking user role:', error);
+        setUserRole('user');
       } finally {
         setRoleResolvedForUid(user.uid);
         setRoleLoading(false);
       }
     };
 
-    checkDesktopRole();
+    checkUserRole();
   }, [user]);
 
   useEffect(() => {
@@ -52,37 +49,38 @@ function RootLayoutNav() {
     const currentSegment = segments[0];
 
     if (!isAuthenticated) {
-      // Not authenticated - redirect to appropriate login
-      if (isDesktopWeb) {
-        // Desktop: redirect to admin splash screen
-        if (currentSegment !== 'admin') {
-          router.replace('/admin/splash' as any);
-        }
+      // Unauthenticated access
+      if (currentSegment === 'admin') {
+        // Admin segment: allow explicit navigation to admin screens
+      } else if (currentSegment === 'dict') {
+        // DICT portal requires admin/dict login
+        router.replace('/admin/login' as any);
       } else {
-        // Mobile: redirect to user auth
-          if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)' && currentSegment !== 'driver-login') {
-            router.replace('/auth' as any);
-          }
-      }
-    } else if (isAuthenticated) {
-      // Authenticated - redirect based on device type
-      if (isDesktopWeb) {
-        if (desktopRole === 'dict' && currentSegment !== 'dict') {
-          router.replace('/dict/dashboard' as any);
-        } else if (desktopRole === 'admin' && currentSegment !== 'admin') {
-          router.replace('/admin/dashboard' as any);
-        } else if (!['admin', 'dict'].includes(String(desktopRole)) && ['admin', 'dict'].includes(String(currentSegment))) {
+        // Regular user portal: redirect to /auth if not on allowed entry routes
+        if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)' && currentSegment !== 'driver-login') {
           router.replace('/auth' as any);
         }
-      } else {
-        // Mobile: redirect to user tabs (but allow loading page to show first)
-        if (currentSegment === 'admin' || currentSegment === 'splash') {
+      }
+    } else if (isAuthenticated) {
+      // Authenticated access
+      if (currentSegment === 'admin') {
+        // Only allow users with admin role in /admin
+        if (userRole !== 'admin') {
           router.replace('/home' as any);
         }
-        // Don't redirect if user is on loading page - let it handle its own navigation
+      } else if (currentSegment === 'dict') {
+        // Only allow users with dict role in /dict
+        if (userRole !== 'dict') {
+          router.replace('/home' as any);
+        }
+      } else {
+        // Regular user app: redirect splash / auth screens to home
+        if (currentSegment === 'splash' || currentSegment === 'auth') {
+          router.replace('/home' as any);
+        }
       }
     }
-  }, [desktopRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, isDesktopWeb, user?.uid]);
+  }, [userRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
 
   // Route-scoped global font: Poppins on admin, SF Pro stack elsewhere
   useEffect(() => {

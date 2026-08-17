@@ -11,7 +11,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { ImageBackground, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { ImageBackground, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminButton from '../../components/admin/AdminButton';
 import AdminInput from '../../components/admin/AdminInput';
@@ -49,11 +49,6 @@ export default function AdminLogin() {
   };
 
   const handleLogin = async () => {
-    if (Platform.OS !== 'web') {
-      showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
-      return;
-    }
-
     if (!username.trim() || !password.trim()) {
       showError('Please enter both username and password', 'Validation Error', 'warning');
       return;
@@ -171,80 +166,84 @@ export default function AdminLogin() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
       <ImageBackground
         source={require('@/assets/images/admin_login_bg.png')}
         style={adminStyles.fullScreenBackground}
         resizeMode="cover"
       >
-        <View style={adminStyles.overlay}>
-          {/* Right-aligned Floating Card */}
+        <ScrollView
+          contentContainerStyle={adminStyles.overlay}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Centered / Responsive Floating Card */}
           <View style={adminStyles.floatingCardContainer}>
-          <View style={adminStyles.loginFloatingCard as any}>
-            {/* Back Button */}
-            <TouchableOpacity 
-              style={adminStyles.backButton} 
-            onPress={() => router.replace('/admin/splash')}
-            disabled={isLoading}
-          >
-            <MaterialIcons name="arrow-back" size={20} color="#333" />
-            <Text style={adminStyles.backButtonText}>Back to Admin Portal</Text>
-          </TouchableOpacity>
-
-          <Text style={adminStyles.welcomeText}>Welcome back, Admin</Text>
-          
-          <View style={adminStyles.form}>
-            {/* Username Field */}
-            <AdminInput
-              placeholder="Username or Email"
-              value={username}
-              onChangeText={setUsername}
-              icon="person"
-              editable={!isLoading}
-            />
-            
-            {/* Password Field */}
-            <AdminInput
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              icon="lock"
-              secureTextEntry={!showPassword}
-              editable={!isLoading}
-              rightComponent={
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 5 }}>
-                  <MaterialIcons name={showPassword ? "visibility-off" : "visibility"} size={20} color="#999" />
-                </TouchableOpacity>
-              }
-            />
-            
-            {/* Form Options */}
-            <View style={[adminStyles.checkboxContainer, { justifyContent: 'space-between', alignItems: 'center' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TouchableOpacity
-                  style={[adminStyles.checkbox, keepLoggedIn && adminStyles.checkboxChecked]}
-                  onPress={() => setKeepLoggedIn(!keepLoggedIn)}
-                  disabled={isLoading}
-                >
-                  {keepLoggedIn && <MaterialIcons name="check" size={16} color="white" />}
-                </TouchableOpacity>
-                <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
-              </View>
-              <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
-                <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
+            <View style={adminStyles.loginFloatingCard as any}>
+              {/* Back Button */}
+              <TouchableOpacity 
+                style={adminStyles.backButton} 
+                onPress={() => router.replace('/admin/splash')}
+                disabled={isLoading}
+              >
+                <MaterialIcons name="arrow-back" size={20} color="#333" />
+                <Text style={adminStyles.backButtonText}>Back to Admin Portal</Text>
               </TouchableOpacity>
+
+              <Text style={adminStyles.welcomeText}>Welcome back, Admin</Text>
+              
+              <View style={adminStyles.form}>
+                {/* Username Field */}
+                <AdminInput
+                  placeholder="Username or Email"
+                  value={username}
+                  onChangeText={setUsername}
+                  icon="person"
+                  editable={!isLoading}
+                />
+                
+                {/* Password Field */}
+                <AdminInput
+                  placeholder="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  icon="lock"
+                  secureTextEntry={!showPassword}
+                  editable={!isLoading}
+                  rightComponent={
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 5 }}>
+                      <MaterialIcons name={showPassword ? "visibility-off" : "visibility"} size={20} color="#999" />
+                    </TouchableOpacity>
+                  }
+                />
+                
+                {/* Form Options */}
+                <View style={[adminStyles.checkboxContainer, { justifyContent: 'space-between', alignItems: 'center' }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <TouchableOpacity
+                      style={[adminStyles.checkbox, keepLoggedIn && adminStyles.checkboxChecked]}
+                      onPress={() => setKeepLoggedIn(!keepLoggedIn)}
+                      disabled={isLoading}
+                    >
+                      {keepLoggedIn && <MaterialIcons name="check" size={16} color="white" />}
+                    </TouchableOpacity>
+                    <Text style={adminStyles.checkboxText}>Keep me logged in</Text>
+                  </View>
+                  <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
+                    <Text style={adminStyles.forgotPasswordText}>Forgot password?</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Login Button */}
+                <AdminButton 
+                  title={isLoading ? "Logging in..." : "Login"} 
+                  onPress={handleLogin}
+                  disabled={isLoading}
+                />
+              </View>
             </View>
-            
-            {/* Login Button */}
-            <AdminButton 
-              title={isLoading ? "Logging in..." : "Login"} 
-              onPress={handleLogin}
-              disabled={isLoading}
-            />
           </View>
-        </View>
-        </View>
-        </View>
+        </ScrollView>
       </ImageBackground>
 
       {/* Error Modal */}

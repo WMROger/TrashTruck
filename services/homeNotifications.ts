@@ -83,5 +83,3 @@ export async function markAsRead(db: any, id: string): Promise<void> {
     console.warn('Failed to mark notification read:', e);
   }
 }
-
-

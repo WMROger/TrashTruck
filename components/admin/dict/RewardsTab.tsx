@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -22,6 +22,8 @@ interface UserScore {
 }
 
 export default function RewardsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [searchQuery, setSearchQuery] = useState('');
   const [profiles, setProfiles] = useState<UserScore[]>([]);
   const [awardEntries, setAwardEntries] = useState<{ userId: string; tokens: number }[]>([]);
@@ -141,24 +143,28 @@ export default function RewardsTab() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={[styles.content, isMobile && { padding: 16 }]}
+      showsVerticalScrollIndicator={true}
+    >
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, isMobile && { flexDirection: 'column', gap: 16 }]}>
         <View>
           <Text style={styles.pageSubtitle}>ICT CONTROLLER • Updated seconds ago</Text>
           <Text style={styles.pageTitle}>Citizen Reporter Rewards & Souvenir Registry</Text>
           <Text style={styles.pageDesc}>Comprehensive management of souvenirs and rewards earned by citizens for reporting environmental issues and trash concerns across the city’s districts.</Text>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={reconcileCompletedPickups} disabled={reconciling}>
+        <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%', gap: 8 }]}>
+          <TouchableOpacity style={[styles.secondaryBtn, isMobile && { justifyContent: 'center' }]} onPress={reconcileCompletedPickups} disabled={reconciling}>
             <MaterialIcons name="sync" size={16} color="#374151" />
             <Text style={styles.secondaryBtnText}>{reconciling ? 'Syncing...' : 'Sync Completed Rewards'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={exportRegistry}>
+          <TouchableOpacity style={[styles.secondaryBtn, isMobile && { justifyContent: 'center' }]} onPress={exportRegistry}>
             <MaterialIcons name="download" size={16} color="#374151" />
             <Text style={styles.secondaryBtnText}>Export Registry</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowIssueModal(true)}>
+          <TouchableOpacity style={[styles.primaryBtn, isMobile && { justifyContent: 'center' }]} onPress={() => setShowIssueModal(true)}>
             <MaterialIcons name="add" size={16} color="#FFF" />
             <Text style={styles.primaryBtnText}>Issue New Souvenir</Text>
           </TouchableOpacity>
@@ -166,10 +172,10 @@ export default function RewardsTab() {
       </View>
 
       {/* Main Content Card */}
-      <View style={styles.mainCard}>
+      <View style={[styles.mainCard, isMobile && { padding: 14 }]}>
         {/* Top Performer Spotlight (Optional feature based on design) */}
         {users.length > 0 && (
-          <View style={styles.spotlightCard}>
+          <View style={[styles.spotlightCard, isMobile && { flexDirection: 'column', alignItems: 'flex-start' }]}>
             <View style={styles.spotlightAvatar}>
               <Text style={styles.spotlightInitial}>{users[0].name.charAt(0)}</Text>
             </View>
@@ -198,61 +204,68 @@ export default function RewardsTab() {
         </View>
 
         {/* Table */}
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { width: 50 }]}>RANK</Text>
-            <Text style={[styles.th, { flex: 2 }]}>CITIZEN / USER PROFILE</Text>
-            <Text style={[styles.th, { flex: 1 }]}>REPORT TYPE</Text>
-            <Text style={[styles.th, { flex: 1 }]}>TOKENS EARNED</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>ACTIONS</Text>
+        <ScrollView 
+          horizontal={isMobile} 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+          style={{ width: '100%' }}
+        >
+          <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { width: 50 }]}>RANK</Text>
+              <Text style={[styles.th, { flex: 2 }]}>CITIZEN / USER PROFILE</Text>
+              <Text style={[styles.th, { flex: 1 }]}>REPORT TYPE</Text>
+              <Text style={[styles.th, { flex: 1 }]}>TOKENS EARNED</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>ACTIONS</Text>
+            </View>
+
+            {loading ? (
+              <ActivityIndicator size="large" color="#4B6354" style={{ marginTop: 40 }} />
+            ) : (
+              filteredUsers.map((user, index) => (
+                <View key={user.id} style={styles.tr}>
+                  <Text style={[styles.td, { width: 50, fontWeight: '700', color: '#6B7280' }]}>#{index + 1}</Text>
+                  
+                  <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={styles.avatarBg}>
+                      <Text style={styles.avatarInitial}>{user.name.charAt(0)}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.userName}>{user.name}</Text>
+                      <Text style={styles.userLocation}>{user.location}</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reportCountText}>{user.reportCount} Reports</Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.tokenBadge}>
+                      <Text style={styles.tokenText}>🪙 {user.tokens.toLocaleString()}</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flex: 1.5, flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity 
+                      style={styles.actionBtnIssue}
+                      onPress={() => {
+                        setSelectedUser(user);
+                        setShowIssueModal(true);
+                      }}
+                    >
+                      <Text style={styles.actionBtnText}>Issue Souvenir</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
           </View>
-
-          {loading ? (
-            <ActivityIndicator size="large" color="#4B6354" style={{ marginTop: 40 }} />
-          ) : (
-            filteredUsers.map((user, index) => (
-              <View key={user.id} style={styles.tr}>
-                <Text style={[styles.td, { width: 50, fontWeight: '700', color: '#6B7280' }]}>#{index + 1}</Text>
-                
-                <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View style={styles.avatarBg}>
-                    <Text style={styles.avatarInitial}>{user.name.charAt(0)}</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.userName}>{user.name}</Text>
-                    <Text style={styles.userLocation}>{user.location}</Text>
-                  </View>
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.reportCountText}>{user.reportCount} Reports</Text>
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <View style={styles.tokenBadge}>
-                    <Text style={styles.tokenText}>🪙 {user.tokens.toLocaleString()}</Text>
-                  </View>
-                </View>
-
-                <View style={{ flex: 1.5, flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity 
-                    style={styles.actionBtnIssue}
-                    onPress={() => {
-                      setSelectedUser(user);
-                      setShowIssueModal(true);
-                    }}
-                  >
-                    <Text style={styles.actionBtnText}>Issue Souvenir</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
+        </ScrollView>
       </View>
 
       {/* Summary Footer */}
-      <View style={styles.summaryGrid}>
+      <View style={[styles.summaryGrid, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View style={styles.summaryBox}>
           <Text style={styles.summaryLabel}>TOKENS PER VERIFIED PICKUP</Text>
           <Text style={styles.summaryValue}>{COMPLETION_REWARD_TOKENS}</Text>
@@ -367,12 +380,13 @@ export default function RewardsTab() {
       </Modal>
 
       <View style={{ height: 40 }} />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 32 },
+  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  content: { padding: 32, paddingBottom: 64 },
   header: { marginBottom: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   pageSubtitle: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 1, marginBottom: 8 },
   pageTitle: { fontSize: 28, fontWeight: '800', color: '#111827', marginBottom: 8, letterSpacing: -0.5 },

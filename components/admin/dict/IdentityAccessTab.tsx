@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -14,6 +14,8 @@ interface UserData {
 }
 
 export default function IdentityAccessTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,22 +107,26 @@ export default function IdentityAccessTab() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={[styles.content, isMobile && { padding: 16 }]}
+      showsVerticalScrollIndicator={true}
+    >
+      <View style={[styles.header, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.title}>Identity & Access Management</Text>
           <Text style={styles.subtitle}>Manage user roles, permissions, and system access</Text>
         </View>
-        <TouchableOpacity style={styles.refreshButton} onPress={fetchUsers} disabled={loading}>
+        <TouchableOpacity style={[styles.refreshButton, isMobile && { justifyContent: 'center' }]} onPress={fetchUsers} disabled={loading}>
           <MaterialIcons name="refresh" size={20} color="#374151" />
           <Text style={styles.refreshText}>Refresh Directory</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         {/* Search and Filters */}
         <View style={styles.toolbar}>
-          <View style={styles.searchContainer}>
+          <View style={[styles.searchContainer, isMobile && { maxWidth: '100%' }]}>
             <MaterialIcons name="search" size={20} color="#9CA3AF" />
             <TextInput
               style={styles.searchInput}
@@ -139,21 +145,26 @@ export default function IdentityAccessTab() {
 
         {/* User Table */}
         <View style={styles.tableContainer}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, { flex: 2 }]}>USER</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>EMAIL</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1 }]}>ROLE</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1 }]}>STATUS</Text>
-            <Text style={[styles.tableHeaderText, { flex: 0.5, textAlign: 'right' }]}>ACTIONS</Text>
-          </View>
+          <ScrollView 
+            horizontal={isMobile} 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+            style={{ width: '100%' }}
+          >
+            <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, { flex: 2 }]}>USER</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1.5 }]}>EMAIL</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1 }]}>ROLE</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1 }]}>STATUS</Text>
+                <Text style={[styles.tableHeaderText, { flex: 0.5, textAlign: 'right' }]}>ACTIONS</Text>
+              </View>
 
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#4F46E5" />
-            </View>
-          ) : (
-            <ScrollView style={styles.tableBody} showsVerticalScrollIndicator={false}>
-              {filteredUsers.length === 0 ? (
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#4F46E5" />
+                </View>
+              ) : filteredUsers.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <MaterialIcons name="people-outline" size={48} color="#D1D5DB" />
                   <Text style={styles.emptyText}>No users found</Text>
@@ -209,8 +220,8 @@ export default function IdentityAccessTab() {
                   </View>
                 ))
               )}
-            </ScrollView>
-          )}
+            </View>
+          </ScrollView>
         </View>
       </View>
 
@@ -221,52 +232,54 @@ export default function IdentityAccessTab() {
         animationType="fade"
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, isMobile && { width: '95%', padding: 16 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Manage User Role</Text>
-              <TouchableOpacity onPress={() => setIsRoleModalVisible(false)}>
-                <MaterialIcons name="close" size={24} color="#6B7280" />
+              <Text style={styles.modalTitle}>Change User Role</Text>
+              <TouchableOpacity 
+                onPress={() => setIsRoleModalVisible(false)}
+                disabled={updatingRole}
+              >
+                <MaterialIcons name="close" size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
-            
-            <View style={styles.modalBody}>
-              <Text style={styles.modalSubtitle}>
-                Select a new role for <Text style={{fontWeight: '700', color: '#111827'}}>{selectedUser?.displayName}</Text> ({selectedUser?.email}).
-              </Text>
 
+            <View style={styles.modalBody}>
+              <View style={styles.userInfoBox}>
+                <Text style={styles.userInfoLabel}>TARGET USER</Text>
+                <Text style={styles.userInfoName}>{selectedUser?.displayName}</Text>
+                <Text style={styles.userInfoEmail}>{selectedUser?.email}</Text>
+              </View>
+
+              <Text style={styles.roleSelectionLabel}>SELECT NEW ROLE</Text>
+              
               <View style={styles.roleOptions}>
-                {['user', 'coordinator', 'admin', 'dict'].map((role) => (
-                  <TouchableOpacity 
-                    key={role}
+                {[
+                  { role: 'dict', title: 'DICT Admin', desc: 'Full inter-agency oversight and system audit control', icon: 'security', color: '#4F46E5' },
+                  { role: 'admin', title: 'CENRO Admin', desc: 'Municipal waste operations and driver dispatching', icon: 'admin-panel-settings', color: '#059669' },
+                  { role: 'driver', title: 'Truck Driver', desc: 'Collection route navigation and pickup logging', icon: 'local-shipping', color: '#D97706' },
+                  { role: 'user', title: 'Citizen / Resident', desc: 'Report issues and track municipal schedules', icon: 'person', color: '#6B7280' },
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.role}
                     style={[
                       styles.roleOptionCard,
-                      selectedUser?.role === role && styles.roleOptionCardActive
+                      selectedUser?.role === item.role && styles.roleOptionCardActive
                     ]}
-                    onPress={() => handleUpdateRole(role)}
-                    disabled={updatingRole || selectedUser?.role === role}
+                    onPress={() => handleUpdateRole(item.role)}
+                    disabled={updatingRole}
                   >
-                    <View style={[styles.roleOptionIcon, { backgroundColor: `${getRoleBadgeColor(role)}15` }]}>
-                      <MaterialIcons 
-                        name={
-                          role === 'dict' ? 'security' : 
-                          role === 'admin' ? 'admin-panel-settings' : 
-                          role === 'coordinator' ? 'groups' : 'person'
-                        } 
-                        size={24} 
-                        color={getRoleBadgeColor(role)} 
-                      />
+                    <View style={[styles.roleOptionIcon, { backgroundColor: `${item.color}15` }]}>
+                      <MaterialIcons name={item.icon as any} size={24} color={item.color} />
                     </View>
                     <View style={styles.roleOptionDetails}>
-                      <Text style={styles.roleOptionTitle}>{role.toUpperCase()}</Text>
-                      <Text style={styles.roleOptionDesc}>
-                        {role === 'dict' ? 'Full system access & IT management' : 
-                         role === 'admin' ? 'CENRO dashboard & operational control' : 
-                         role === 'coordinator' ? 'Environmental coordination access' : 'Standard citizen access'}
-                      </Text>
+                      <Text style={styles.roleOptionTitle}>{item.title}</Text>
+                      <Text style={styles.roleOptionDesc}>{item.desc}</Text>
                     </View>
-                    {selectedUser?.role === role && (
-                      <MaterialIcons name="check-circle" size={24} color={getRoleBadgeColor(role)} />
-                    )}
+                    {updatingRole && selectedUser?.role === item.role ? (
+                      <ActivityIndicator size="small" color="#4F46E5" />
+                    ) : selectedUser?.role === item.role ? (
+                      <MaterialIcons name="check-circle" size={20} color="#4F46E5" />
+                    ) : null}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -274,14 +287,18 @@ export default function IdentityAccessTab() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  content: {
     padding: 32,
+    paddingBottom: 64,
   },
   header: {
     flexDirection: 'row',
@@ -537,5 +554,37 @@ const styles = StyleSheet.create({
   roleOptionDesc: {
     fontSize: 13,
     color: '#6B7280',
+  },
+  userInfoBox: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  userInfoLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6B7280',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  userInfoName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  userInfoEmail: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  roleSelectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    letterSpacing: 0.5,
+    marginBottom: 12,
   },
 });

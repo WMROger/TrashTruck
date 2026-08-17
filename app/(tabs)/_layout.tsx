@@ -36,21 +36,9 @@ export default function TabLayout() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          if (userData.role === 'admin') {
-            console.log('Tabs layout: Admin user detected, redirecting to admin dashboard');
-            setIsAdmin(true);
-            router.replace('/admin/dashboard');
-            return;
-          }
+          setIsAdmin(userData.role === 'admin');
           // Drivers stay on the regular user portal but have access to driver features
           setRole(userData.role || null);
-
-          // If driver has an active shift (truck assigned), redirect to driver portal
-          if (userData.role === 'driver' && userData.currentTruckId) {
-            console.log('Tabs layout: Driver on active shift, redirecting to driver portal');
-            router.replace('/(driver)');
-            return;
-          }
         }
         setIsAdmin(false);
       } catch (error) {

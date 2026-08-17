@@ -115,18 +115,58 @@ export async function getDictOversightSnapshot(): Promise<DictOversightSnapshot>
   };
 }
 
-export async function sendDictCommand(input: { subject: string; message: string; priority: 'normal' | 'high' | 'urgent' }) {
+export interface InteragencyMessageInput {
+  message: string;
+  subject?: string;
+  priority?: 'normal' | 'high' | 'urgent';
+  channelId?: string;
+  senderRole?: 'dict' | 'admin' | 'cenro';
+  senderName?: string;
+  senderEmail?: string;
+}
+
+export async function sendInteragencyMessage(input: InteragencyMessageInput) {
+  if (!db || !auth.currentUser) throw new Error('Authentication is required to send inter-agency dispatches.');
+  const message = input.message.trim();
+  if (message.length < 1 || message.length > 3000) {
+    throw new Error('Please enter a message to transmit.');
+  }
+  const senderRole = input.senderRole || 'dict';
+  const priority = input.priority || 'normal';
+  const subject = input.subject?.trim() || (priority === 'urgent' ? '🚨 URGENT DIRECTIVE' : priority === 'high' ? '⚡ PRIORITY ADVISORY' : 'Operational Dispatch');
+  const channelId = input.channelId || 'general-command';
+  
+  const messageRef = await addDoc(collection(db, 'interagency_messages'), {
+    subject,
+    message,
+    priority,
+    channelId,
+    senderUid: auth.currentUser.uid,
+    senderName: input.senderName || auth.currentUser.displayName || (senderRole === 'dict' ? 'DICT Controller' : 'CENRO Administrator'),
+    senderEmail: input.senderEmail || auth.currentUser.email || '',
+    senderRole,
+    status: 'sent',
+    deliveryMode: 'spark-firestore',
+    createdAt: serverTimestamp(),
+  });
+  return { id: messageRef.id };
+}
+
+export async function sendDictCommand(input: { subject: string; message: string; priority: 'normal' | 'high' | 'urgent'; channelId?: string }) {
   if (!db || !auth.currentUser) throw new Error('An authenticated DICT account is required.');
   const subject = input.subject.trim();
   const message = input.message.trim();
-  if (subject.length < 3 || subject.length > 120 || message.length < 5 || message.length > 2000) {
+  if (subject.length < 2 || subject.length > 120 || message.length < 1 || message.length > 3000) {
     throw new Error('Enter a valid subject and command message.');
   }
   const messageRef = await addDoc(collection(db, 'interagency_messages'), {
     subject,
     message,
     priority: input.priority,
+    channelId: input.channelId || 'general-command',
     senderUid: auth.currentUser.uid,
+    senderName: auth.currentUser.displayName || 'DICT Controller',
+    senderEmail: auth.currentUser.email || '',
     senderRole: 'dict',
     status: 'sent',
     deliveryMode: 'spark-firestore',

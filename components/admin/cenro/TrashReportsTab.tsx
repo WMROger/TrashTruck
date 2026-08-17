@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator, Platform, TouchableWithoutFeedback, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator, Platform, TouchableWithoutFeedback, Pressable, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db } from '../../../config/firebase';
 import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy, arrayUnion } from 'firebase/firestore';
@@ -34,11 +34,16 @@ interface Report {
   assignedDriver?: string;
 }
 
+const ITEMS_PER_PAGE = 5;
+
 export default function TrashReportsTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Modal state
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -91,6 +96,30 @@ export default function TrashReportsTab() {
     r.barangay?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.street?.toLowerCase().includes(searchQuery.toLowerCase())
   ));
+
+  const filteredReports = activeTab === 'active' ? activeReports : historyReports;
+  const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE) || 1;
+  const paginatedReports = filteredReports.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Keep currentPage in valid bounds when data or filter changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const handleTabChange = (tab: 'active' | 'history') => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (text: string) => {
+    setSearchQuery(text);
+    setCurrentPage(1);
+  };
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return 'N/A';
@@ -261,9 +290,13 @@ export default function TrashReportsTab() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={[styles.scrollContent, isMobile && { padding: 16, paddingBottom: 48 }]}
+      showsVerticalScrollIndicator={true}
+    >
       {/* Header */}
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Trash Reports</Text>
           <Text style={styles.headerDesc}>Manage and track citizen-reported waste issues.</Text>
@@ -277,106 +310,166 @@ export default function TrashReportsTab() {
       </View>
 
       {/* Summary Cards */}
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
+      <View style={[styles.summaryRow, isMobile && { flexWrap: 'wrap', gap: 10 }]}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <Text style={styles.summaryCardTitle}>Total Reports</Text>
           <Text style={styles.summaryCardValue}>{totalReports}</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <Text style={styles.summaryCardTitle}>Pending</Text>
           <Text style={[styles.summaryCardValue, { color: '#f59e0b' }]}>{pendingCount}</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <Text style={styles.summaryCardTitle}>In Progress</Text>
           <Text style={[styles.summaryCardValue, { color: '#f97316' }]}>{inProgressCount}</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isMobile && { width: '48%', minWidth: 130 }]}>
           <Text style={styles.summaryCardTitle}>Resolved</Text>
           <Text style={[styles.summaryCardValue, { color: '#2E8B57' }]}>{resolvedCount}</Text>
         </View>
       </View>
 
       {/* Main Content Card */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 14 }]}>
         <View style={styles.tabsRow}>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'active' && styles.activeTab]}
-            onPress={() => setActiveTab('active')}
+            onPress={() => handleTabChange('active')}
           >
             <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>Active Reports</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'history' && styles.activeTab]}
-            onPress={() => setActiveTab('history')}
+            onPress={() => handleTabChange('history')}
           >
             <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>Report History</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.filtersRow}>
-          <View style={styles.searchBox}>
+          <View style={[styles.searchBox, isMobile && { width: '100%' }]}>
             <MaterialIcons name="search" size={20} color="#9CA3AF" />
             <TextInput 
               style={styles.searchInput} 
               placeholder="Search by title, barangay, street..." 
               placeholderTextColor="#9CA3AF" 
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={handleSearchChange}
             />
           </View>
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color="#2E8B57" style={{ marginTop: 40 }} />
+          <ActivityIndicator size="large" color="#2E8B57" style={{ marginVertical: 40 }} />
         ) : (
           <View>
-            <View style={styles.tableHead}>
-              <Text style={[styles.th, { flex: 2 }]}>REPORT</Text>
-              <Text style={[styles.th, { flex: 1.5 }]}>LOCATION</Text>
-              <Text style={[styles.th, { flex: 1 }]}>WASTE TYPE</Text>
-              <Text style={[styles.th, { flex: 1 }]}>{activeTab === 'history' ? 'RESOLVED DATE' : 'STATUS'}</Text>
-              <Text style={[styles.th, { flex: 1 }]}>{activeTab === 'active' ? 'DATE' : 'ACTIONS'}</Text>
-            </View>
+            <ScrollView 
+              horizontal={isMobile} 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
+              style={{ width: '100%' }}
+            >
+              <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
+                <View style={styles.tableHead}>
+                  <Text style={[styles.th, { flex: 2 }]}>REPORT</Text>
+                  <Text style={[styles.th, { flex: 1.5 }]}>LOCATION</Text>
+                  <Text style={[styles.th, { flex: 1 }]}>WASTE TYPE</Text>
+                  <Text style={[styles.th, { flex: 1 }]}>{activeTab === 'history' ? 'RESOLVED DATE' : 'STATUS'}</Text>
+                  <Text style={[styles.th, { flex: 1 }]}>{activeTab === 'active' ? 'DATE' : 'ACTIONS'}</Text>
+                </View>
 
-            {(activeTab === 'active' ? activeReports : historyReports).length === 0 ? (
-              <Text style={styles.emptyText}>No reports found.</Text>
-            ) : (
-              (activeTab === 'active' ? activeReports : historyReports).map((report, i) => {
-                const statusColors = getStatusColor(report.status);
-                return (
-                  <TouchableOpacity key={report.id} style={styles.tableRow} onPress={() => openReportDetail(report)}>
-                    <View style={[styles.td, { flex: 2 }]}>
-                      <Text style={styles.reportTitle} numberOfLines={1}>{report.title}</Text>
-                      <Text style={styles.reportDesc} numberOfLines={1}>{report.description}</Text>
-                    </View>
-                    <View style={[styles.td, { flex: 1.5 }]}>
-                      <Text style={styles.brgyName} numberOfLines={1}>{report.barangay}</Text>
-                      <Text style={styles.streetName} numberOfLines={1}>{report.street}</Text>
-                    </View>
-                    <View style={[styles.td, { flex: 1 }]}>
-                      <Text style={styles.wasteTypeText}>{report.aiAnalysis?.wasteType || 'Unknown'}</Text>
-                    </View>
-                    <View style={[styles.td, { flex: 1 }]}>
-                      {activeTab === 'history' ? (
-                        <Text style={styles.dateTextTable}>{formatDate(report.updatedAt || report.createdAt)}</Text>
-                      ) : (
-                        <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
-                          <Text style={[styles.statusText, { color: statusColors.color }]}>{getStatusLabel(report.status)}</Text>
+                {filteredReports.length === 0 ? (
+                  <Text style={styles.emptyText}>No reports found.</Text>
+                ) : (
+                  paginatedReports.map((report) => {
+                    const statusColors = getStatusColor(report.status);
+                    return (
+                      <TouchableOpacity key={report.id} style={styles.tableRow} onPress={() => openReportDetail(report)}>
+                        <View style={[styles.td, { flex: 2 }]}>
+                          <Text style={styles.reportTitle} numberOfLines={1}>{report.title}</Text>
+                          <Text style={styles.reportDesc} numberOfLines={1}>{report.description}</Text>
                         </View>
-                      )}
+                        <View style={[styles.td, { flex: 1.5 }]}>
+                          <Text style={styles.brgyName} numberOfLines={1}>{report.barangay}</Text>
+                          <Text style={styles.streetName} numberOfLines={1}>{report.street}</Text>
+                        </View>
+                        <View style={[styles.td, { flex: 1 }]}>
+                          <Text style={styles.wasteTypeText}>{report.aiAnalysis?.wasteType || 'Unknown'}</Text>
+                        </View>
+                        <View style={[styles.td, { flex: 1 }]}>
+                          {activeTab === 'history' ? (
+                            <Text style={styles.dateTextTable}>{formatDate(report.updatedAt || report.createdAt)}</Text>
+                          ) : (
+                            <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+                              <Text style={[styles.statusText, { color: statusColors.color }]}>{getStatusLabel(report.status)}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={[styles.td, { flex: 1 }]}>
+                          {activeTab === 'active' ? (
+                            <Text style={styles.dateTextTable}>{formatDate(report.createdAt)}</Text>
+                          ) : (
+                            <TouchableOpacity style={styles.viewBtn} onPress={() => openReportDetail(report)}>
+                              <Text style={styles.viewBtnText}>View Details</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+            </ScrollView>
+
+            {/* Pagination Controls */}
+            {filteredReports.length > 0 && (
+              <View style={styles.paginationContainer}>
+                <Text style={styles.paginationInfo}>
+                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredReports.length)} of {filteredReports.length} reports
+                </Text>
+
+                {totalPages > 1 && (
+                  <View style={styles.paginationControls}>
+                    <TouchableOpacity
+                      style={[styles.pageNavBtn, currentPage === 1 && styles.pageNavBtnDisabled]}
+                      disabled={currentPage === 1}
+                      onPress={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="chevron-left" size={18} color={currentPage === 1 ? '#9CA3AF' : '#374151'} />
+                      <Text style={[styles.pageNavBtnText, currentPage === 1 && styles.pageNavBtnTextDisabled]}>Prev</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.pageNumberGroup}>
+                      {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((pageNum) => {
+                        const isActive = pageNum === currentPage;
+                        return (
+                          <TouchableOpacity
+                            key={pageNum}
+                            style={[styles.pageNumBtn, isActive && styles.pageNumBtnActive]}
+                            onPress={() => setCurrentPage(pageNum)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.pageNumText, isActive && styles.pageNumTextActive]}>
+                              {pageNum}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
-                    <View style={[styles.td, { flex: 1 }]}>
-                      {activeTab === 'active' ? (
-                        <Text style={styles.dateTextTable}>{formatDate(report.createdAt)}</Text>
-                      ) : (
-                        <TouchableOpacity style={styles.viewBtn} onPress={() => openReportDetail(report)}>
-                          <Text style={styles.viewBtnText}>View Details</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
+
+                    <TouchableOpacity
+                      style={[styles.pageNavBtn, currentPage === totalPages && styles.pageNavBtnDisabled]}
+                      disabled={currentPage === totalPages}
+                      onPress={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.pageNavBtnText, currentPage === totalPages && styles.pageNavBtnTextDisabled]}>Next</Text>
+                      <MaterialIcons name="chevron-right" size={18} color={currentPage === totalPages ? '#9CA3AF' : '#374151'} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             )}
           </View>
         )}
@@ -385,7 +478,7 @@ export default function TrashReportsTab() {
       {/* Report Detail Modal */}
       {isModalVisible && selectedReport && (
         <Modal transparent visible={isModalVisible} animationType="fade" onRequestClose={() => { setIsModalVisible(false); setIsImageViewerVisible(false); }}>
-          <Pressable style={[styles.modalOverlay, { cursor: 'default' } as any]} onPress={() => setIsModalVisible(false)}>
+          <Pressable style={[styles.modalOverlay, isMobile && { padding: 12 }, { cursor: 'default' } as any]} onPress={() => setIsModalVisible(false)}>
             <TouchableWithoutFeedback>
               <View style={[styles.modalContent, { cursor: 'default' } as any]}>
                 <View style={styles.modalHeader}>
@@ -396,7 +489,7 @@ export default function TrashReportsTab() {
               </View>
 
               <ScrollView style={styles.modalScroll}>
-                <View style={styles.modalBody}>
+                <View style={[styles.modalBody, isMobile && { flexDirection: 'column', gap: 20 }]}>
                   <View style={styles.modalLeft}>
                     {selectedReport.imageURL ? (
                       <TouchableOpacity onPress={() => setIsImageViewerVisible(true)}>
@@ -451,7 +544,7 @@ export default function TrashReportsTab() {
                     )}
                   </View>
 
-                  <View style={styles.modalRight}>
+                  <View style={[styles.modalRight, isMobile && { borderLeftWidth: 0, paddingLeft: 0, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20 }]}>
                     <Text style={styles.detailLabel}>STATUS TIMELINE</Text>
                     <View style={styles.timeline}>
                       {/* Initial Report Created State (Always visible at the top of the timeline) */}
@@ -504,12 +597,13 @@ export default function TrashReportsTab() {
           )}
         </Modal>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 32 },
+  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  scrollContent: { padding: 32, paddingBottom: 64 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#111827', marginBottom: 8 },
   headerDesc: { fontSize: 14, color: '#4B5563' },
@@ -518,11 +612,11 @@ const styles = StyleSheet.create({
   outlineBtnText: { color: '#374151', fontWeight: '600', fontSize: 14 },
   
   summaryRow: { flexDirection: 'row', gap: 16, marginBottom: 24 },
-  summaryCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
+  summaryCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB' },
   summaryCardTitle: { fontSize: 14, color: '#6B7280', marginBottom: 8, fontWeight: '500' },
   summaryCardValue: { fontSize: 28, fontWeight: 'bold', color: '#111827' },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, padding: 24, flex: 1 },
+  card: { backgroundColor: '#fff', borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, borderWidth: 1, borderColor: '#E5E7EB', padding: 24, marginBottom: 24 },
   
   tabsRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', marginBottom: 24 },
   tab: { paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 2, borderBottomColor: 'transparent' },
@@ -552,6 +646,20 @@ const styles = StyleSheet.create({
   
   viewBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: '#F3F4F6', alignSelf: 'flex-start' },
   viewBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
+
+  // Pagination
+  paginationContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 20, marginTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexWrap: 'wrap', gap: 12 },
+  paginationInfo: { fontSize: 13, color: '#6B7280', fontWeight: '500' },
+  paginationControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  pageNavBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#fff', gap: 2 },
+  pageNavBtnDisabled: { backgroundColor: '#F9FAFB', borderColor: '#F3F4F6' },
+  pageNavBtnText: { fontSize: 13, fontWeight: '500', color: '#374151' },
+  pageNavBtnTextDisabled: { color: '#9CA3AF' },
+  pageNumberGroup: { flexDirection: 'row', alignItems: 'center', gap: 4, marginHorizontal: 4 },
+  pageNumBtn: { width: 32, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  pageNumBtnActive: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
+  pageNumText: { fontSize: 13, fontWeight: '600', color: '#374151' },
+  pageNumTextActive: { color: '#ffffff' },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 40 },
@@ -594,3 +702,4 @@ const styles = StyleSheet.create({
   imageViewerCloseBtn: { position: 'absolute', top: 40, right: 20, zIndex: 10000, padding: 8 },
   fullScreenImage: { width: '100%', height: '100%' },
 });
+

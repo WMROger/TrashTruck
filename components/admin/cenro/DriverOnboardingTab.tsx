@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { provisionDriverOnSpark } from '@/services/driverProvisioningService';
 
 export default function DriverOnboardingTab() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [mode, setMode] = useState<'create' | 'upgrade'>('create');
   
   // Create State
@@ -122,20 +124,20 @@ export default function DriverOnboardingTab() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
       <Text style={styles.headerSubtitle}>ADMINISTRATIVE MANAGEMENT</Text>
       <Text style={styles.headerTitle}>Driver Onboarding</Text>
 
       {/* Mode Toggle */}
-      <View style={styles.toggleContainer}>
+      <View style={[styles.toggleContainer, isMobile && { flexDirection: 'column', gap: 8, padding: 4, height: 'auto' }]}>
         <TouchableOpacity 
-          style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive]}
+          style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
           onPress={() => setMode('create')}
         >
           <Text style={[styles.toggleText, mode === 'create' && styles.toggleTextActive]}>Create New Account</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive]}
+          style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
           onPress={() => setMode('upgrade')}
         >
           <Text style={[styles.toggleText, mode === 'upgrade' && styles.toggleTextActive]}>Upgrade Existing Resident</Text>
@@ -143,7 +145,7 @@ export default function DriverOnboardingTab() {
       </View>
 
       {/* Registration / Upgrade Card */}
-      <View style={styles.card}>
+      <View style={[styles.card, isMobile && { padding: 16 }]}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
             <MaterialIcons name="person-add" size={20} color="#2E8B57" style={styles.cardIcon} />
@@ -391,8 +393,8 @@ const styles = StyleSheet.create({
   cardIcon: { marginRight: 4 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
   
-  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 24 },
-  formGroup: { width: '47%', marginBottom: 16 },
+  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  formGroup: { width: '100%', maxWidth: 450, marginBottom: 16, flex: 1, minWidth: 260 },
   label: { fontSize: 11, fontWeight: '700', color: '#374151', marginBottom: 8, letterSpacing: 0.5 },
   input: { backgroundColor: '#F9FAFB', borderRadius: 8, padding: 14, fontSize: 14, color: '#111827', borderWidth: 1, borderColor: '#E5E7EB' },
   passwordContainer: { position: 'relative', justifyContent: 'center' },
@@ -430,7 +432,7 @@ const styles = StyleSheet.create({
   quickToggleDemote: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
   quickToggleText: { fontSize: 11, fontWeight: '700' },
   
-  assignmentRow: { flexDirection: 'row', gap: 24 },
+  assignmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 24 },
   dropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
   dropdownText: { fontSize: 14, color: '#111827' },
   dropdownMenu: { position: 'absolute', top: 52, left: 0, right: 0, backgroundColor: '#FFFFFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },

@@ -293,8 +293,8 @@ export default function LoadingPage() {
               router.replace('/dict/dashboard' as any);
             }
           } else if (role === 'driver') {
-            console.log('Driver user detected, redirecting to driver interface');
-            router.replace('/(driver)' as any);
+            console.log('Driver user detected, redirecting to resident home');
+            router.replace('/(tabs)/home' as any);
           } else {
             console.log('Regular user detected, redirecting to home');
             router.replace('/(tabs)/home' as any);

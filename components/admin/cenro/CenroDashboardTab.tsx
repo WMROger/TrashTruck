@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, query, where, getDocs, onSnapshot, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -30,6 +30,8 @@ interface Schedule {
 }
 
 export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab: string) => void }) {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [stats, setStats] = useState<DashboardStats>({ totalWaste: 0, activeTrucks: 0, totalTrucks: 0, pendingIssues: 0 });
   const [recentReports, setRecentReports] = useState<Report[]>([]);
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
@@ -174,11 +176,11 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
   const progressPercent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
       <Text style={styles.greeting}>Good morning, Administrator</Text>
       <Text style={styles.dateText}>{todayStr}</Text>
 
-      <View style={styles.topCardsRow}>
+      <View style={[styles.topCardsRow, isMobile && { flexDirection: 'column' }]}>
         <View style={styles.card}>
           <View style={styles.cardIconWrapper}>
             <MaterialIcons name="delete-outline" size={24} color="#2E8B57" />
@@ -207,7 +209,7 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
         </View>
       </View>
 
-      <View style={styles.mainRow}>
+      <View style={[styles.mainRow, isMobile && { flexDirection: 'column' }]}>
         <View style={styles.leftColumn}>
           {/* Progress Section */}
           <View style={styles.progressCard}>
@@ -231,29 +233,33 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
           {/* Recent Issues Table */}
           <View style={styles.tableCard}>
             <Text style={styles.sectionTitle}>Recent Issues Reported</Text>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.th, { flex: 1 }]}>Report ID</Text>
-              <Text style={[styles.th, { flex: 2 }]}>Barangay</Text>
-              <Text style={[styles.th, { flex: 2 }]}>Issue Type</Text>
-              <Text style={[styles.th, { flex: 1.5 }]}>Status</Text>
-            </View>
-            
-            {recentReports.length === 0 ? (
-              <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>No recent reports found.</Text>
-            ) : (
-              recentReports.map((row, i) => (
-                <View key={i} style={styles.tableRow}>
-                  <Text style={[styles.td, { flex: 1, fontWeight: '500' }]}>{row.id}</Text>
-                  <Text style={[styles.td, { flex: 2 }]}>{row.barangay}</Text>
-                  <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{row.type}</Text>
-                  <View style={{ flex: 1.5 }}>
-                    <View style={[styles.badge, { backgroundColor: row.statusColor + '20' }]}>
-                      <Text style={[styles.badgeText, { color: row.statusColor }]}>{row.status}</Text>
-                    </View>
-                  </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ minWidth: isMobile ? 460 : '100%' }}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.th, { flex: 1 }]}>Report ID</Text>
+                  <Text style={[styles.th, { flex: 2 }]}>Barangay</Text>
+                  <Text style={[styles.th, { flex: 2 }]}>Issue Type</Text>
+                  <Text style={[styles.th, { flex: 1.5 }]}>Status</Text>
                 </View>
-              ))
-            )}
+                
+                {recentReports.length === 0 ? (
+                  <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>No recent reports found.</Text>
+                ) : (
+                  recentReports.map((row, i) => (
+                    <View key={i} style={styles.tableRow}>
+                      <Text style={[styles.td, { flex: 1, fontWeight: '500' }]}>{row.id}</Text>
+                      <Text style={[styles.td, { flex: 2 }]}>{row.barangay}</Text>
+                      <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{row.type}</Text>
+                      <View style={{ flex: 1.5 }}>
+                        <View style={[styles.badge, { backgroundColor: row.statusColor + '20' }]}>
+                          <Text style={[styles.badgeText, { color: row.statusColor }]}>{row.status}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            </ScrollView>
             
             <TouchableOpacity style={styles.viewAllBtn} onPress={() => onTabChange?.('trash-reports')}>
               <Text style={styles.viewAllText}>View All Reports</Text>
