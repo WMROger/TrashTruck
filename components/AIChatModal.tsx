@@ -672,7 +672,11 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
         </Pressable>
       ) : (
         // Native version
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <KeyboardAvoidingView 
+          style={[styles.container, { backgroundColor: colors.background }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+        >
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>
               TrashTrack AI Assistant
@@ -690,6 +694,7 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
             style={styles.messagesList}
             contentContainerStyle={styles.messagesContainer}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           />
 
           {isLoading && (
@@ -701,11 +706,7 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
             </View>
           )}
 
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 55 : 0}
-            style={[styles.inputContainer, { borderTopColor: colors.border }]}
-          >
+          <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
             <View style={[styles.inputWrapper, { borderColor: colors.border }]}>
               <TextInput
                 style={[styles.input, { color: colors.textPrimary }]}
@@ -729,8 +730,8 @@ export default function AIChatModal({ visible, onClose }: AIChatModalProps) {
                 />
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       )}
     </Modal>
   );

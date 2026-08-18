@@ -90,8 +90,8 @@ export default function EnvironmentalCoordinatorsTab() {
     setIsSubmitting(true);
     try {
       if (mode === 'create') {
-        if (!newEmail || !newPassword || !newFullName) {
-          Alert.alert('Validation Error', 'Please fill in Email, Password, and Full Name for the new coordinator.');
+        if (!newEmail || !newPassword || !newFullName || !newContact) {
+          Alert.alert('Validation Error', 'Please fill in Email, Password, Full Name, and Contact Number for the new coordinator.');
           setIsSubmitting(false);
           return;
         }
@@ -343,11 +343,15 @@ export default function EnvironmentalCoordinatorsTab() {
             ) : (
               <View style={styles.formGrid}>
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>EMAIL ADDRESS (LOGIN)</Text>
+                  <Text style={styles.label}>
+                    EMAIL ADDRESS (LOGIN) <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
                   <TextInput style={styles.input} placeholder="coordinator@trashtrack.com" value={newEmail} onChangeText={setNewEmail} autoCapitalize="none" />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>TEMPORARY PASSWORD</Text>
+                  <Text style={styles.label}>
+                    TEMPORARY PASSWORD <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
                   <View style={styles.passwordContainer}>
                     <TextInput 
                       style={[styles.input, styles.passwordInput]} 
@@ -369,11 +373,15 @@ export default function EnvironmentalCoordinatorsTab() {
                   </View>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>FULL NAME</Text>
+                  <Text style={styles.label}>
+                    FULL NAME <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
                   <TextInput style={styles.input} placeholder="Juan De La Cruz" value={newFullName} onChangeText={setNewFullName} />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>CONTACT INFORMATION</Text>
+                  <Text style={styles.label}>
+                    CONTACT INFORMATION <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
                   <TextInput style={styles.input} placeholder="+63 9XX XXX XXXX" value={newContact} onChangeText={setNewContact} />
                 </View>
               </View>
@@ -383,11 +391,15 @@ export default function EnvironmentalCoordinatorsTab() {
 
             <View style={styles.formGrid}>
               <View style={styles.formGroup}>
-                <Text style={styles.label}>EMPLOYEE ID</Text>
+                <Text style={styles.label}>
+                  EMPLOYEE ID <Text style={styles.requiredAsterisk}>*</Text>
+                </Text>
                 <TextInput style={styles.input} placeholder="CENRO-800" value={employeeId} onChangeText={setEmployeeId} />
               </View>
               <View style={styles.formGroup}>
-                <Text style={styles.label}>BARANGAY</Text>
+                <Text style={styles.label}>
+                  BARANGAY <Text style={styles.requiredAsterisk}>*</Text>
+                </Text>
                 <View style={styles.pickerContainer}>
                   <Picker
                     selectedValue={barangay}
@@ -576,6 +588,7 @@ const styles = StyleSheet.create({
   formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 24 },
   formGroup: { width: '47%', marginBottom: 16 },
   label: { fontSize: 11, fontWeight: '700', color: '#374151', marginBottom: 8, letterSpacing: 0.5 },
+  requiredAsterisk: { color: '#EF4444', fontWeight: 'bold' },
   input: { backgroundColor: '#F9FAFB', borderRadius: 8, padding: 14, fontSize: 14, color: '#111827', borderWidth: 1, borderColor: '#E5E7EB' },
   passwordContainer: { position: 'relative', justifyContent: 'center' },
   passwordInput: { paddingRight: 45 },

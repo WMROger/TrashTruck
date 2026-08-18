@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
-import { sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 
@@ -32,15 +32,17 @@ export default function DriverLoginScreen() {
         return;
       }
 
-      const usesPassword = credential.user.providerData.some(provider => provider.providerId === 'password');
-      if (usesPassword && !credential.user.emailVerified) {
-        try { await sendEmailVerification(credential.user); } catch {}
-        await signOut(auth);
-        Alert.alert('Email verification required', 'A verification link was sent to the driver email. Open it before signing in.');
-        return;
+      // Auto-heal verified status for drivers if needed
+      if (profile.verified !== true && db) {
+        try {
+          await updateDoc(doc(db, 'users', credential.user.uid), {
+            verified: true,
+            updatedAt: serverTimestamp(),
+          });
+        } catch {}
       }
 
-      router.replace('/(tabs)/home');
+      router.replace('/(driver)');
     } catch (error: any) {
       const invalidCredentials = error?.code === 'auth/invalid-credential' ||
         error?.code === 'auth/user-not-found' || error?.code === 'auth/wrong-password';

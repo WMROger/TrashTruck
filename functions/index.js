@@ -75,14 +75,21 @@ async function provisionDriver(data, context) {
 
   const userRef = db.collection('users').doc(targetUser.uid);
   const employeeRef = db.collection('employee_ids').doc(input.employeeId);
-  const licenseRef = db.collection('license_numbers').doc(input.licenseNumber);
   const truckRef = input.truckId ? db.collection('trucks').doc(input.truckId) : null;
   try {
+    // Check licenseNumber uniqueness in employee_ids
+    if (input.licenseNumber) {
+      const licSnapshot = await db.collection('employee_ids').where('licenseNumber', '==', input.licenseNumber).get();
+      const conflict = licSnapshot.docs.find(d => d.data().userId !== targetUser.uid && d.id !== input.employeeId);
+      if (conflict) {
+        throw new functions.https.HttpsError('already-exists', `LTO License Number is already registered to employee ${conflict.id}.`);
+      }
+    }
+
     await db.runTransaction(async transaction => {
-      const [profileSnapshot, employeeSnapshot, licenseSnapshot, truckSnapshot] = await Promise.all([
+      const [profileSnapshot, employeeSnapshot, truckSnapshot] = await Promise.all([
         transaction.get(userRef),
         transaction.get(employeeRef),
-        transaction.get(licenseRef),
         truckRef ? transaction.get(truckRef) : Promise.resolve(null),
       ]);
       const existingProfile = profileSnapshot.data();
@@ -92,9 +99,6 @@ async function provisionDriver(data, context) {
       if (employeeSnapshot.exists && employeeSnapshot.data()?.userId !== targetUser.uid) {
         throw new functions.https.HttpsError('already-exists', 'This employee ID is already assigned.');
       }
-      if (licenseSnapshot.exists && licenseSnapshot.data()?.userId !== targetUser.uid) {
-        throw new functions.https.HttpsError('already-exists', 'This license number is already assigned.');
-      }
       if (truckSnapshot) {
         if (!truckSnapshot.exists) throw new functions.https.HttpsError('not-found', 'Selected truck does not exist.');
         const truck = truckSnapshot.data();
@@ -103,6 +107,8 @@ async function provisionDriver(data, context) {
         }
       }
 
+      const assignedBarangay = input.assignedBarangay || existingProfile?.assignedBarangay || existingProfile?.barangay || '';
+
       transaction.set(userRef, {
         uid: targetUser.uid,
         email: targetUser.email || input.email,
@@ -110,18 +116,33 @@ async function provisionDriver(data, context) {
         contactInfo: input.contactInfo || existingProfile?.contactInfo || '',
         employeeId: input.employeeId,
         licenseNumber: input.licenseNumber,
+        barangay: assignedBarangay,
+        assignedBarangay: assignedBarangay,
         role: 'driver',
         disabled: false,
         status: 'active',
-        currentTruckId: input.truckId,
+        currentTruckId: input.truckId || null,
         currentTruckPlate: truckSnapshot?.data()?.plateNumber || null,
         provider: 'password',
         verified: true,
+        mustChangePassword: input.mode === 'create',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         ...(profileSnapshot.exists ? {} : { createdAt: admin.firestore.FieldValue.serverTimestamp() }),
       }, { merge: true });
-      transaction.set(employeeRef, { userId: targetUser.uid, assignedAt: admin.firestore.FieldValue.serverTimestamp() });
-      transaction.set(licenseRef, { userId: targetUser.uid, assignedAt: admin.firestore.FieldValue.serverTimestamp() });
+      transaction.set(employeeRef, {
+        employeeId: input.employeeId,
+        userId: targetUser.uid,
+        licenseNumber: input.licenseNumber,
+        email: targetUser.email || input.email,
+        driverName: input.fullName || existingProfile?.displayName || targetUser.displayName || targetUser.email,
+        assignedBarangay: assignedBarangay,
+        assignedTruckId: input.truckId || null,
+        assignedTruckPlate: truckSnapshot?.data()?.plateNumber || null,
+        role: 'driver',
+        status: 'active',
+        assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
       if (truckRef) transaction.update(truckRef, {
         assignedDriverId: targetUser.uid,
         assignedDriverName: input.fullName || existingProfile?.displayName || targetUser.displayName || targetUser.email,

@@ -1,8 +1,21 @@
+import React, { useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { submitPickupIssue } from '@/services/driverOfflineQueue';
 
 interface ReportIssueModalProps {
@@ -130,74 +143,83 @@ export default function ReportIssueModal({
       visible={visible}
       onRequestClose={handleClose}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView 
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <View style={styles.modalContent}>
-          <Text style={styles.title}>Report an issue</Text>
-          <Text style={styles.subtitle}>Make a report</Text>
-          
-          <Text style={styles.sectionTitle}>Report an issue</Text>
-          <View style={styles.detailsContainer}>
-            <Text style={styles.detailText}>Location: {location}</Text>
-            <Text style={styles.detailText}>Waste Type: {wasteType}</Text>
-          </View>
-
-          {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-          {imageUri ? (
-            <View style={styles.imagePreviewContainer}>
-              <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-              <TouchableOpacity style={styles.retakeButton} onPress={handleTakePhoto}>
-                <Feather name="refresh-cw" size={16} color="#FFFFFF" />
-                <Text style={styles.retakeText}>Retake Photo</Text>
-              </TouchableOpacity>
-              {geoCoords && (
-                <View style={styles.geoTag}>
-                  <Feather name="map-pin" size={12} color="#FFFFFF" />
-                  <Text style={styles.geoText}>
-                    {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
-                  </Text>
-                </View>
-              )}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 10 }}
+          >
+            <Text style={styles.title}>Report an issue</Text>
+            <Text style={styles.subtitle}>Make a report</Text>
+            
+            <Text style={styles.sectionTitle}>Report an issue</Text>
+            <View style={styles.detailsContainer}>
+              <Text style={styles.detailText}>Location: {location}</Text>
+              <Text style={styles.detailText}>Waste Type: {wasteType}</Text>
             </View>
-          ) : (
-            <TouchableOpacity style={styles.photoUploadBox} onPress={handleTakePhoto}>
-              <Feather name="camera" size={24} color="#1F2937" />
-              <Text style={styles.uploadText}>Take Geo-Photo</Text>
-              <Text style={styles.uploadSubtext}>(Requires Camera & Location)</Text>
-            </TouchableOpacity>
-          )}
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Add Description:</Text>
-            <Text style={styles.subLabel}>Please provide details about the issue you encountered:</Text>
-            <TextInput
-              style={styles.textInput}
-              multiline
-              numberOfLines={3}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="E.g., Bins are blocked by a parked car."
-            />
-          </View>
+            {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleClose} disabled={isUploading}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.submitButton, (!imageUri || !description.trim() || isUploading) && styles.disabledButton]} 
-              onPress={handleSubmitAction}
-              disabled={!imageUri || !description.trim() || isUploading}
-            >
-              {isUploading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.submitButtonText}>Submit Report</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+            {imageUri ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                <TouchableOpacity style={styles.retakeButton} onPress={handleTakePhoto}>
+                  <Feather name="refresh-cw" size={16} color="#FFFFFF" />
+                  <Text style={styles.retakeText}>Retake Photo</Text>
+                </TouchableOpacity>
+                {geoCoords && (
+                  <View style={styles.geoTag}>
+                    <Feather name="map-pin" size={12} color="#FFFFFF" />
+                    <Text style={styles.geoText}>
+                      {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.photoUploadBox} onPress={handleTakePhoto}>
+                <Feather name="camera" size={24} color="#1F2937" />
+                <Text style={styles.uploadText}>Take Geo-Photo</Text>
+                <Text style={styles.uploadSubtext}>(Requires Camera & Location)</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Add Description:</Text>
+              <Text style={styles.subLabel}>Please provide details about the issue you encountered:</Text>
+              <TextInput
+                style={styles.textInput}
+                multiline
+                numberOfLines={3}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="E.g., Bins are blocked by a parked car."
+              />
+            </View>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleClose} disabled={isUploading}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.submitButton, (!imageUri || !description.trim() || isUploading) && styles.disabledButton]} 
+                onPress={handleSubmitAction}
+                disabled={!imageUri || !description.trim() || isUploading}
+              >
+                {isUploading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.submitButtonText}>Submit Report</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -214,7 +236,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     width: '100%',
-    padding: 24,
+    maxHeight: '90%',
+    padding: 20,
   },
   title: {
     fontSize: 20,

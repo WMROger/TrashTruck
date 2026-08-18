@@ -22,6 +22,7 @@ import {
   AnnouncementsTab,
   FleetMonitoringTab,
   DictCommandsTab,
+  CenroProfileSettingsModal,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
@@ -32,6 +33,7 @@ export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showProfileSettingsModal, setShowProfileSettingsModal] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isTabLoading, setIsTabLoading] = useState(false);
   const spinValue = new Animated.Value(0);
@@ -503,9 +505,8 @@ export default function AdminDashboard() {
       case 'truck-inventory':
         return <TruckInventoryTab />;
       case 'driver-onboarding':
-        return <DriverOnboardingTab />;
       case 'driver-accounts':
-        return <DriverAccountsTab />;
+        return <DriverAccountsTab initialOpenOnboarding={activeTab === 'driver-onboarding'} />;
       case 'collection-scheduler':
         return <CollectionSchedulerTab />;
       case 'operational-overrides':
@@ -515,15 +516,20 @@ export default function AdminDashboard() {
       case 'dict-commands':
         return <DictCommandsTab />;
       case 'coordinators':
-        return <EnvironmentalCoordinatorsTab />;
+        return <DriverAccountsTab initialSubTab="coordinators" />;
       case 'analytics':
         return <WasteAnalyticsTab />;
       default:
-        return <CenroDashboardTab />;
+        return <CenroDashboardTab onTabChange={handleTabPress} />;
     }
   };
 
   const handleTabPress = (tab: string) => {
+    if (tab === 'profile-settings') {
+      setShowProfileSettingsModal(true);
+      return;
+    }
+
     if (tab === activeTab) return; // Don't show loader if clicking the same tab
     
     setIsTabLoading(true);
@@ -562,11 +568,9 @@ export default function AdminDashboard() {
             <MaterialIcons name="notifications-none" size={24} color="#374151" />
             <View style={styles.notificationDot} />
           </TouchableOpacity>
-          {!isNarrow && (
-            <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('operational-overrides')}>
-              <MaterialIcons name="settings" size={24} color="#374151" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.topBarIconBtn} onPress={() => setShowProfileSettingsModal(true)}>
+            <MaterialIcons name="settings" size={24} color="#374151" />
+          </TouchableOpacity>
           <View style={styles.topBarDivider} />
           {!isNarrow && (
             <View style={styles.topBarUser}>
@@ -574,7 +578,7 @@ export default function AdminDashboard() {
               <Text style={styles.topBarSubrole}>FLEET SUPERVISOR</Text>
             </View>
           )}
-          <TouchableOpacity onPress={handleLogout} activeOpacity={0.7}>
+          <View>
             {user?.photoURL ? (
               <Image source={{ uri: user.photoURL }} style={styles.topBarAvatar} />
             ) : (
@@ -582,7 +586,7 @@ export default function AdminDashboard() {
                 <MaterialIcons name="person" size={22} color="#2E6B49" />
               </View>
             )}
-          </TouchableOpacity>
+          </View>
         </View>
       </View>
       
@@ -618,6 +622,13 @@ export default function AdminDashboard() {
           )}
         </View>
       </View>
+
+      {/* CENRO Profile & Security Settings Modal */}
+      <CenroProfileSettingsModal
+        visible={showProfileSettingsModal}
+        onClose={() => setShowProfileSettingsModal(false)}
+        onLogout={() => setShowLogoutModal(true)}
+      />
 
       <Modal
         visible={showLogoutModal}

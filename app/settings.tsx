@@ -16,7 +16,7 @@ import { addDoc, collection, doc, getDoc, onSnapshot, query, serverTimestamp, se
 import { getDownloadURL, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
@@ -442,8 +442,8 @@ export default function SettingsPage() {
   };
 
   const validatePassword = (password: string) => {
-    if (password.length < 12) {
-      return 'Password must be at least 12 characters long';
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
     }
     if (!/(?=.*[a-z])/.test(password)) {
       return 'Password must contain at least one lowercase letter';
@@ -454,8 +454,8 @@ export default function SettingsPage() {
     if (!/(?=.*\d)/.test(password)) {
       return 'Password must contain at least one number';
     }
-    if (!/(?=.*[@$!%*?&])/.test(password)) {
-      return 'Password must contain at least one special character (@$!%*?&)';
+    if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`])/.test(password)) {
+      return 'Password must contain at least one special character';
     }
     return null;
   };
@@ -584,7 +584,10 @@ export default function SettingsPage() {
           animationType="slide"
           onRequestClose={handleCancelEdit}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={[styles.profileCard, { backgroundColor: colors.surface, marginHorizontal: 20, width: '90%', borderRadius: 16 }]}>
               <TouchableOpacity 
                 style={styles.avatarContainer} 
@@ -633,7 +636,7 @@ export default function SettingsPage() {
                 <Text style={{ color: colors.textSecondary, textAlign: 'center', fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* EnviroHero Badges */}
@@ -981,7 +984,10 @@ export default function SettingsPage() {
           animationType="slide"
           onRequestClose={handleCancelChangePassword}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={[styles.passwordModalContainer, { backgroundColor: colors.surface }]}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Change Password</Text>
               
@@ -1063,11 +1069,11 @@ export default function SettingsPage() {
               {/* Password Requirements */}
               <View style={styles.passwordRequirements}>
                 <Text style={[styles.requirementsTitle, { color: colors.textSecondary }]}>Password Requirements:</Text>
-                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 12 characters</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• At least 8 characters</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One uppercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One lowercase letter</Text>
                 <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One number</Text>
-                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One special character (@$!%*?&)</Text>
+                <Text style={[styles.requirementText, { color: colors.textTertiary }]}>• One special character</Text>
               </View>
 
               <View style={styles.modalActions}>
@@ -1091,7 +1097,7 @@ export default function SettingsPage() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Feedback Modal */}
@@ -1101,7 +1107,10 @@ export default function SettingsPage() {
           animationType="fade"
           onRequestClose={() => setShowFeedbackModal(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={[styles.feedbackModalContainer, { backgroundColor: colors.background }]}>
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Send Feedback</Text>
@@ -1166,7 +1175,7 @@ export default function SettingsPage() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Barangay Modal */}

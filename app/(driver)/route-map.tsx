@@ -3,11 +3,12 @@ import MapView, { Marker, Polyline } from '@/components/MapView';
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import { db } from '@/config/firebase';
 import { useTheme } from '@/hooks/useTheme';
+import { locationService, SimulationState, DANAO_SIMULATION_ROUTE } from '@/services/locationService';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Coordinate = { latitude: number; longitude: number };
@@ -56,6 +57,34 @@ export default function DriverRouteMap() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState('');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
+
+  useEffect(() => {
+    return locationService.onSimulationChange((state) => {
+      setSimulationState({ ...state });
+      if (state.currentCoordinate) {
+        setTruckCoordinate(state.currentCoordinate);
+      }
+    });
+  }, []);
+
+  const handleToggleSimulation = async () => {
+    if (!user?.uid) {
+      Alert.alert('Authentication Required', 'Please sign in as a driver.');
+      return;
+    }
+
+    if (simulationState.isActive) {
+      await locationService.stopSimulation(user.uid);
+    } else {
+      // Build custom route from stops if available, or use Danao simulation route
+      const customRoute = locatedStops.length >= 2
+        ? locatedStops.map(s => ({ latitude: s.coordinate.latitude, longitude: s.coordinate.longitude, name: s.stop.street, speed: 35 }))
+        : DANAO_SIMULATION_ROUTE;
+
+      await locationService.startSimulation(user.uid, 'TRUCK-DANAO-01', customRoute);
+    }
+  };
 
   useEffect(() => {
     if (requestedScheduleId) setSelectedId(requestedScheduleId);
@@ -207,13 +236,30 @@ export default function DriverRouteMap() {
             {stops.length} stop{stops.length === 1 ? '' : 's'}{routeDistance ? ` · ${routeDistance} km${routeDuration ? ` · ${routeDuration} min` : ''}` : ' · in-app map'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.iconButton} onPress={() => {
-          if (mapFitCoordinates.length > 1) {
-            mapRef.current?.fitToCoordinates?.(mapFitCoordinates, { edgePadding: { top: 120, right: 60, bottom: 330, left: 60 }, animated: true });
-          }
-        }} accessibilityLabel="Show the full route">
-          <MaterialIcons name="center-focus-strong" size={22} color="#7C3AED" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.simMapBtn, simulationState.isActive && styles.simMapBtnActive]}
+            onPress={handleToggleSimulation}
+            accessibilityLabel="Toggle GPS simulation"
+          >
+            <MaterialIcons
+              name={simulationState.isActive ? 'stop' : 'play-arrow'}
+              size={17}
+              color="#FFFFFF"
+            />
+            <Text style={styles.simMapBtnText}>
+              {simulationState.isActive ? `${simulationState.currentSpeedKph}kph` : 'Simulate'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.iconButton} onPress={() => {
+            if (mapFitCoordinates.length > 1) {
+              mapRef.current?.fitToCoordinates?.(mapFitCoordinates, { edgePadding: { top: 120, right: 60, bottom: 330, left: 60 }, animated: true });
+            }
+          }} accessibilityLabel="Show the full route">
+            <MaterialIcons name="center-focus-strong" size={22} color="#7C3AED" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={[styles.routePanel, { paddingBottom: Math.max(insets.bottom, 14) }, isDark && styles.panelDark]}>
@@ -341,4 +387,21 @@ const styles = StyleSheet.create({
   errorText: { color: '#B91C1C', fontSize: 12, textAlign: 'center', marginTop: 8 },
   textLight: { color: '#F9FAFB' },
   textMuted: { color: '#9CA3AF' },
+  simMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#059669',
+    paddingHorizontal: 10,
+    height: 42,
+    borderRadius: 21,
+  },
+  simMapBtnActive: {
+    backgroundColor: '#DC2626',
+  },
+  simMapBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
 });

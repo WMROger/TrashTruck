@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,15 +21,26 @@ import {
 } from 'react-native';
 import DropDownPicker from 'react-native-dropdown-picker';
 import ErrorModal from './ErrorModal';
+import TermsAndConsentModal, { LegalTabType } from './TermsAndConsentModal';
+import { sendResidentWelcomeEmail } from '@/services/emailNotificationService';
 
 export default function SignupScreen() {
   const router = useRouter();
-  const [name, setName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [middleInitial, setMiddleInitial] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [selectedBarangay, setSelectedBarangay] = useState('');
   const [barangayOpen, setBarangayOpen] = useState(false);
   const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
+
+  const getFormattedFullName = () => {
+    const fn = firstName.trim();
+    const mi = middleInitial.trim() ? `${middleInitial.trim().replace(/\.$/, '')}. ` : '';
+    const ln = lastName.trim();
+    return `${fn} ${mi}${ln}`.trim() || `${ln}, ${fn}`.trim();
+  };
   
   React.useEffect(() => {
     const fetchBarangays = async () => {
@@ -59,6 +71,21 @@ export default function SignupScreen() {
     message: '',
     type: 'error' as 'error' | 'warning' | 'info' | 'success',
   });
+  const [legalModal, setLegalModal] = useState<{
+    visible: boolean;
+    tab: LegalTabType;
+  }>({
+    visible: false,
+    tab: 'consent',
+  });
+
+  const openLegalModal = (tab: LegalTabType) => {
+    setLegalModal({ visible: true, tab });
+  };
+
+  const closeLegalModal = () => {
+    setLegalModal(prev => ({ ...prev, visible: false }));
+  };
 
   // Email validation
   const validateEmail = (email: string) => {
@@ -90,20 +117,36 @@ export default function SignupScreen() {
     setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
-  // Password strength validation
+  // Password strength validation and character analysis
   const validatePasswordStrength = (password: string) => {
+    const uppercaseCount = (password.match(/[A-Z]/g) || []).length;
+    const lowercaseCount = (password.match(/[a-z]/g) || []).length;
+    const lettersCount = uppercaseCount + lowercaseCount;
+    const numbersCount = (password.match(/[0-9]/g) || []).length;
+    const specialCharsCount = (password.match(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/g) || []).length;
+
     const requirements = {
-      length: password.length >= 12,
-      lowercase: /[a-z]/.test(password),
-      uppercase: /[A-Z]/.test(password),
-      number: /\d/.test(password),
-      special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
+      length: password.length >= 8,
+      uppercase: uppercaseCount >= 1,
+      lowercase: lowercaseCount >= 1,
+      number: numbersCount >= 1,
+      special: specialCharsCount >= 1,
     };
     
     const isValid = Object.values(requirements).every(req => req);
     const strength = Object.values(requirements).filter(req => req).length;
     
-    return { requirements, isValid, strength };
+    return {
+      requirements,
+      isValid,
+      strength,
+      uppercaseCount,
+      lowercaseCount,
+      lettersCount,
+      numbersCount,
+      specialCharsCount,
+      length: password.length,
+    };
   };
 
   const getPasswordStrengthText = (strength: number) => {
@@ -112,10 +155,12 @@ export default function SignupScreen() {
       case 1:
         return { text: 'WEAK', color: '#EF4444' };
       case 2:
-        return { text: 'WEAK', color: '#F97316' };
+        return { text: 'FAIR', color: '#F97316' };
       case 3:
-        return { text: 'GOOD', color: '#EAB308' };
+        return { text: 'MEDIUM', color: '#EAB308' };
       case 4:
+        return { text: 'GOOD', color: '#3B82F6' };
+      case 5:
         return { text: 'STRONG', color: '#22C55E' };
       default:
         return { text: 'WEAK', color: '#EF4444' };
@@ -135,52 +180,51 @@ export default function SignupScreen() {
       const userId = currentUser.uid; // Firestore rules expect userId to equal auth.uid
       const userRef = doc(db, 'users', userId);
       const snap = await getDoc(userRef);
-      const finalDisplayName = displayNameParam || currentUser.displayName || name || '';
+      const computedName = getFormattedFullName();
+      const finalDisplayName = displayNameParam || currentUser.displayName || computedName || '';
 
-      const writeOnce = async () => {
+      const baseData: Record<string, any> = {
+        uid: currentUser.uid,
+        email: rawEmail || '',
+        displayName: finalDisplayName,
+        name: finalDisplayName,
+        photoURL: currentUser.photoURL || '',
+        verified: currentUser.emailVerified === true,
+        role: 'user',
+        provider,
+        barangay: selectedBarangay,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const fullData: Record<string, any> = {
+        ...baseData,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        middleInitial: middleInitial.trim().toUpperCase(),
+      };
+
+      const writeAttempt = async (data: any) => {
         if (!snap.exists()) {
-          await setDoc(userRef, {
-            uid: currentUser.uid,
-            email: rawEmail || '',
-            displayName: finalDisplayName,
-            photoURL: currentUser.photoURL || '',
-            verified: currentUser.emailVerified === true,
-            role: 'user',
-            provider,
-            barangay: selectedBarangay,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
+          await setDoc(userRef, data);
         } else {
-          // Ensure we don't overwrite an existing role; just update metadata
-          await setDoc(
-            userRef,
-            {
-              email: rawEmail || '',
-              displayName: finalDisplayName,
-              photoURL: currentUser.photoURL || '',
-              verified: currentUser.emailVerified === true,
-              provider,
-              barangay: selectedBarangay,
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          );
+          await setDoc(userRef, data, { merge: true });
         }
       };
 
       try {
-        await writeOnce();
+        await writeAttempt(fullData);
       } catch (err: any) {
-        // If immediately after signup, token propagation may lag. Retry once.
-        if (err?.code === 'permission-denied' || /Missing or insufficient permissions/.test(String(err?.message))) {
+        if (err?.code === 'permission-denied' || /permission/i.test(String(err?.message))) {
           try {
+            // Retry with base schema in case cloud firestore rules restrict keys strictly
             await currentUser.getIdToken(true);
-          } catch {}
-          await new Promise(r => setTimeout(r, 300));
-          await writeOnce();
+            await writeAttempt(baseData);
+          } catch (retryErr) {
+            console.warn('Base profile write failed after permission error:', retryErr);
+          }
         } else {
-          throw err;
+          console.error('Failed to write user profile:', err);
         }
       }
     } catch (e) {
@@ -192,9 +236,15 @@ export default function SignupScreen() {
     // Clear previous errors
     setErrors({});
 
-    // Validate name
-    if (!name.trim()) {
-      showError('Please enter your full name');
+    // Validate Last Name
+    if (!lastName.trim()) {
+      showError('Please enter your last name');
+      return;
+    }
+
+    // Validate First Name
+    if (!firstName.trim()) {
+      showError('Please enter your first name');
       return;
     }
 
@@ -221,7 +271,7 @@ export default function SignupScreen() {
 
     const passwordValidation = validatePasswordStrength(password);
     if (!passwordValidation.isValid) {
-      showError('Password must contain at least 12 characters, 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character');
+      showError('Password must contain at least 8 characters, 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character');
       return;
     }
 
@@ -238,12 +288,24 @@ export default function SignupScreen() {
         const user = userCredential.user;
         console.log('User created successfully:', user.email);
         
-        // Update user profile with name
+        // Update user profile with formatted full name
+        const formattedName = getFormattedFullName();
         const { updateProfile } = require('firebase/auth');
-        await updateProfile(user, { displayName: name });
+        await updateProfile(user, { displayName: formattedName });
 
-        await upsertUserProfile('password', name);
+        await upsertUserProfile('password', formattedName);
         
+        // Dispatch branded welcome email via Google Apps Script Webhook
+        try {
+          await sendResidentWelcomeEmail({
+            toEmail: email,
+            residentName: formattedName,
+            barangay: selectedBarangay,
+          });
+        } catch (mailErr) {
+          console.warn('Could not dispatch resident welcome email via webhook:', mailErr);
+        }
+
         // Send email verification and redirect to login
         try {
           await sendEmailVerification(user);
@@ -344,213 +406,379 @@ export default function SignupScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
         >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back-circle-outline" size={32} color="#6B705C" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Content Card Overlay */}
-        <View style={styles.contentCard}>
-          <Ionicons name="leaf" size={100} color="#F2F8F2" style={styles.leafWatermark} />
-          
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>
-            Join our mission to keep the neighborhood clean and earn rewards for sustainable waste disposal.
-          </Text>
-
-          <View style={styles.formContainer}>
-            {/* Full Name */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Full Name</Text>
-              <View style={[styles.inputWrapper, name.length > 0 && name.trim() === '' && styles.inputError]}>
-                <Ionicons name="person-outline" size={20} color="#999" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="John Doe"
-                  placeholderTextColor="#999"
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="words"
-                />
-              </View>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Ionicons name="arrow-back-circle-outline" size={32} color="#6B705C" />
+              </TouchableOpacity>
             </View>
 
-            {/* Barangay */}
-            <View style={[styles.inputContainer, { zIndex: 1000 }]}>
-              <Text style={styles.inputLabel}>Barangay (Danao City)</Text>
-              <View style={[styles.inputWrapper, { padding: 0, borderWidth: 0 }]}>
-                <DropDownPicker
-                  open={barangayOpen}
-                  value={selectedBarangay}
-                  items={availableBarangays.map(b => ({ label: b, value: b }))}
-                  setOpen={setBarangayOpen}
-                  setValue={setSelectedBarangay}
-                  placeholder="Select a barangay"
-                  placeholderStyle={{ color: '#999' }}
-                  style={{
-                    backgroundColor: '#F9FAFB',
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
-                    minHeight: 50,
-                    borderRadius: 12,
-                    paddingLeft: 44,
-                  }}
-                  dropDownContainerStyle={{
-                    backgroundColor: '#F9FAFB',
-                    borderColor: '#E5E7EB',
-                    borderRadius: 12,
-                  }}
-                  textStyle={{
-                    fontSize: 15,
-                    color: '#333'
-                  }}
-                  zIndex={1000}
-                  listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
-                  scrollViewProps={{
-                    nestedScrollEnabled: true,
-                  }}
-                />
-                <View style={{ position: 'absolute', left: 16, top: 15, zIndex: 1001 }}>
-                  <Ionicons name="location-outline" size={20} color="#999" />
+            {/* Content Card Overlay */}
+            <View style={styles.contentCard}>
+              <Ionicons name="leaf" size={100} color="#F2F8F2" style={styles.leafWatermark} />
+              
+              <Text style={styles.title}>Create Account</Text>
+              <Text style={styles.subtitle}>
+                Join our mission to keep the neighborhood clean and earn rewards for sustainable waste disposal.
+              </Text>
+
+              <View style={styles.formContainer}>
+                {/* Last Name */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>
+                    Last Name <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="person-outline" size={20} color="#999" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Dela Cruz"
+                      placeholderTextColor="#999"
+                      value={lastName}
+                      onChangeText={setLastName}
+                      autoCapitalize="words"
+                    />
+                  </View>
                 </View>
-              </View>
-            </View>
 
-            {/* Email Address */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Email Address</Text>
-              <View style={[styles.inputWrapper, email.length > 0 && !validateEmail(email) && styles.inputError]}>
-                <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="john@example.com"
-                  placeholderTextColor="#999"
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    if (text.length > 0 && !validateEmail(text)) {
-                      setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
-                    } else {
-                      clearError('email');
-                    }
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-              </View>
-              {errors.email && (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
-                  <Text style={styles.errorText}>{errors.email}</Text>
+                {/* First Name & Middle Initial */}
+                <View style={styles.nameRow}>
+                  <View style={[styles.inputContainer, { flex: 2.5, marginBottom: 0 }]}>
+                    <Text style={styles.inputLabel}>
+                      First Name <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="person-outline" size={20} color="#999" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. Juan"
+                        placeholderTextColor="#999"
+                        value={firstName}
+                        onChangeText={setFirstName}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={[styles.inputContainer, { flex: 1, marginBottom: 0 }]}>
+                    <Text style={styles.inputLabel}>M.I.</Text>
+                    <View style={styles.inputWrapper}>
+                      <TextInput
+                        style={[styles.input, { textAlign: 'center' }]}
+                        placeholder="A."
+                        placeholderTextColor="#999"
+                        value={middleInitial}
+                        onChangeText={(val) => setMiddleInitial(val.toUpperCase().slice(0, 3))}
+                        autoCapitalize="characters"
+                        maxLength={3}
+                      />
+                    </View>
+                  </View>
                 </View>
-              )}
-            </View>
 
-            {/* Secure Password */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Secure Password</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={20} color="#999" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="••••••••"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#999" />
+                {/* Barangay */}
+                <View style={[styles.inputContainer, { zIndex: 1000 }]}>
+                  <Text style={styles.inputLabel}>
+                    Barangay (Danao City) <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                  <View style={[styles.inputWrapper, { padding: 0, borderWidth: 0 }]}>
+                    <DropDownPicker
+                      open={barangayOpen}
+                      value={selectedBarangay}
+                      items={availableBarangays.map(b => ({ label: b, value: b }))}
+                      setOpen={setBarangayOpen}
+                      setValue={setSelectedBarangay}
+                      placeholder="Select a barangay"
+                      placeholderStyle={{ color: '#999' }}
+                      style={{
+                        backgroundColor: '#F9FAFB',
+                        borderWidth: 1,
+                        borderColor: '#E5E7EB',
+                        minHeight: 50,
+                        borderRadius: 12,
+                        paddingLeft: 44,
+                      }}
+                      dropDownContainerStyle={{
+                        backgroundColor: '#F9FAFB',
+                        borderColor: '#E5E7EB',
+                        borderRadius: 12,
+                      }}
+                      textStyle={{
+                        fontSize: 15,
+                        color: '#333'
+                      }}
+                      zIndex={1000}
+                      listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
+                      scrollViewProps={{
+                        nestedScrollEnabled: true,
+                      }}
+                    />
+                    <View style={{ position: 'absolute', left: 16, top: 15, zIndex: 1001 }}>
+                      <Ionicons name="location-outline" size={20} color="#999" />
+                    </View>
+                  </View>
+                </View>
+
+                {/* Email Address */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>
+                    Email Address <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                  <View style={[styles.inputWrapper, email.length > 0 && !validateEmail(email) && styles.inputError]}>
+                    <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="john@example.com"
+                      placeholderTextColor="#999"
+                      value={email}
+                      onChangeText={(text) => {
+                        setEmail(text);
+                        if (text.length > 0 && !validateEmail(text)) {
+                          setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
+                        } else {
+                          clearError('email');
+                        }
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  {errors.email && (
+                    <View style={styles.errorContainer}>
+                      <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                      <Text style={styles.errorText}>{errors.email}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Secure Password */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>
+                    Secure Password <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="lock-closed-outline" size={20} color="#999" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="••••••••"
+                      placeholderTextColor="#999"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+                      <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#999" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Password Strength & Verification Helper */}
+                {password.length > 0 && (() => {
+                  const analysis = validatePasswordStrength(password);
+                  const strengthInfo = getPasswordStrengthText(analysis.strength);
+                  return (
+                    <View style={styles.passwordVerificationWrapper}>
+                      {/* Strength Bar */}
+                      <View style={styles.passwordStrengthRow}>
+                        <View style={styles.passwordStrengthBar}>
+                          <View
+                            style={[
+                              styles.passwordStrengthFill,
+                              {
+                                width: `${(analysis.strength / 5) * 100}%`,
+                                backgroundColor: strengthInfo.color,
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[styles.passwordStrengthText, { color: strengthInfo.color }]}>
+                          {strengthInfo.text}
+                        </Text>
+                      </View>
+
+                      {/* Verification Card */}
+                      <View style={styles.verificationCard}>
+                        {/* Live Character Count Summary Badges */}
+                        <View style={styles.charCountRow}>
+                          <View style={[styles.charBadge, analysis.lettersCount > 0 && styles.charBadgeActive]}>
+                            <Text style={[styles.charBadgeText, analysis.lettersCount > 0 && styles.charBadgeTextActive]}>
+                              {analysis.lettersCount} {analysis.lettersCount === 1 ? 'Letter' : 'Letters'}
+                            </Text>
+                          </View>
+                          <View style={[styles.charBadge, analysis.numbersCount > 0 && styles.charBadgeActive]}>
+                            <Text style={[styles.charBadgeText, analysis.numbersCount > 0 && styles.charBadgeTextActive]}>
+                              {analysis.numbersCount} {analysis.numbersCount === 1 ? 'Number' : 'Numbers'}
+                            </Text>
+                          </View>
+                          <View style={[styles.charBadge, analysis.specialCharsCount > 0 && styles.charBadgeActive]}>
+                            <Text style={[styles.charBadgeText, analysis.specialCharsCount > 0 && styles.charBadgeTextActive]}>
+                              {analysis.specialCharsCount} Special {analysis.specialCharsCount === 1 ? 'Char' : 'Chars'}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Requirements List */}
+                        <View style={styles.reqList}>
+                          <View style={styles.reqItem}>
+                            <Ionicons
+                              name={analysis.requirements.length ? "checkmark-circle" : "ellipse-outline"}
+                              size={15}
+                              color={analysis.requirements.length ? "#22C55E" : "#9CA3AF"}
+                            />
+                            <Text style={[styles.reqItemText, analysis.requirements.length && styles.reqItemTextMet]}>
+                              At least 8 characters ({analysis.length}/8)
+                            </Text>
+                          </View>
+
+                          <View style={styles.reqItem}>
+                            <Ionicons
+                              name={analysis.requirements.uppercase ? "checkmark-circle" : "ellipse-outline"}
+                              size={15}
+                              color={analysis.requirements.uppercase ? "#22C55E" : "#9CA3AF"}
+                            />
+                            <Text style={[styles.reqItemText, analysis.requirements.uppercase && styles.reqItemTextMet]}>
+                              At least 1 uppercase letter (A-Z)
+                            </Text>
+                          </View>
+
+                          <View style={styles.reqItem}>
+                            <Ionicons
+                              name={analysis.requirements.lowercase ? "checkmark-circle" : "ellipse-outline"}
+                              size={15}
+                              color={analysis.requirements.lowercase ? "#22C55E" : "#9CA3AF"}
+                            />
+                            <Text style={[styles.reqItemText, analysis.requirements.lowercase && styles.reqItemTextMet]}>
+                              At least 1 lowercase letter (a-z)
+                            </Text>
+                          </View>
+
+                          <View style={styles.reqItem}>
+                            <Ionicons
+                              name={analysis.requirements.number ? "checkmark-circle" : "ellipse-outline"}
+                              size={15}
+                              color={analysis.requirements.number ? "#22C55E" : "#9CA3AF"}
+                            />
+                            <Text style={[styles.reqItemText, analysis.requirements.number && styles.reqItemTextMet]}>
+                              At least 1 number (0-9)
+                            </Text>
+                          </View>
+
+                          <View style={styles.reqItem}>
+                            <Ionicons
+                              name={analysis.requirements.special ? "checkmark-circle" : "ellipse-outline"}
+                              size={15}
+                              color={analysis.requirements.special ? "#22C55E" : "#9CA3AF"}
+                            />
+                            <Text style={[styles.reqItemText, analysis.requirements.special && styles.reqItemTextMet]}>
+                              At least 1 special character (!@#$%^&*...)
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                {/* Consent Checkbox */}
+                <View style={styles.consentContainer}>
+                  <TouchableOpacity
+                    style={[styles.checkbox, consent && styles.checkboxChecked]}
+                    onPress={() => setConsent(!consent)}
+                    activeOpacity={0.8}
+                  >
+                    {consent && <Ionicons name="checkmark" size={14} color="white" />}
+                  </TouchableOpacity>
+                  <Text style={styles.consentText}>
+                    I provide my{' '}
+                    <Text
+                      style={styles.linkText}
+                      onPress={() => openLegalModal('consent')}
+                    >
+                      Informed Consent
+                    </Text>{' '}
+                    for TrashTrack to process my personal data to facilitate waste collection services. I have read and agree to the{' '}
+                    <Text
+                      style={styles.linkText}
+                      onPress={() => openLegalModal('privacy')}
+                    >
+                      Data Privacy Terms
+                    </Text>
+                    . <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                </View>
+
+                {/* Sign Up Button */}
+                <TouchableOpacity 
+                  style={[styles.primaryButton, isLoading && styles.disabledButton]}
+                  onPress={handleSignUp}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {isLoading ? 'Signing up...' : 'Create Account'}
+                  </Text>
                 </TouchableOpacity>
-              </View>
-            </View>
 
-            {/* Password Strength */}
-            {password.length > 0 && (
-              <View style={styles.passwordStrengthRow}>
-                <View style={styles.passwordStrengthBar}>
-                  <View
-                    style={[
-                      styles.passwordStrengthFill,
-                      {
-                        width: `${(validatePasswordStrength(password).strength / 5) * 100}%`,
-                        backgroundColor: getPasswordStrengthText(validatePasswordStrength(password).strength).color,
-                      },
-                    ]}
-                  />
+                {/* Separator */}
+                <View style={styles.separatorContainer}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>OR CONTINUE WITH</Text>
+                  <View style={styles.separatorLine} />
                 </View>
-                <Text style={[styles.passwordStrengthText, { color: '#666' }]}>
-                  {getPasswordStrengthText(validatePasswordStrength(password).strength).text}
-                </Text>
-              </View>
-            )}
 
-            {/* Consent Checkbox */}
-            <TouchableOpacity style={styles.consentContainer} onPress={() => setConsent(!consent)} activeOpacity={0.8}>
-              <View style={[styles.checkbox, consent && styles.checkboxChecked]}>
-                {consent && <Ionicons name="checkmark" size={14} color="white" />}
-              </View>
-              <Text style={styles.consentText}>
-                I provide my <Text style={styles.linkText}>Informed Consent</Text> for TrashTrack to process my personal data to facilitate waste collection services. I have read and agree to the <Text style={styles.linkText}>Data Privacy Terms</Text>.
-              </Text>
-            </TouchableOpacity>
+                {/* Social Buttons (Side by side) */}
+                <View style={styles.socialButtonsRow}>
+                  <TouchableOpacity style={styles.socialButtonHalf} onPress={handleGoogleSignUp} disabled={isLoading}>
+                    <View style={styles.socialIconCircle}>
+                      <Text style={{fontWeight: 'bold', color: '#DB4437'}}>G</Text>
+                    </View>
+                    <Text style={styles.socialButtonText}>Google</Text>
+                  </TouchableOpacity>
 
-            {/* Sign Up Button */}
-            <TouchableOpacity 
-              style={[styles.primaryButton, isLoading && styles.disabledButton]}
-              onPress={handleSignUp}
-              disabled={isLoading}
-            >
-              <Text style={styles.primaryButtonText}>
-                {isLoading ? 'Signing up...' : 'Create Account'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Separator */}
-            <View style={styles.separatorContainer}>
-              <View style={styles.separatorLine} />
-              <Text style={styles.separatorText}>OR CONTINUE WITH</Text>
-              <View style={styles.separatorLine} />
-            </View>
-
-            {/* Social Buttons (Side by side) */}
-            <View style={styles.socialButtonsRow}>
-              <TouchableOpacity style={styles.socialButtonHalf} onPress={handleGoogleSignUp} disabled={isLoading}>
-                <View style={styles.socialIconCircle}>
-                  <Text style={{fontWeight: 'bold', color: '#DB4437'}}>G</Text>
+                  <TouchableOpacity style={styles.socialButtonHalf} onPress={handleFacebookSignUp} disabled={isLoading}>
+                    <Ionicons name="logo-facebook" size={18} color="#1877F2" style={{marginRight: 6}} />
+                    <Text style={styles.socialButtonText}>Facebook</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.socialButtonText}>Google</Text>
-              </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialButtonHalf} onPress={handleFacebookSignUp} disabled={isLoading}>
-                <Ionicons name="logo-facebook" size={18} color="#1877F2" style={{marginRight: 6}} />
-                <Text style={styles.socialButtonText}>Facebook</Text>
-              </TouchableOpacity>
+                {/* Login Link */}
+                <View style={styles.loginContainer}>
+                  <Text style={styles.loginText}>Already have an account? </Text>
+                  <TouchableOpacity onPress={handleLogin}>
+                    <Text style={styles.loginLink}>Login</Text>
+                  </TouchableOpacity>
+                </View>
+
+              </View>
             </View>
+          </ScrollView>
 
-            {/* Login Link */}
-            <View style={styles.loginContainer}>
-              <Text style={styles.loginText}>Already have an account? </Text>
-              <TouchableOpacity onPress={handleLogin}>
-                <Text style={styles.loginLink}>Login</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Error Modal */}
+          <ErrorModal
+            visible={errorModal.visible}
+            title={errorModal.title}
+            message={errorModal.message}
+            type={errorModal.type}
+            onClose={closeErrorModal}
+            autoClose={true}
+            autoCloseDelay={4000}
+          />
 
-          </View>
-        </View>
-
-        {/* Error Modal */}
-        <ErrorModal
-          visible={errorModal.visible}
-          title={errorModal.title}
-          message={errorModal.message}
-          type={errorModal.type}
-          onClose={closeErrorModal}
-          autoClose={true}
-          autoCloseDelay={4000}
-        />
+          {/* Terms & Consent Modal */}
+          <TermsAndConsentModal
+            visible={legalModal.visible}
+            initialTab={legalModal.tab}
+            onClose={closeLegalModal}
+            onAccept={() => {
+              setConsent(true);
+              closeLegalModal();
+            }}
+          />
         </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>
@@ -618,11 +846,20 @@ const styles = StyleSheet.create({
   inputContainer: {
     marginBottom: 16,
   },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
   inputLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: '#333',
     marginBottom: 8,
+  },
+  requiredAsterisk: {
+    color: '#EF4444',
+    fontWeight: '700',
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -648,27 +885,84 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: '#EF4444',
   },
+  passwordVerificationWrapper: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
   passwordStrengthRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
     marginBottom: 8,
     gap: 12,
   },
   passwordStrengthBar: {
     flex: 1,
-    height: 4,
+    height: 5,
     backgroundColor: '#E5E7EB',
-    borderRadius: 2,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   passwordStrengthFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   passwordStrengthText: {
     fontSize: 11,
     fontWeight: '700',
+    minWidth: 55,
+    textAlign: 'right',
+  },
+  verificationCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 10,
+  },
+  charCountRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  charBadge: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  charBadgeActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  charBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  charBadgeTextActive: {
+    color: '#059669',
+  },
+  reqList: {
+    gap: 5,
+  },
+  reqItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reqItemText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  reqItemTextMet: {
+    color: '#1F2937',
+    fontWeight: '600',
   },
   consentContainer: {
     flexDirection: 'row',

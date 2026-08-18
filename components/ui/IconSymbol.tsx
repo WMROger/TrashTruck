@@ -100,6 +100,11 @@ const MAPPING = {
   'battery.50': 'battery-4-bar',
   'battery.25': 'battery-2-bar',
   'battery.0': 'battery-0-bar',
+  // Visibility / Eye icons
+  'eye': 'visibility',
+  'eye.slash': 'visibility-off',
+  'eye.fill': 'visibility',
+  'eye.slash.fill': 'visibility-off',
 } as IconMapping;
 
 /**

@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -550,261 +551,269 @@ export default function ReportScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 30), paddingBottom: Math.max(insets.bottom + 20, 100) }]}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
       >
-        <Text style={styles.headerTitle}>Report a Trash Pile</Text>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 30), paddingBottom: Math.max(insets.bottom + 20, 140) }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <Text style={styles.headerTitle}>Report a Trash Pile</Text>
 
-        {/* Photo upload placeholder */}
-        <TouchableOpacity style={styles.photoCard} onPress={handleTakePhoto} disabled={isFetchingLocation}>
-          {imageUri ? (
-            <View style={{ width: "100%", height: "100%", position: 'relative' }}>
-              <Image
-                source={{ uri: imageUri }}
-                style={{ width: "100%", height: "100%", borderRadius: 12 }}
-              />
-              {isFetchingLocation && (
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}>
-                  <ActivityIndicator size="large" color="#4A6741" />
-                  <Text style={{ marginTop: 8, color: '#4A6741', fontWeight: 'bold' }}>Acquiring GPS...</Text>
-                </View>
-              )}
-              {geoCoords && !isFetchingLocation && (
-                <View style={{ position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
-                  <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
-                    {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
-                  </Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.photoPlaceholder}>
-              <IconSymbol name="camera.fill" size={36} color="#4A6741" />
-              <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
-              <Text style={styles.photoTextSub}>Tap to take a Geo-Photo</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* AI Suggestions */}
-        <View style={styles.aiSectionHeader}>
-          <IconSymbol name="sparkles" size={16} color="#4A6741" />
-          <Text style={styles.aiSectionTitle}>AI SUGGESTIONS</Text>
-          {aiResult?.confidence && aiResult.confidence !== 'none' && (
-            <View style={[
-              styles.confidenceBadge,
-              { backgroundColor: aiResult.confidence === 'high' ? '#D1FAE5' : aiResult.confidence === 'medium' ? '#FEF3C7' : '#FEE2E2' }
-            ]}>
-              <Text style={[
-                styles.confidenceText,
-                { color: aiResult.confidence === 'high' ? '#065F46' : aiResult.confidence === 'medium' ? '#92400E' : '#991B1B' }
-              ]}>
-                {aiResult.confidence.toUpperCase()} CONFIDENCE
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {isAnalyzingAI ? (
-          <View style={styles.aiLoadingContainer}>
-            <ActivityIndicator size="small" color="#4A6741" />
-            <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
-          </View>
-        ) : aiResult ? (
-          <>
-            <View style={styles.aiRow}>
-              <View style={styles.aiCard}>
-                <Text style={styles.aiCardLabel}>Waste Type</Text>
-                <View style={styles.aiCardValueRow}>
-                  <IconSymbol
-                    name={getWasteTypeIcon(aiResult.wasteType)}
-                    size={18}
-                    color={getWasteTypeColor(aiResult.wasteType)}
-                  />
-                  <Text style={[styles.aiCardValue, { color: getWasteTypeColor(aiResult.wasteType) }]}>
-                    {aiResult.wasteType}
-                  </Text>
-                </View>
+          {/* Photo upload placeholder */}
+          <TouchableOpacity style={styles.photoCard} onPress={handleTakePhoto} disabled={isFetchingLocation}>
+            {imageUri ? (
+              <View style={{ width: "100%", height: "100%", position: 'relative' }}>
+                <Image
+                  source={{ uri: imageUri }}
+                  style={{ width: "100%", height: "100%", borderRadius: 12 }}
+                />
+                {isFetchingLocation && (
+                  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}>
+                    <ActivityIndicator size="large" color="#4A6741" />
+                    <Text style={{ marginTop: 8, color: '#4A6741', fontWeight: 'bold' }}>Acquiring GPS...</Text>
+                  </View>
+                )}
+                {geoCoords && !isFetchingLocation && (
+                  <View style={{ position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                      {geoCoords.lat.toFixed(5)}, {geoCoords.lng.toFixed(5)}
+                    </Text>
+                  </View>
+                )}
               </View>
-              <View style={styles.aiCard}>
-                <Text style={styles.aiCardLabel}>Estimated Weight</Text>
-                <View style={styles.aiCardValueRow}>
-                  <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
-                  <Text style={styles.aiCardValue}>{formatWasteAmount(aiResult.estimatedWeight)}</Text>
-                </View>
-              </View>
-            </View>
-            {aiResult.details && (
-              <View style={styles.aiDetailsCard}>
-                <IconSymbol name="info.circle.fill" size={14} color="#6B7280" />
-                <Text style={styles.aiDetailsText}>{aiResult.details}</Text>
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <IconSymbol name="camera.fill" size={36} color="#4A6741" />
+                <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
+                <Text style={styles.photoTextSub}>Tap to take a Geo-Photo</Text>
               </View>
             )}
-          </>
-        ) : (
-          <View style={styles.aiEmptyContainer}>
-            <IconSymbol name="camera.fill" size={20} color="#9CA3AF" />
-            <Text style={styles.aiEmptyText}>Take a photo to get AI analysis</Text>
-          </View>
-        )}
-
-        {/* Title */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Report Title</Text>
-          <View style={styles.inputField}>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="What are you reporting?"
-              placeholderTextColor="#7C8E80"
-              style={styles.inputText}
-            />
-          </View>
-          <View style={styles.tagsRow}>
-            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Illegal Dumping")}>
-              <Text style={styles.tagText}>Illegal Dumping</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Missed Pickup")}>
-              <Text style={styles.tagText}>Missed Pickup</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Location Map */}
-        <View style={styles.mapContainer}>
-          {geoCoords ? (
-            <View style={{ height: 180, borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-              <MapView
-                style={{ width: '100%', height: '100%' }}
-                initialRegion={{
-                  latitude: geoCoords.lat,
-                  longitude: geoCoords.lng,
-                  latitudeDelta: 0.005,
-                  longitudeDelta: 0.005,
-                }}
-                region={{
-                  latitude: geoCoords.lat,
-                  longitude: geoCoords.lng,
-                  latitudeDelta: 0.005,
-                  longitudeDelta: 0.005,
-                }}
-              >
-                <Marker coordinate={{ latitude: geoCoords.lat, longitude: geoCoords.lng }} />
-              </MapView>
-              <View style={styles.mapAddressBadge}>
-                <IconSymbol name="location.fill" size={14} color="#4A6741" />
-                <Text style={styles.mapAddressText} numberOfLines={1}>{locationAddress}</Text>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.mockMapBg}>
-              <View style={styles.mockMapPinContainer}>
-                 <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
-              </View>
-              <View style={styles.mapAddressBadge}>
-                <IconSymbol name="location.fill" size={14} color="#4A6741" />
-                <Text style={styles.mapAddressText}>Location will appear here</Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Barangay & Street Inputs (Auto-filled but Editable) */}
-        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Barangay</Text>
-            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
-              <TextInput
-                value={barangay}
-                onChangeText={setBarangay}
-                placeholder="e.g. Poblacion"
-                placeholderTextColor="#7C8E80"
-                style={styles.inputText}
-              />
-            </View>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Street</Text>
-            <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
-              <TextInput
-                value={street}
-                onChangeText={setStreet}
-                placeholder="e.g. V. Rama Ave"
-                placeholderTextColor="#7C8E80"
-                style={styles.inputText}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Description */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Additional Notes</Text>
-          <View style={styles.textArea}>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Any specific instructions for the pickup crew?"
-              placeholderTextColor="#7C8E80"
-              style={styles.textAreaInput}
-              multiline
-            />
-          </View>
-        </View>
-
-        {/* Upload Progress */}
-        {isUploading && (
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressText}>
-              {uploadProgress < 25
-                ? "Preparing..."
-                : uploadProgress < 75
-                ? "Uploading image..."
-                : "Submitting report..."}
-            </Text>
-            <View style={styles.progressBar}>
-              <View
-                style={[styles.progressFill, { width: `${uploadProgress}%` }]}
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Points Badge & Submit */}
-        <View style={styles.submitSection}>
-          <View style={styles.pointsBadgeSubmit}>
-             <IconSymbol name="star.circle.fill" size={16} color="#4A6741" />
-             <Text style={styles.pointsBadgeText}>+50 POINTS FOR THIS REPORT</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.submitBtn, (isUploading || !canSubmitReport) && styles.submitBtnDisabled]}
-            activeOpacity={0.8}
-            onPress={handleSendReport}
-            disabled={isUploading || !canSubmitReport}
-          >
-            <Text style={styles.submitText}>
-              {isUploading ? "Submitting..." : "Submit Report"}
-            </Text>
-            <IconSymbol name="paperplane.fill" size={16} color="white" />
           </TouchableOpacity>
-          {!canSubmitReport && !isUploading && (
-            <Text style={{ color: '#DC2626', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
-              {!aiResult
-                ? '📸 Take a photo first so the AI can classify the waste'
-                : aiResult.wasteType === 'Not waste'
-                ? '🚫 This photo does not contain waste — please retake'
-                : '⚠️ AI could not determine waste type — please retake the photo'}
-            </Text>
-          )}
-          <Text style={styles.submitFooterText}>
-            By submitting, you&apos;ll earn 50 Community Points and help reach the &quot;Cleanest Quarter&quot; goal!
-          </Text>
-        </View>
 
-      </ScrollView>
+          {/* AI Suggestions */}
+          <View style={styles.aiSectionHeader}>
+            <IconSymbol name="sparkles" size={16} color="#4A6741" />
+            <Text style={styles.aiSectionTitle}>AI SUGGESTIONS</Text>
+            {aiResult?.confidence && aiResult.confidence !== 'none' && (
+              <View style={[
+                styles.confidenceBadge,
+                { backgroundColor: aiResult.confidence === 'high' ? '#D1FAE5' : aiResult.confidence === 'medium' ? '#FEF3C7' : '#FEE2E2' }
+              ]}>
+                <Text style={[
+                  styles.confidenceText,
+                  { color: aiResult.confidence === 'high' ? '#065F46' : aiResult.confidence === 'medium' ? '#92400E' : '#991B1B' }
+                ]}>
+                  {aiResult.confidence.toUpperCase()} CONFIDENCE
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {isAnalyzingAI ? (
+            <View style={styles.aiLoadingContainer}>
+              <ActivityIndicator size="small" color="#4A6741" />
+              <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
+            </View>
+          ) : aiResult ? (
+            <>
+              <View style={styles.aiRow}>
+                <View style={styles.aiCard}>
+                  <Text style={styles.aiCardLabel}>Waste Type</Text>
+                  <View style={styles.aiCardValueRow}>
+                    <IconSymbol
+                      name={getWasteTypeIcon(aiResult.wasteType)}
+                      size={18}
+                      color={getWasteTypeColor(aiResult.wasteType)}
+                    />
+                    <Text style={[styles.aiCardValue, { color: getWasteTypeColor(aiResult.wasteType) }]}>
+                      {aiResult.wasteType}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.aiCard}>
+                  <Text style={styles.aiCardLabel}>Estimated Weight</Text>
+                  <View style={styles.aiCardValueRow}>
+                    <IconSymbol name="scalemass.fill" size={18} color="#4A6741" />
+                    <Text style={styles.aiCardValue}>{formatWasteAmount(aiResult.estimatedWeight)}</Text>
+                  </View>
+                </View>
+              </View>
+              {aiResult.details && (
+                <View style={styles.aiDetailsCard}>
+                  <IconSymbol name="info.circle.fill" size={14} color="#6B7280" />
+                  <Text style={styles.aiDetailsText}>{aiResult.details}</Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <View style={styles.aiEmptyContainer}>
+              <IconSymbol name="camera.fill" size={20} color="#9CA3AF" />
+              <Text style={styles.aiEmptyText}>Take a photo to get AI analysis</Text>
+            </View>
+          )}
+
+          {/* Title */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Report Title</Text>
+            <View style={styles.inputField}>
+              <TextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="What are you reporting?"
+                placeholderTextColor="#7C8E80"
+                style={styles.inputText}
+              />
+            </View>
+            <View style={styles.tagsRow}>
+              <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Illegal Dumping")}>
+                <Text style={styles.tagText}>Illegal Dumping</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.tagBadge} onPress={() => setTitle("Missed Pickup")}>
+                <Text style={styles.tagText}>Missed Pickup</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Location Map */}
+          <View style={styles.mapContainer}>
+            {geoCoords ? (
+              <View style={{ height: 180, borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
+                <MapView
+                  style={{ width: '100%', height: '100%' }}
+                  initialRegion={{
+                    latitude: geoCoords.lat,
+                    longitude: geoCoords.lng,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005,
+                  }}
+                  region={{
+                    latitude: geoCoords.lat,
+                    longitude: geoCoords.lng,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005,
+                  }}
+                >
+                  <Marker coordinate={{ latitude: geoCoords.lat, longitude: geoCoords.lng }} />
+                </MapView>
+                <View style={styles.mapAddressBadge}>
+                  <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                  <Text style={styles.mapAddressText} numberOfLines={1}>{locationAddress}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.mockMapBg}>
+                <View style={styles.mockMapPinContainer}>
+                   <IconSymbol name="mappin.circle.fill" size={48} color="#4A6741" />
+                </View>
+                <View style={styles.mapAddressBadge}>
+                  <IconSymbol name="location.fill" size={14} color="#4A6741" />
+                  <Text style={styles.mapAddressText}>Location will appear here</Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Barangay & Street Inputs (Auto-filled but Editable) */}
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Barangay</Text>
+              <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
+                <TextInput
+                  value={barangay}
+                  onChangeText={setBarangay}
+                  placeholder="e.g. Poblacion"
+                  placeholderTextColor="#7C8E80"
+                  style={styles.inputText}
+                />
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Street</Text>
+              <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
+                <TextInput
+                  value={street}
+                  onChangeText={setStreet}
+                  placeholder="e.g. V. Rama Ave"
+                  placeholderTextColor="#7C8E80"
+                  style={styles.inputText}
+                />
+              </View>
+            </View>
+          </View>
+
+          {/* Description */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Additional Notes</Text>
+            <View style={styles.textArea}>
+              <TextInput
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Any specific instructions for the pickup crew?"
+                placeholderTextColor="#7C8E80"
+                style={styles.textAreaInput}
+                multiline
+              />
+            </View>
+          </View>
+
+          {/* Upload Progress */}
+          {isUploading && (
+            <View style={styles.progressContainer}>
+              <Text style={styles.progressText}>
+                {uploadProgress < 25
+                  ? "Preparing..."
+                  : uploadProgress < 75
+                  ? "Uploading image..."
+                  : "Submitting report..."}
+              </Text>
+              <View style={styles.progressBar}>
+                <View
+                  style={[styles.progressFill, { width: `${uploadProgress}%` }]}
+                />
+              </View>
+            </View>
+          )}
+
+          {/* Points Badge & Submit */}
+          <View style={styles.submitSection}>
+            <View style={styles.pointsBadgeSubmit}>
+               <IconSymbol name="star.circle.fill" size={16} color="#4A6741" />
+               <Text style={styles.pointsBadgeText}>+50 POINTS FOR THIS REPORT</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.submitBtn, (isUploading || !canSubmitReport) && styles.submitBtnDisabled]}
+              activeOpacity={0.8}
+              onPress={handleSendReport}
+              disabled={isUploading || !canSubmitReport}
+            >
+              <Text style={styles.submitText}>
+                {isUploading ? "Submitting..." : "Submit Report"}
+              </Text>
+              <IconSymbol name="paperplane.fill" size={16} color="white" />
+            </TouchableOpacity>
+            {!canSubmitReport && !isUploading && (
+              <Text style={{ color: '#DC2626', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
+                {!aiResult
+                  ? '📸 Take a photo first so the AI can classify the waste'
+                  : aiResult.wasteType === 'Not waste'
+                  ? '🚫 This photo does not contain waste — please retake'
+                  : '⚠️ AI could not determine waste type — please retake the photo'}
+              </Text>
+            )}
+            <Text style={styles.submitFooterText}>
+              By submitting, you&apos;ll earn 50 Community Points and help reach the &quot;Cleanest Quarter&quot; goal!
+            </Text>
+          </View>
+
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

@@ -122,12 +122,18 @@ export default function HomePage() {
     requestPermissions();
   }, []);
 
-  // Fetch user's barangay from profile
+  // Fetch user's barangay and role from profile
   useEffect(() => {
     if (!db || !user?.uid) return;
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
-        setUserBarangay(docSnap.data().barangay || '');
+        const data = docSnap.data();
+        setUserBarangay(data.barangay || '');
+        setUserRole(data.role || 'user');
+      }
+    }, (err) => {
+      if (err?.code !== 'permission-denied') {
+        console.warn('Home: user profile listener error:', err);
       }
     });
     return () => unsubUser();
@@ -411,31 +417,42 @@ export default function HomePage() {
     if (!db || !user?.uid) return;
     const q = query(
       collection(db, "userNotifications"),
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc")
+      where("userId", "==", user.uid)
     );
-    const unsub = onSnapshot(q, (snap) => {
-      const items: {
-        id: string;
-        title: string;
-        body: string;
-        createdAt: any;
-        read?: boolean;
-        type?: string;
-      }[] = [];
-      snap.forEach((d) => {
-        const data: any = d.data();
-        items.push({
-          id: d.id,
-          title: data.title || "Notification",
-          body: data.body || "",
-          createdAt: data.createdAt,
-          read: !!data.read,
-          type: data.type || "general",
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items: {
+          id: string;
+          title: string;
+          body: string;
+          createdAt: any;
+          read?: boolean;
+          type?: string;
+        }[] = [];
+        snap.forEach((d) => {
+          const data: any = d.data();
+          items.push({
+            id: d.id,
+            title: data.title || "Notification",
+            body: data.body || "",
+            createdAt: data.createdAt,
+            read: !!data.read,
+            type: data.type || "general",
+          });
         });
-      });
-      setNotifications(items);
-    });
+        // Sort descending by createdAt in memory
+        items.sort((a, b) => {
+          const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+          const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+          return timeB - timeA;
+        });
+        setNotifications(items);
+      },
+      (error) => {
+        console.warn("User notifications snapshot listener warning:", error);
+      }
+    );
     return () => unsub();
   }, [user?.uid]);
 
@@ -699,26 +716,26 @@ export default function HomePage() {
           </View>
         </View>
 
-        {/* Driver Portal Section - Only for drivers */}
+        {/* Driver Section Card */}
         {isDriver && (
           <View style={styles.driverSectionContainer}>
             <TouchableOpacity
-              style={styles.driverPortalCard}
+              style={styles.driverCard}
               onPress={() => router.push('/(driver)')}
-              activeOpacity={0.85}
+              activeOpacity={0.88}
             >
               <LinearGradient
                 colors={['#1B5E20', '#2E7D32', '#388E3C']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.driverPortalGradient}
+                style={styles.driverGradient}
               >
-                <View style={styles.driverPortalIcon}>
+                <View style={styles.driverIcon}>
                   <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
                 </View>
-                <View style={styles.driverPortalTextContainer}>
-                  <Text style={styles.driverPortalTitle}>Driver Portal</Text>
-                  <Text style={styles.driverPortalSubtitle}>View schedules, routes & histories</Text>
+                <View style={styles.driverTextContainer}>
+                  <Text style={styles.driverTitle}>Driver UI</Text>
+                  <Text style={styles.driverSubtitle}>Access active shifts, routes & navigation</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />
               </LinearGradient>
@@ -736,10 +753,10 @@ export default function HomePage() {
 
               <TouchableOpacity
                 style={styles.driverViewDataBtn}
-                onPress={() => router.push('/(driver)')}
+                onPress={() => router.push('/(driver)/pages/DriverHistoryPage')}
                 activeOpacity={0.85}
               >
-                <MaterialIcons name="analytics" size={18} color="#2E7D32" />
+                <MaterialIcons name="history" size={18} color="#2E7D32" />
                 <Text style={styles.driverViewDataBtnText}>Driver Records</Text>
               </TouchableOpacity>
             </View>
@@ -1182,8 +1199,8 @@ const styles = StyleSheet.create({
     maxWidth: 60,
   },
 
-  // Driver Portal Styles
-  driverPortalCard: {
+  // Driver Section Styles
+  driverCard: {
     borderRadius: 16,
     overflow: "hidden",
     marginTop: 8,
@@ -1194,14 +1211,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  driverPortalGradient: {
+  driverGradient: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 18,
     paddingHorizontal: 20,
     gap: 16,
   },
-  driverPortalIcon: {
+  driverIcon: {
     width: 52,
     height: 52,
     borderRadius: 14,
@@ -1209,16 +1226,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  driverPortalTextContainer: {
+  driverTextContainer: {
     flex: 1,
   },
-  driverPortalTitle: {
+  driverTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: 0.3,
   },
-  driverPortalSubtitle: {
+  driverSubtitle: {
     fontSize: 13,
     color: "rgba(255,255,255,0.75)",
     marginTop: 2,

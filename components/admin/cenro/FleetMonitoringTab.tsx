@@ -5,6 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useW
 
 import { db } from '@/config/firebase';
 import FleetReplayMap, { ReplayPoint } from './FleetReplayMap';
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 
 type FleetEvent = {
   id: string;
@@ -35,12 +36,30 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   const [selectedTrip, setSelectedTrip] = useState('');
   const [replayIndex, setReplayIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [selectedBarangay, setSelectedBarangay] = useState('all');
+  const [driverBarangays, setDriverBarangays] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    return onSnapshot(query(collection(db, 'client_activity'), orderBy('createdAt', 'desc'), limit(1500)), snapshot => {
+    if (!db) return;
+    const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+      const map: Record<string, string> = {};
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.role === 'driver' && (data.assignedBarangay || data.barangay)) {
+          map[d.id] = data.assignedBarangay || data.barangay;
+        }
+      });
+      setDriverBarangays(map);
+    });
+    return () => unsubUsers();
+  }, []);
+
+  useEffect(() => {
+    return onSnapshot(query(collection(db, 'client_activity'), limit(1500)), snapshot => {
       setEvents(snapshot.docs
         .map(item => ({ id: item.id, ...item.data() } as FleetEvent))
-        .filter(item => item.event === 'fleet.location' || item.event === 'fleet.alert'));
+        .filter(item => item.event === 'fleet.location' || item.event === 'fleet.alert')
+        .sort((a, b) => eventTime(b) - eventTime(a)));
       setLoading(false);
     }, error => {
       console.warn('Fleet history could not be loaded:', error);
@@ -49,24 +68,44 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   }, []);
 
   const locations = useMemo(() => events.filter(event => event.event === 'fleet.location'), [events]);
-  const alerts = useMemo(() => events.filter(event => event.event === 'fleet.alert').sort((a, b) => eventTime(b) - eventTime(a)), [events]);
+  const alerts = useMemo(() => {
+    return events
+      .filter(event => event.event === 'fleet.alert')
+      .filter(event => {
+        if (selectedBarangay === 'all') return true;
+        const b = event.metadata?.barangay || driverBarangays[event.driverId] || '';
+        return b.toLowerCase() === selectedBarangay.toLowerCase();
+      })
+      .sort((a, b) => eventTime(b) - eventTime(a));
+  }, [events, selectedBarangay, driverBarangays]);
+
   const trips = useMemo(() => {
     const grouped = new Map<string, FleetEvent[]>();
     locations.forEach(event => {
       const id = event.tripId || `${event.truckId}-${new Date(eventTime(event)).toLocaleDateString()}`;
       grouped.set(id, [...(grouped.get(id) || []), event]);
     });
-    return Array.from(grouped.entries()).map(([id, points]) => ({
-      id,
-      truckId: points[0]?.truckId || 'Unknown truck',
-      driverId: points[0]?.driverId || 'Unknown driver',
-      points: points.sort((a, b) => eventTime(a) - eventTime(b)),
-      lastUpdate: Math.max(...points.map(eventTime)),
-    })).sort((a, b) => b.lastUpdate - a.lastUpdate);
-  }, [locations]);
+    return Array.from(grouped.entries())
+      .map(([id, points]) => {
+        const driverId = points[0]?.driverId || 'Unknown driver';
+        const truckId = points[0]?.truckId || 'Unknown truck';
+        const barangay = points[0]?.metadata?.barangay || driverBarangays[driverId] || '';
+        return {
+          id,
+          truckId,
+          driverId,
+          barangay,
+          points: points.sort((a, b) => eventTime(a) - eventTime(b)),
+          lastUpdate: Math.max(...points.map(eventTime)),
+        };
+      })
+      .filter(item => selectedBarangay === 'all' || item.barangay.toLowerCase() === selectedBarangay.toLowerCase())
+      .sort((a, b) => b.lastUpdate - a.lastUpdate);
+  }, [locations, selectedBarangay, driverBarangays]);
 
   useEffect(() => {
     if (!selectedTrip && trips.length) setSelectedTrip(trips[0].id);
+    else if (selectedTrip && !trips.find(t => t.id === selectedTrip) && trips.length) setSelectedTrip(trips[0].id);
   }, [selectedTrip, trips]);
 
   const trip = trips.find(item => item.id === selectedTrip) || null;
@@ -109,8 +148,43 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   return (
     <ScrollView style={styles.container} contentContainerStyle={[styles.content, isMobile && { padding: 16 }]}>
       <View style={styles.headerRow}>
-        <View><Text style={styles.eyebrow}>{oversightLabel} / FEATURE 30</Text><Text style={styles.title}>Fleet Monitoring, Trip Replay & Alerts</Text><Text style={styles.subtitle}>Driver GPS points are retained as append-only trip telemetry while an active route is assigned.</Text></View>
+        <View><Text style={styles.eyebrow}>{oversightLabel} / FEATURE 30</Text><Text style={styles.title}>Fleet Monitoring, Trip Replay & Alerts</Text><Text style={styles.subtitle}>Real-time GPS telemetry and trip playback filtered by Danao City barangays.</Text></View>
       </View>
+
+      {/* Barangay Filter Carousel */}
+      <View style={styles.filterSection}>
+        <View style={styles.filterHeader}>
+          <MaterialIcons name="filter-list" size={16} color="#475569" style={{ marginRight: 6 }} />
+          <Text style={styles.filterLabel}>FILTER BY BARANGAY:</Text>
+          {selectedBarangay !== 'all' && (
+            <TouchableOpacity onPress={() => setSelectedBarangay('all')} style={styles.clearFilterBtn}>
+              <Text style={styles.clearFilterText}>Reset (Show All)</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsContainer}>
+          <TouchableOpacity
+            style={[styles.filterPill, selectedBarangay === 'all' && styles.filterPillActive]}
+            onPress={() => setSelectedBarangay('all')}
+          >
+            <Text style={[styles.filterPillText, selectedBarangay === 'all' && styles.filterPillTextActive]}>
+              All Barangays
+            </Text>
+          </TouchableOpacity>
+          {DANAO_CITY_BARANGAYS.map(b => (
+            <TouchableOpacity
+              key={b}
+              style={[styles.filterPill, selectedBarangay === b && styles.filterPillActive]}
+              onPress={() => setSelectedBarangay(b)}
+            >
+              <Text style={[styles.filterPillText, selectedBarangay === b && styles.filterPillTextActive]}>
+                {b}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <View style={styles.metrics}>
         <View style={[styles.metric, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>ACTIVE ≤2 MIN</Text><Text style={styles.metricValue}>{activeCount}</Text></View>
         <View style={[styles.metric, isMobile && { minWidth: '47%' }]}><Text style={styles.metricLabel}>RECORDED TRIPS</Text><Text style={styles.metricValue}>{trips.length}</Text></View>
@@ -120,22 +194,82 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
 
       <View style={[styles.mainGrid, isMobile && { flexDirection: 'column' }]}>
         <View style={[styles.replayCard, isMobile && { minWidth: 0, width: '100%' }]}>
-          <View style={[styles.cardHeader, isMobile && { flexDirection: 'column', alignItems: 'flex-start' }]}><View><Text style={styles.cardTitle}>Trip Replay</Text><Text style={styles.cardSubtitle}>{trip ? `${trip.truckId} · ${trip.points.length} recorded points` : 'No trip selected'}</Text></View><View style={styles.replayActions}><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.max(0, index - 1))}><MaterialIcons name="skip-previous" size={20} color="#334155" /></TouchableOpacity><TouchableOpacity style={styles.playButton} onPress={() => setPlaying(value => !value)} disabled={replayPoints.length < 2}><MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" /><Text style={styles.playText}>{playing ? 'Pause' : 'Replay'}</Text></TouchableOpacity><TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}><MaterialIcons name="skip-next" size={20} color="#334155" /></TouchableOpacity></View></View>
+          <View style={[styles.cardHeader, isMobile && { flexDirection: 'column', alignItems: 'flex-start' }]}>
+            <View>
+              <Text style={styles.cardTitle}>Trip Replay</Text>
+              <Text style={styles.cardSubtitle}>
+                {trip ? `${trip.truckId} ${trip.barangay ? `• Brgy. ${trip.barangay}` : ''} · ${trip.points.length} recorded points` : 'No trip selected'}
+              </Text>
+            </View>
+            <View style={styles.replayActions}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.max(0, index - 1))}><MaterialIcons name="skip-previous" size={20} color="#334155" /></TouchableOpacity>
+              <TouchableOpacity style={styles.playButton} onPress={() => setPlaying(value => !value)} disabled={replayPoints.length < 2}><MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" /><Text style={styles.playText}>{playing ? 'Pause' : 'Replay'}</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}><MaterialIcons name="skip-next" size={20} color="#334155" /></TouchableOpacity>
+            </View>
+          </View>
           <FleetReplayMap points={replayPoints} activeIndex={replayIndex} />
           {!!replayPoints.length && <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${((replayIndex + 1) / replayPoints.length) * 100}%` }]} /></View>}
         </View>
 
-        <View style={[styles.tripListCard, isMobile && { minWidth: 0, width: '100%' }]}><Text style={styles.cardTitle}>Recorded Trips</Text><ScrollView style={{ maxHeight: 430 }}>{trips.length === 0 ? <Text style={styles.empty}>Trip history appears after an assigned driver begins moving.</Text> : trips.map(item => <TouchableOpacity key={item.id} style={[styles.tripRow, selectedTrip === item.id && styles.tripRowActive]} onPress={() => setSelectedTrip(item.id)}><View style={styles.truckIcon}><MaterialIcons name="local-shipping" size={18} color={selectedTrip === item.id ? '#FFFFFF' : '#2563EB'} /></View><View style={{ flex: 1 }}><Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.truckId}</Text><Text style={[styles.tripMeta, selectedTrip === item.id && { color: '#DBEAFE' }]}>{item.points.length} points · {new Date(item.lastUpdate).toLocaleString()}</Text></View></TouchableOpacity>)}</ScrollView></View>
+        <View style={[styles.tripListCard, isMobile && { minWidth: 0, width: '100%' }]}>
+          <Text style={styles.cardTitle}>Recorded Trips {selectedBarangay !== 'all' ? `(${selectedBarangay})` : ''}</Text>
+          <ScrollView style={{ maxHeight: 430 }}>
+            {trips.length === 0 ? (
+              <Text style={styles.empty}>
+                {selectedBarangay !== 'all' ? `No recorded trips in Brgy. ${selectedBarangay}.` : 'Trip history appears after an assigned driver begins moving.'}
+              </Text>
+            ) : (
+              trips.map(item => (
+                <TouchableOpacity key={item.id} style={[styles.tripRow, selectedTrip === item.id && styles.tripRowActive]} onPress={() => setSelectedTrip(item.id)}>
+                  <View style={styles.truckIcon}><MaterialIcons name="local-shipping" size={18} color={selectedTrip === item.id ? '#FFFFFF' : '#2563EB'} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.truckId}</Text>
+                    <Text style={[styles.tripMeta, selectedTrip === item.id && { color: '#DBEAFE' }]}>
+                      {item.barangay ? `Brgy. ${item.barangay} • ` : ''}{item.points.length} points · {new Date(item.lastUpdate).toLocaleString()}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </View>
       </View>
 
-      <View style={styles.alertCard}><Text style={styles.cardTitle}>Operational Alerts</Text><Text style={styles.cardSubtitle}>Speed ≥60 km/h and route deviation ≥500 m for three consecutive samples are flagged with a five-minute cooldown.</Text>{alerts.length === 0 ? <Text style={styles.empty}>No operational alerts recorded.</Text> : alerts.slice(0, 12).map(alert => <View key={alert.id} style={styles.alertRow}><View style={[styles.alertIcon, { backgroundColor: alert.severity === 'high' ? '#FEE2E2' : '#FEF3C7' }]}><MaterialIcons name={alert.alertType === 'route-deviation' ? 'wrong-location' : 'speed'} size={18} color={alert.severity === 'high' ? '#DC2626' : '#D97706'} /></View><View style={{ flex: 1 }}><Text style={styles.alertTitle}>{String(alert.alertType || 'fleet alert').replace('-', ' ').toUpperCase()}</Text><Text style={styles.alertMeta}>{alert.truckId} · {new Date(eventTime(alert)).toLocaleString()}</Text></View><Text style={styles.alertDetail}>{alert.metadata?.speedKph ? `${alert.metadata.speedKph} km/h` : alert.metadata?.deviationMeters ? `${alert.metadata.deviationMeters} m` : ''}</Text></View>)}</View>
+      <View style={styles.alertCard}>
+        <Text style={styles.cardTitle}>Operational Alerts {selectedBarangay !== 'all' ? `(${selectedBarangay})` : ''}</Text>
+        <Text style={styles.cardSubtitle}>Speed ≥60 km/h and route deviation ≥500 m for three consecutive samples are flagged with a five-minute cooldown.</Text>
+        {alerts.length === 0 ? (
+          <Text style={styles.empty}>No operational alerts recorded for this selection.</Text>
+        ) : (
+          alerts.slice(0, 12).map(alert => (
+            <View key={alert.id} style={styles.alertRow}>
+              <View style={[styles.alertIcon, { backgroundColor: alert.severity === 'high' ? '#FEE2E2' : '#FEF3C7' }]}><MaterialIcons name={alert.alertType === 'route-deviation' ? 'wrong-location' : 'speed'} size={18} color={alert.severity === 'high' ? '#DC2626' : '#D97706'} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.alertTitle}>{String(alert.alertType || 'fleet alert').replace('-', ' ').toUpperCase()}</Text>
+                <Text style={styles.alertMeta}>{alert.truckId} {driverBarangays[alert.driverId] ? `• Brgy. ${driverBarangays[alert.driverId]}` : ''} · {new Date(eventTime(alert)).toLocaleString()}</Text>
+              </View>
+              <Text style={styles.alertDetail}>{alert.metadata?.speedKph ? `${alert.metadata.speedKph} km/h` : alert.metadata?.deviationMeters ? `${alert.metadata.deviationMeters} m` : ''}</Text>
+            </View>
+          ))
+        )}
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' }, content: { padding: 24 }, loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' }, loadingText: { color: '#64748B', marginTop: 12 },
-  headerRow: { marginBottom: 18 }, eyebrow: { color: '#2563EB', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginBottom: 5 }, title: { color: '#0F172A', fontSize: 24, fontWeight: '900' }, subtitle: { color: '#64748B', fontSize: 12, marginTop: 5 },
+  headerRow: { marginBottom: 14 }, eyebrow: { color: '#2563EB', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginBottom: 5 }, title: { color: '#0F172A', fontSize: 24, fontWeight: '900' }, subtitle: { color: '#64748B', fontSize: 12, marginTop: 5 },
+  filterSection: { marginBottom: 16, backgroundColor: '#FFFFFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  filterHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  filterLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.8 },
+  clearFilterBtn: { marginLeft: 'auto' },
+  clearFilterText: { fontSize: 11, color: '#2563EB', fontWeight: '700' },
+  filterPillsContainer: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
+  filterPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#CBD5E1' },
+  filterPillActive: { backgroundColor: '#2563EB', borderColor: '#1D4ED8' },
+  filterPillText: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  filterPillTextActive: { color: '#FFFFFF' },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18 }, metric: { flex: 1, minWidth: 150, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, padding: 15 }, alertMetric: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }, metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, metricValue: { color: '#0F172A', fontSize: 25, fontWeight: '900', marginTop: 5 },
   mainGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 }, replayCard: { flex: 3, minWidth: 560, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 }, tripListCard: { flex: 1, minWidth: 260, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }, cardTitle: { color: '#0F172A', fontSize: 15, fontWeight: '900' }, cardSubtitle: { color: '#64748B', fontSize: 10, marginTop: 3, lineHeight: 15 }, replayActions: { flexDirection: 'row', alignItems: 'center', gap: 7 }, iconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8 }, playButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#2563EB', paddingHorizontal: 12, height: 36, borderRadius: 8 }, playText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' }, progressTrack: { height: 5, backgroundColor: '#E2E8F0', borderRadius: 5, marginTop: 10, overflow: 'hidden' }, progressFill: { height: '100%', backgroundColor: '#2563EB' },

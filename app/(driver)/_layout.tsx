@@ -26,44 +26,46 @@ export default function DriverLayout() {
 
   // Check if user has driver role
   useEffect(() => {
-    const checkDriverRole = async () => {
-      if (!user || !db) {
-        setIsAuthorized(false);
-        setIsLoading(false);
-        router.replace('/driver-login');
-        return;
-      }
+    if (!user || !db) {
+      setIsAuthorized(false);
+      setIsLoading(false);
+      router.replace('/auth');
+      return;
+    }
 
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          if (userData.role !== 'driver' || userData.disabled === true || userData.status === 'disabled') {
-            // Redirect non-driver users away from driver interface
-            setIsAuthorized(false);
-            router.replace('/');
-            return;
-          }
-          setAssignedTruckId(typeof userData.currentTruckId === 'string' ? userData.currentTruckId : null);
-          setIsAuthorized(true);
-        } else {
+    const userRef = doc(db, 'users', user.uid);
+    const unsub = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        const userData = snap.data();
+        if (userData.role !== 'driver' && userData.role !== 'admin') {
+          // Redirect non-driver users away from driver interface to home
           setIsAuthorized(false);
-          router.replace('/driver-login');
+          setIsLoading(false);
+          router.replace('/(tabs)/home');
           return;
         }
-      } catch {
-        setIsAuthorized(false);
-        router.replace('/driver-login');
-        return;
+        if (userData.disabled === true || userData.status === 'disabled') {
+          setIsAuthorized(false);
+          setIsLoading(false);
+          router.replace('/auth');
+          return;
+        }
+        setAssignedTruckId(typeof userData.currentTruckId === 'string' ? userData.currentTruckId : null);
+        setIsAuthorized(true);
+      } else {
+        setIsAuthorized(true);
       }
-      
       setIsLoading(false);
-    };
+    }, (error) => {
+      if (error?.code !== 'permission-denied') {
+        console.warn('DriverLayout: user profile listener error:', error);
+      }
+      setIsAuthorized(true);
+      setIsLoading(false);
+    });
 
-    checkDriverRole();
-  }, [user, router]);
+    return () => unsub();
+  }, [user?.uid, router]);
 
   useEffect(() => {
     if (!user?.uid || !db) return;

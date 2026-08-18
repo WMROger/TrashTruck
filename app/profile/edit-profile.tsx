@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -179,143 +180,153 @@ export default function EditProfileScreen() {
           <View style={{ width: 24 }} />
         </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Profile Photo */}
-        <View style={styles.photoSection}>
-          <TouchableOpacity onPress={handlePickImage} style={styles.photoContainer}>
-            {photoURL ? (
-              <Image source={{ uri: photoURL }} style={styles.profilePhoto} />
-            ) : (
-              <View style={[styles.photoPlaceholder, { backgroundColor: colors.primary }]}>
-                <Ionicons name="person" size={50} color={colors.surface} />
-              </View>
-            )}
-          </TouchableOpacity>
-          <Text style={[styles.userName, { color: colors.textPrimary }]}>
-            {firstName} {lastName}
-          </Text>
-          <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
-            {email}
-          </Text>
-        </View>
-
-        {/* Form Fields */}
-        <View style={styles.formSection}>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              What’s your first name?
-            </Text>
-            <TextInput
-              value={firstName}
-              onChangeText={setFirstName}
-              style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-              placeholder="First name"
-              placeholderTextColor={colors.textTertiary}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              And your last name?
-            </Text>
-            <TextInput
-              value={lastName}
-              onChangeText={setLastName}
-              style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-              placeholder="Last name"
-              placeholderTextColor={colors.textTertiary}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              Phone number
-            </Text>
-            <View style={styles.phoneContainer}>
-              <View style={[styles.countryCode, { backgroundColor: colors.surface }]}>
-                <Text style={{ fontSize: 24 }}>🇵🇭</Text>
-              </View>
-              <TextInput
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                style={[styles.phoneInput, { backgroundColor: colors.surface, color: colors.textPrimary }]}
-                placeholder="Phone number"
-                placeholderTextColor={colors.textTertiary}
-                keyboardType="phone-pad"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              Select your gender
-            </Text>
-            <TouchableOpacity 
-              style={[styles.input, styles.dropdown, { backgroundColor: colors.surface }]}
-              onPress={() => {
-                Alert.alert(
-                  'Select Gender',
-                  '',
-                  [
-                    { text: 'Male', onPress: () => setGender('Male') },
-                    { text: 'Female', onPress: () => setGender('Female') },
-                    { text: 'Other', onPress: () => setGender('Other') },
-                    { text: 'Cancel', style: 'cancel' }
-                  ]
-                );
-              }}
-            >
-              <Text style={[styles.dropdownText, gender ? { color: colors.textPrimary } : { color: colors.textTertiary }]}>
-                {gender || 'Select gender'}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              What is your date of birth?
-            </Text>
-            <TouchableOpacity 
-              style={[styles.input, styles.dropdown, { backgroundColor: colors.surface }]}
-              onPress={handleShowDatePicker}
-            >
-              <Text style={[styles.dropdownText, dateOfBirth ? { color: colors.textPrimary } : { color: colors.textTertiary }]}>
-                {dateOfBirth || 'Select date'}
-              </Text>
-              <Ionicons name="calendar-outline" size={20} color={colors.textTertiary} />
-            </TouchableOpacity>
-            
-            {showDatePicker && (
-              <DateTimePicker
-                value={selectedDate}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleDateChange}
-                maximumDate={new Date()}
-                minimumDate={new Date(1900, 0, 1)}
-              />
-            )}
-          </View>
-        </View>
-
-        {/* Update Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={[styles.updateButton, { backgroundColor: colors.primary }]}
-            onPress={handleUpdateProfile}
-            disabled={saving}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          style={{ flex: 1 }}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={{ paddingBottom: 60 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
-            {saving ? (
-              <ActivityIndicator size="small" color={colors.surface} />
-            ) : (
-              <Text style={[styles.updateButtonText, { color: colors.surface }]}>
-                Update Profile
+            {/* Profile Photo */}
+            <View style={styles.photoSection}>
+              <TouchableOpacity onPress={handlePickImage} style={styles.photoContainer}>
+                {photoURL ? (
+                  <Image source={{ uri: photoURL }} style={styles.profilePhoto} />
+                ) : (
+                  <View style={[styles.photoPlaceholder, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="person" size={50} color={colors.surface} />
+                  </View>
+                )}
+              </TouchableOpacity>
+              <Text style={[styles.userName, { color: colors.textPrimary }]}>
+                {firstName} {lastName}
               </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
+                {email}
+              </Text>
+            </View>
+
+            {/* Form Fields */}
+            <View style={styles.formSection}>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  What’s your first name?
+                </Text>
+                <TextInput
+                  value={firstName}
+                  onChangeText={setFirstName}
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary }]}
+                  placeholder="First name"
+                  placeholderTextColor={colors.textTertiary}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  And your last name?
+                </Text>
+                <TextInput
+                  value={lastName}
+                  onChangeText={setLastName}
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary }]}
+                  placeholder="Last name"
+                  placeholderTextColor={colors.textTertiary}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  Phone number
+                </Text>
+                <View style={styles.phoneContainer}>
+                  <View style={[styles.countryCode, { backgroundColor: colors.surface }]}>
+                    <Text style={{ fontSize: 24 }}>🇵🇭</Text>
+                  </View>
+                  <TextInput
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    style={[styles.phoneInput, { backgroundColor: colors.surface, color: colors.textPrimary }]}
+                    placeholder="Phone number"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  Select your gender
+                </Text>
+                <TouchableOpacity 
+                  style={[styles.input, styles.dropdown, { backgroundColor: colors.surface }]}
+                  onPress={() => {
+                    Alert.alert(
+                      'Select Gender',
+                      '',
+                      [
+                        { text: 'Male', onPress: () => setGender('Male') },
+                        { text: 'Female', onPress: () => setGender('Female') },
+                        { text: 'Prefer not to say', onPress: () => setGender('Prefer not to say') },
+                        { text: 'Cancel', style: 'cancel' }
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={[styles.dropdownText, { color: gender ? colors.textPrimary : colors.textTertiary }]}>
+                    {gender || 'Select gender'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  Select your date of birth
+                </Text>
+                <TouchableOpacity 
+                  style={[styles.input, styles.dropdown, { backgroundColor: colors.surface }]}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={[styles.dropdownText, { color: dateOfBirth ? colors.textPrimary : colors.textTertiary }]}>
+                    {dateOfBirth || 'MM/DD/YYYY'}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={selectedDate}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleDateChange}
+                    maximumDate={new Date()}
+                    minimumDate={new Date(1900, 0, 1)}
+                  />
+                )}
+              </View>
+            </View>
+
+            {/* Update Button */}
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={[styles.updateButton, { backgroundColor: colors.primary }]}
+                onPress={handleUpdateProfile}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color={colors.surface} />
+                ) : (
+                  <Text style={[styles.updateButtonText, { color: colors.surface }]}>
+                    Update Profile
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
     </>
   );

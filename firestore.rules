@@ -106,7 +106,7 @@ service cloud.firestore {
       && request.resource.data.email == request.auth.token.get('email', '')
       && request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
       && request.resource.data.keys().hasOnly([
-        'uid', 'email', 'displayName', 'name', 'photoURL', 'verified', 'role', 'provider',
+        'uid', 'email', 'displayName', 'name', 'firstName', 'lastName', 'middleInitial', 'photoURL', 'verified', 'role', 'provider',
         'barangay', 'contactInfo', 'phoneNumber', 'createdAt', 'updatedAt'
       ]);
   }
@@ -114,7 +114,7 @@ service cloud.firestore {
   function regularProfileUpdateOnly() {
     return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       'displayName', 'photoURL', 'barangay', 'contactInfo', 'phoneNumber', 'phone',
-      'firstName', 'lastName', 'name', 'gender', 'dateOfBirth', 'dob', 'verified',
+      'firstName', 'lastName', 'middleInitial', 'name', 'gender', 'dateOfBirth', 'dob', 'verified',
       'provider', 'email', 'lastLogin', 'updatedAt'
     ])
     && request.resource.data.get('role', '') == resource.data.get('role', '')
@@ -176,8 +176,7 @@ service cloud.firestore {
   function ownDriverLocation(locationId) {
     return hasRole('driver')
       && locationId == request.auth.uid
-      && request.resource.data.get('driverId', '') == request.auth.uid
-      && request.resource.data.get('truckId', '') == userProfile().get('currentTruckId', '');
+      && request.resource.data.get('driverId', '') == request.auth.uid;
   }
 
     match /schedules/{scheduleId} {
@@ -200,8 +199,7 @@ service cloud.firestore {
 
     match /truck_locations/{driverId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAdmin() || ownDriverLocation(driverId);
-      allow delete: if isAdmin() || (hasRole('driver') && driverId == request.auth.uid);
+      allow create, update, delete: if isAdmin() || isDict() || (isAuthenticated() && driverId == request.auth.uid);
     }
 
     match /trucks/{truckId} {
@@ -249,7 +247,7 @@ service cloud.firestore {
     }
 
     match /license_numbers/{licenseNumber} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isDict();
     }
 
     match /coordinator_employee_ids/{employeeId} {
@@ -354,9 +352,9 @@ service cloud.firestore {
     }
 
     match /client_activity/{logId} {
-      allow create: if hasActiveProfile()
+      allow create: if isAuthenticated()
         && request.resource.data.actorUid == request.auth.uid;
-      allow read: if isAdmin() || isDict() || resource.data.actorUid == request.auth.uid;
+      allow read: if isAdmin() || isDict() || (isAuthenticated() && resource.data.actorUid == request.auth.uid);
       allow update, delete: if false;
     }
 

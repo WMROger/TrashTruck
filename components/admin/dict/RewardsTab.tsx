@@ -858,7 +858,9 @@ export default function RewardsTab() {
             <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
               <View style={styles.modalBody}>
                 <View style={styles.formGroup}>
-                  <Text style={styles.modalLabel}>SOUVENIR / REWARD NAME *</Text>
+                  <Text style={styles.modalLabel}>
+                    SOUVENIR / REWARD NAME<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <TextInput
                     style={styles.modalInput}
                     placeholder="e.g. Danao City Stainless Tumbler"
@@ -880,7 +882,9 @@ export default function RewardsTab() {
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={styles.modalLabel}>SPECIFICATION / DETAILS *</Text>
+                  <Text style={styles.modalLabel}>
+                    SPECIFICATION / DETAILS<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <TextInput
                     style={styles.modalInput}
                     placeholder="e.g. 500ml Double-Walled Stainless Steel, Matte Green"
@@ -892,7 +896,9 @@ export default function RewardsTab() {
 
                 <View style={styles.formRow}>
                   <View style={[styles.formGroup, { flex: 1 }]}>
-                    <Text style={styles.modalLabel}>TOKEN COST *</Text>
+                    <Text style={styles.modalLabel}>
+                      TOKEN COST<Text style={styles.requiredAsterisk}> *</Text>
+                    </Text>
                     <TextInput
                       style={styles.modalInput}
                       placeholder="500"
@@ -1035,7 +1041,9 @@ export default function RewardsTab() {
 
                   {/* Amount Input */}
                   <View style={styles.formGroup}>
-                    <Text style={styles.modalLabel}>NUMBER OF ECO TOKENS *</Text>
+                    <Text style={styles.modalLabel}>
+                      NUMBER OF ECO TOKENS<Text style={styles.requiredAsterisk}> *</Text>
+                    </Text>
                     <TextInput
                       style={styles.modalInput}
                       placeholder="e.g. 50"
@@ -1048,7 +1056,9 @@ export default function RewardsTab() {
 
                   {/* Reason Dropdown / Presets */}
                   <View style={styles.formGroup}>
-                    <Text style={styles.modalLabel}>MANDATORY AUDIT REASON *</Text>
+                    <Text style={styles.modalLabel}>
+                      MANDATORY AUDIT REASON<Text style={styles.requiredAsterisk}> *</Text>
+                    </Text>
                     <View style={styles.presetReasonsContainer}>
                       {[
                         'Community Cleanup Drive Participation',
@@ -1747,6 +1757,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#374151',
     letterSpacing: 0.5,
+  },
+  requiredAsterisk: {
+    color: '#EF4444',
+    fontWeight: '800',
   },
   modalInput: {
     backgroundColor: '#F9FAFB',

@@ -23,7 +23,7 @@ export default function EditProfileModal({ visible, onClose, onSave }: EditProfi
     >
       <KeyboardAvoidingView 
         style={styles.overlay} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.modalContent}>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
@@ -32,7 +32,11 @@ export default function EditProfileModal({ visible, onClose, onSave }: EditProfi
 
           <Text style={styles.title}>EDIT PROFILE</Text>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 40 }}
+          >
             <View style={styles.avatarContainer}>
               <View style={styles.avatarWrapper}>
                 <Image source={{ uri: 'https://i.pravatar.cc/150?img=33' }} style={styles.avatar} />

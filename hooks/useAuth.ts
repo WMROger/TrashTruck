@@ -1,61 +1,86 @@
-import { auth } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
+import { isDictEmail } from '@/constants/dictConfig';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFirestoreVerified, setIsFirestoreVerified] = useState(false);
 
   useEffect(() => {
-  // Initialize auth listener
-    
     if (!auth) {
       console.warn('useAuth: No auth object available');
       setLoading(false);
       return;
     }
-  // Use the modular onAuthStateChanged(auth, callback) function.
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // Auth state changed
-      setUser(user);
-      setLoading(false);
+
+    let userUnsub: (() => void) | null = null;
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (userUnsub) {
+        userUnsub();
+        userUnsub = null;
+      }
+
+      if (!currentUser || !db) {
+        setIsFirestoreVerified(false);
+        setLoading(false);
+        return;
+      }
+
+      if (isDictEmail(currentUser.email)) {
+        setIsFirestoreVerified(true);
+        setLoading(false);
+        return;
+      }
+
+      const userRef = doc(db, 'users', currentUser.uid);
+      userUnsub = onSnapshot(userRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const role = data?.role;
+          const isVerified = data?.verified === true || role === 'driver' || role === 'admin' || role === 'dict' || role === 'coordinator';
+          setIsFirestoreVerified(isVerified);
+        } else {
+          setIsFirestoreVerified(false);
+        }
+        setLoading(false);
+      }, (error) => {
+        console.warn('useAuth: user profile listener error:', error);
+        setLoading(false);
+      });
     }, (error) => {
       console.error('useAuth: Auth state listener error:', error);
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (userUnsub) userUnsub();
+    };
   }, []);
 
   const logout = async () => {
-  // Attempt sign-out
-    
     if (!auth) {
       console.error('useAuth: Cannot logout - no auth object');
       setUser(null);
       return;
     }
 
-  // The modular SDK provides the signOut(auth) function which is imported above.
-
     try {
-  // Call signOut
-  // log current user for rare debugging
-  // console.debug('useAuth: Current user before signOut:', auth.currentUser);
-      
-      const result = await signOut(auth);
-  // Clear the user state immediately
+      await signOut(auth);
       setUser(null);
-  // Ensure loading is false so UI routing logic can proceed
-  setLoading(false);
-      
-      
+      setIsFirestoreVerified(false);
+      setLoading(false);
     } catch (error) {
-  console.error('useAuth: Firebase signOut error:', error);
-  // Even if Firebase logout fails, clear local state and stop loading
-  setUser(null);
-  setLoading(false);
-      throw error; // Re-throw to handle in the calling component
+      console.error('useAuth: Firebase signOut error:', error);
+      setUser(null);
+      setIsFirestoreVerified(false);
+      setLoading(false);
+      throw error;
     }
   };
 
@@ -63,7 +88,7 @@ export function useAuth() {
   const isPasswordProvider = (u: User | null) =>
     !!u && Array.isArray(u.providerData) && u.providerData.some(p => p?.providerId === 'password');
 
-  const isAuthenticated = !!user && (!isPasswordProvider(user) || user.emailVerified === true);
+  const isAuthenticated = !!user && (!isPasswordProvider(user) || user.emailVerified === true || isFirestoreVerified);
 
   return {
     user,

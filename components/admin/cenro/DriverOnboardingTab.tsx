@@ -1,60 +1,152 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { db } from '@/config/firebase';
 import { provisionDriverOnSpark } from '@/services/driverProvisioningService';
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 
-export default function DriverOnboardingTab() {
+export default function DriverOnboardingTab({
+  onClose,
+}: {
+  onClose?: () => void;
+} = {}) {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
+  const isNarrow = width < 960;
+  const scrollViewRef = useRef<ScrollView>(null);
+
   const [mode, setMode] = useState<'create' | 'upgrade'>('create');
-  
-  // Create State
+
+  // Employee & License State
+  const [employeeSuffix, setEmployeeSuffix] = useState('');
+  const [isCalculatingId, setIsCalculatingId] = useState(false);
+  const [licenseNumber, setLicenseNumber] = useState('');
+
+  // Create State - Names
+  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [middleInitial, setMiddleInitial] = useState('');
+
+  // Create State - Credentials & Contact
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [newFullName, setNewFullName] = useState('');
-  const [newContact, setNewContact] = useState('');
-  
-  // Upgrade State
+  const [phoneNumber, setPhoneNumber] = useState('');
+
+  // Upgrade / Modify State
   const [searchEmail, setSearchEmail] = useState('');
   const [foundUser, setFoundUser] = useState<any>(null);
   const [residentsList, setResidentsList] = useState<any[]>([]);
 
-  // Common State
-  const [employeeId, setEmployeeId] = useState('');
-  const [licenseNumber, setLicenseNumber] = useState('');
+  // Vehicle & Area Assignment
+  const [assignedBarangay, setAssignedBarangay] = useState('');
+  const [isBarangayDropdownOpen, setIsBarangayDropdownOpen] = useState(false);
   const [selectedTruckId, setSelectedTruckId] = useState('');
-  
-  // Data State
   const [availableTrucks, setAvailableTrucks] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
+  // Validation & Feedback UI State
+  const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [bannerFeedback, setBannerFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+  const [successModalData, setSuccessModalData] = useState<any>(null);
+
+  // Auto-increment Employee ID based on existing database records
+  const fetchNextEmployeeId = async () => {
+    if (!db) return;
+    setIsCalculatingId(true);
+    try {
+      const existingNumbers = new Set<number>();
+
+      // 1. Check employee_ids collection
+      try {
+        const employeeSnap = await getDocs(collection(db, 'employee_ids'));
+        employeeSnap.forEach(d => {
+          const id = d.id;
+          const match = id.match(/(\d+)$/);
+          if (match) {
+            existingNumbers.add(parseInt(match[1], 10));
+          }
+        });
+      } catch {}
+
+      // 2. Also check users collection for drivers
+      try {
+        const qDrivers = query(collection(db, 'users'), where('role', '==', 'driver'));
+        const userSnap = await getDocs(qDrivers);
+        userSnap.forEach(d => {
+          const empId = d.data()?.employeeId;
+          if (empId) {
+            const match = String(empId).match(/(\d+)$/);
+            if (match) {
+              existingNumbers.add(parseInt(match[1], 10));
+            }
+          }
+        });
+      } catch {}
+
+      // 3. Find lowest unused number starting from 1
+      let nextNum = 1;
+      while (existingNumbers.has(nextNum)) {
+        nextNum++;
+      }
+
+      const nextSuffix = String(nextNum).padStart(4, '0');
+      setEmployeeSuffix(nextSuffix);
+    } catch (err) {
+      console.warn('Auto-increment Employee ID note:', err);
+      if (!employeeSuffix) setEmployeeSuffix('0001');
+    } finally {
+      setIsCalculatingId(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNextEmployeeId();
+  }, []);
+
   useEffect(() => {
     if (!db) return;
-    
+
     // Fetch active trucks
     const q = query(collection(db, 'trucks'), where('status', '==', 'active'));
-    const unsub = onSnapshot(q, (snap) => {
+    const unsub = onSnapshot(q, snap => {
       const trucks: any[] = [];
       snap.forEach(d => {
         const data = d.data();
-        if (!data.assignedDriverId) { // Only trucks without drivers
-          trucks.push({ id: d.id, plateNumber: data.plateNumber, type: data.type });
-        }
+        trucks.push({
+          id: d.id,
+          plateNumber: data.plateNumber,
+          type: data.type,
+          assignedDriverId: data.assignedDriverId || null,
+        });
       });
       setAvailableTrucks(trucks);
     });
 
-    // Fetch residents (users who are not drivers/admins)
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      const residents: any[] = [];
+    // Fetch residents and existing drivers
+    const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+      const list: any[] = [];
       snap.forEach(d => {
-        if ((d.data().role || 'user') === 'user') residents.push({ id: d.id, ...d.data() });
+        const data = d.data();
+        if (data.role === 'user' || data.role === 'driver') {
+          list.push({ id: d.id, ...data });
+        }
       });
-      setResidentsList(residents);
+      setResidentsList(list);
     });
 
     return () => {
@@ -63,388 +155,1769 @@ export default function DriverOnboardingTab() {
     };
   }, []);
 
-  const handleCompleteOnboarding = async () => {
-    if (!employeeId || !licenseNumber) {
-      Alert.alert('Validation Error', 'Please fill in the Employee ID and License Number.');
+  const handleSelectResident = (r: any) => {
+    setFoundUser(r);
+    setLastName(r.lastName || '');
+    setFirstName(r.firstName || r.displayName || '');
+    setMiddleInitial(r.middleInitial || '');
+    setPhoneNumber(r.phoneNumber?.replace('+63 ', '') || r.contactInfo?.replace('+63 ', '') || '');
+    setNewEmail(r.email || '');
+    setAssignedBarangay(r.assignedBarangay || r.barangay || '');
+    if (r.licenseNumber) {
+      setLicenseNumber(r.licenseNumber);
+    }
+    if (r.employeeId) {
+      const match = String(r.employeeId).match(/(\d+)$/);
+      if (match) {
+        setEmployeeSuffix(match[1]);
+      }
+    }
+    if (r.currentTruckId) {
+      setSelectedTruckId(r.currentTruckId);
+    } else {
+      setSelectedTruckId('');
+    }
+    if (formErrors.foundUser) {
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next.foundUser;
+        return next;
+      });
+    }
+  };
+
+  // Format Full Name
+  const getFormattedFullName = () => {
+    const fn = firstName.trim();
+    const mi = middleInitial.trim() ? `${middleInitial.trim().replace(/\.$/, '')}. ` : '';
+    const ln = lastName.trim();
+    return `${fn} ${mi}${ln}`.trim() || `${ln}, ${fn}`.trim();
+  };
+
+  // Auto-generate strong temporary password (minimum 8 characters)
+  const handleAutoGeneratePassword = () => {
+    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowercase = 'abcdefghijkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const symbols = '!@#$%&*';
+
+    let pwd = '';
+    pwd += uppercase.charAt(Math.floor(Math.random() * uppercase.length));
+    pwd += lowercase.charAt(Math.floor(Math.random() * lowercase.length));
+    pwd += numbers.charAt(Math.floor(Math.random() * numbers.length));
+    pwd += symbols.charAt(Math.floor(Math.random() * symbols.length));
+
+    const allChars = uppercase + lowercase + numbers + symbols;
+    for (let i = 0; i < 6; i++) {
+      pwd += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+
+    const shuffled = pwd.split('').sort(() => 0.5 - Math.random()).join('');
+    setNewPassword(shuffled);
+    setShowPassword(true);
+
+    // Clear password error if present
+    if (formErrors.password) {
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next.password;
+        return next;
+      });
+    }
+  };
+
+  // Philippine Mobile Phone Formatter (+63 9XX XXX XXXX)
+  const handlePhoneChange = (text: string) => {
+    let digits = text.replace(/\D/g, '');
+    if (digits.startsWith('63')) digits = digits.slice(2);
+    if (digits.startsWith('0')) digits = digits.slice(1);
+    digits = digits.slice(0, 10);
+
+    let formatted = digits;
+    if (digits.length > 6) {
+      formatted = `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+    } else if (digits.length > 3) {
+      formatted = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+    }
+    setPhoneNumber(formatted);
+
+    if (formErrors.phoneNumber) {
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next.phoneNumber;
+        return next;
+      });
+    }
+  };
+
+  // Philippine Driver's License Formatter: A00-YY-XXXXXX (e.g. D01-26-001234 or N01-24-123456)
+  const handleLicenseChange = (text: string) => {
+    const raw = text.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 11);
+    if (raw.length === 0) {
+      setLicenseNumber('');
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      if (mode === 'create') {
-        if (!newEmail || !newPassword || !newFullName) {
-          Alert.alert('Validation Error', 'Please fill in Email, Password, and Full Name for the new driver.');
-          setIsSubmitting(false);
-          return;
-        }
-      } else {
-        if (!foundUser) {
-          Alert.alert('Validation Error', 'Please search and select a resident to upgrade.');
-          setIsSubmitting(false);
-          return;
-        }
+    let formatted = raw.slice(0, 1);
+    if (raw.length > 1) {
+      formatted += raw.slice(1, 3);
+    }
+    if (raw.length > 3) {
+      formatted += '-' + raw.slice(3, 5);
+    }
+    if (raw.length > 5) {
+      formatted += '-' + raw.slice(5, 11);
+    }
+    setLicenseNumber(formatted);
+
+    if (formErrors.licenseNumber) {
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next.licenseNumber;
+        return next;
+      });
+    }
+  };
+
+  // Auto-fill license template on focus if empty
+  const handleLicenseFocus = () => {
+    if (!licenseNumber.trim()) {
+      setLicenseNumber('D01-26-');
+    }
+  };
+
+  // Computed Full IDs
+  const fullEmployeeId = employeeSuffix.trim() ? `CENRO-2026-${employeeSuffix.trim().toUpperCase()}` : '';
+
+  const handleCompleteOnboarding = async () => {
+    setBannerFeedback(null);
+    const errors: { [key: string]: string } = {};
+
+    // 1. Validate Employee ID
+    if (!employeeSuffix.trim()) {
+      errors.employeeSuffix = 'Employee ID suffix is required (e.g. 0001).';
+    }
+
+    // 2. Validate Driver's License
+    if (!licenseNumber.trim() || licenseNumber.length < 8) {
+      errors.licenseNumber = "Valid Philippine Driver's License is required (e.g. D01-26-001234).";
+    }
+
+    // 3. Validate Assigned Barangay
+    if (!assignedBarangay.trim()) {
+      errors.assignedBarangay = 'Please select an assigned barangay for the driver.';
+    }
+
+    if (mode === 'create') {
+      // 4. Validate Names
+      if (!lastName.trim()) errors.lastName = 'Last Name is required.';
+      if (!firstName.trim()) errors.firstName = 'First Name is required.';
+
+      // 5. Validate Email
+      if (!newEmail.trim() || !newEmail.includes('@') || !newEmail.includes('.')) {
+        errors.email = 'Valid login email address is required.';
       }
 
-      await provisionDriverOnSpark({
+      // 6. Validate Contact Number
+      const phoneDigits = phoneNumber.replace(/\D/g, '');
+      if (!phoneNumber.trim() || phoneDigits.length < 10) {
+        errors.phoneNumber = 'Valid 10-digit mobile contact number is required (e.g. 9XX XXX XXXX).';
+      }
+
+      // 7. Validate Password
+      if (!newPassword || newPassword.length < 8) {
+        errors.password = 'Password must be at least 8 characters. Click Auto-Generate.';
+      }
+    } else {
+      if (!foundUser) {
+        errors.foundUser = 'Please select an existing resident or driver account to modify.';
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      const firstError = Object.values(errors)[0];
+      setBannerFeedback({ type: 'error', message: firstError });
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+
+    setFormErrors({});
+    setIsSubmitting(true);
+
+    try {
+      const formattedFullName = mode === 'create' ? getFormattedFullName() : (foundUser?.displayName || getFormattedFullName());
+      const fullContact = phoneNumber.trim() ? `+63 ${phoneNumber.trim()}` : '';
+
+      console.log('Dispatching driver onboarding/modification:', {
         mode,
-        email: newEmail,
-        password: mode === 'create' ? newPassword : undefined,
-        fullName: mode === 'create' ? newFullName : foundUser?.displayName,
-        contactInfo: mode === 'create' ? newContact : foundUser?.contactInfo,
-        existingUserId: mode === 'upgrade' ? foundUser?.id : undefined,
-        employeeId,
-        licenseNumber,
-        truckId: selectedTruckId || undefined,
+        email: newEmail.trim(),
+        fullName: formattedFullName,
+        employeeId: fullEmployeeId,
+        licenseNumber: licenseNumber.trim().toUpperCase(),
+        assignedBarangay: assignedBarangay.trim(),
       });
 
-      Alert.alert(
-        'Success',
-        mode === 'create'
-          ? 'Driver created. A verification link was sent to the driver email and must be opened before first sign-in.'
-          : 'Resident account successfully upgraded to driver.',
-      );
-      
+      const res = await provisionDriverOnSpark({
+        mode,
+        email: newEmail.trim(),
+        password: mode === 'create' ? newPassword : undefined,
+        fullName: formattedFullName,
+        firstName: mode === 'create' ? firstName.trim() : (firstName.trim() || undefined),
+        lastName: mode === 'create' ? lastName.trim() : (lastName.trim() || undefined),
+        middleInitial: mode === 'create' ? middleInitial.trim() : (middleInitial.trim() || undefined),
+        contactInfo: fullContact || foundUser?.contactInfo,
+        phoneNumber: fullContact || foundUser?.phoneNumber,
+        existingUserId: mode === 'upgrade' ? foundUser?.id : undefined,
+        employeeId: fullEmployeeId,
+        licenseNumber: licenseNumber.trim().toUpperCase(),
+        truckId: selectedTruckId || undefined,
+        assignedBarangay: assignedBarangay.trim(),
+      });
+
+      // Show Success Modal
+      setSuccessModalData({
+        name: formattedFullName,
+        email: mode === 'create' ? newEmail.trim() : foundUser?.email,
+        employeeId: fullEmployeeId,
+        licenseNumber: licenseNumber.trim().toUpperCase(),
+        barangay: assignedBarangay.trim(),
+        truck: selectedTruckId
+          ? availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber
+          : 'Not Assigned',
+        mode,
+        isDriverUpdate: foundUser?.role === 'driver',
+      });
+
       // Reset form
+      setLicenseNumber('');
+      setLastName('');
+      setFirstName('');
+      setMiddleInitial('');
       setNewEmail('');
       setNewPassword('');
-      setNewFullName('');
-      setNewContact('');
+      setPhoneNumber('');
       setSearchEmail('');
       setFoundUser(null);
-      setEmployeeId('');
-      setLicenseNumber('');
+      setAssignedBarangay('');
       setSelectedTruckId('');
-      
+
+      // Auto-increment next ID
+      await fetchNextEmployeeId();
     } catch (e: any) {
-      console.error('Onboarding Error:', e);
-      Alert.alert('Error', e.message || 'Failed to complete onboarding.');
+      console.error('Driver Onboarding Error:', e);
+      const msg = e.message || 'Failed to complete driver onboarding.';
+      setBannerFeedback({ type: 'error', message: msg });
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
-      <Text style={styles.headerSubtitle}>ADMINISTRATIVE MANAGEMENT</Text>
-      <Text style={styles.headerTitle}>Driver Onboarding</Text>
-
-      {/* Mode Toggle */}
-      <View style={[styles.toggleContainer, isMobile && { flexDirection: 'column', gap: 8, padding: 4, height: 'auto' }]}>
-        <TouchableOpacity 
-          style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
-          onPress={() => setMode('create')}
+    <ScrollView ref={scrollViewRef} style={[styles.container, isMobile && { padding: 12 }]} showsVerticalScrollIndicator={false}>
+      <View style={styles.contentWrapper}>
+        {/* Page Header */}
+        <View
+          style={[
+            styles.header,
+            onClose && {
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+            },
+          ]}
         >
-          <Text style={[styles.toggleText, mode === 'create' && styles.toggleTextActive]}>Create New Account</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
-          onPress={() => setMode('upgrade')}
-        >
-          <Text style={[styles.toggleText, mode === 'upgrade' && styles.toggleTextActive]}>Upgrade Existing Resident</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Registration / Upgrade Card */}
-      <View style={[styles.card, isMobile && { padding: 16 }]}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <MaterialIcons name="person-add" size={20} color="#2E8B57" style={styles.cardIcon} />
-            <Text style={styles.cardTitle}>
-              {mode === 'create' ? 'Driver Registration' : 'Upgrade Resident'}
-            </Text>
+          <View>
+            <Text style={styles.headerSubtitle}>ADMINISTRATIVE MANAGEMENT</Text>
+            <Text style={styles.headerTitle}>Driver Onboarding</Text>
           </View>
+          {onClose && (
+            <TouchableOpacity
+              onPress={onClose}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: "#F1F5F9",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="close" size={20} color="#64748B" />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {mode === 'upgrade' ? (
-          <View style={styles.upgradeSection}>
-            <View style={[styles.formGroup, { width: '100%', marginBottom: 16 }]}>
-              <Text style={styles.label}>SEARCH RESIDENTS</Text>
-              <View style={styles.searchContainer}>
-                <MaterialIcons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
-                <TextInput 
-                  style={[styles.input, { paddingLeft: 40, width: '100%' }]} 
-                  placeholder="Type name or email to search..." 
-                  value={searchEmail}
-                  onChangeText={(text) => {
-                    setSearchEmail(text);
-                    setFoundUser(null); // Clear selection when typing
-                  }}
-                  autoCapitalize="none"
-                />
-              </View>
-            </View>
-
-            {foundUser ? (
-              <View>
-                <View style={styles.foundUserCard}>
-                  <View style={styles.foundUserRow}>
-                    <View style={styles.avatarBadge}>
-                      <Text style={styles.avatarText}>{foundUser.displayName?.substring(0, 2).toUpperCase() || 'NA'}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.foundUserName}>{foundUser.displayName || 'Unknown Name'}</Text>
-                      <Text style={styles.foundUserEmail}>{foundUser.email}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setFoundUser(null)}>
-                      <MaterialIcons name="close" size={20} color="#6B7280" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 8, fontStyle: 'italic' }}>
-                  Selected resident to upgrade.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.residentsListContainer}>
-                <Text style={styles.listHeader}>Available Residents ({residentsList.filter(r => 
-                    (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) || 
-                    (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase())
-                  ).length})</Text>
-                <ScrollView style={styles.residentsScroll} nestedScrollEnabled={true}>
-                  {residentsList
-                    .filter(r => 
-                      (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) || 
-                      (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase())
-                    )
-                    .map(r => (
-                      <TouchableOpacity 
-                        key={r.id} 
-                        style={styles.residentListItem}
-                        onPress={() => setFoundUser(r)}
-                      >
-                        <View style={styles.avatarBadgeSmall}>
-                          <Text style={styles.avatarTextSmall}>{r.displayName?.substring(0, 2).toUpperCase() || 'NA'}</Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.residentListName}>{r.displayName || 'Unknown Name'}</Text>
-                          <Text style={styles.residentListEmail}>{r.email}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          {r.role === 'admin' ? (
-                            <View style={[styles.roleBadge, { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }]}><Text style={[styles.roleText, { color: '#B91C1C' }]}>Admin</Text></View>
-                          ) : r.role === 'driver' ? (
-                            <View style={[styles.roleBadge, { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}><Text style={[styles.roleText, { color: '#0369A1' }]}>Driver</Text></View>
-                          ) : (
-                            <View style={[styles.roleBadge, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }]}><Text style={[styles.roleText, { color: '#4B5563' }]}>Resident</Text></View>
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                    ))
-                  }
-                  {residentsList.filter(r => 
-                      (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) || 
-                      (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase())
-                    ).length === 0 && (
-                      <Text style={{ padding: 16, color: '#6B7280', textAlign: 'center' }}>No residents found matching your search.</Text>
-                  )}
-                </ScrollView>
-              </View>
-            )}
-          </View>
-        ) : (
-          <View style={styles.formGrid}>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>EMAIL ADDRESS (LOGIN)</Text>
-              <TextInput style={styles.input} placeholder="driver@trashtrack.com" value={newEmail} onChangeText={setNewEmail} autoCapitalize="none" />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>TEMPORARY PASSWORD</Text>
-              <View style={styles.passwordContainer}>
-                <TextInput 
-                  style={[styles.input, styles.passwordInput]} 
-                  placeholder="********" 
-                  value={newPassword} 
-                  onChangeText={setNewPassword} 
-                  secureTextEntry={!showPassword} 
-                />
-                <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 5 }}>Use at least 12 characters.</Text>
-                <TouchableOpacity 
-                  style={styles.eyeIcon} 
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <MaterialIcons 
-                    name={showPassword ? "visibility-off" : "visibility"} 
-                    size={20} 
-                    color="#6B7280" 
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>FULL NAME</Text>
-              <TextInput style={styles.input} placeholder="Juan De La Cruz" value={newFullName} onChangeText={setNewFullName} />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>CONTACT INFORMATION</Text>
-              <TextInput style={styles.input} placeholder="+63 9XX XXX XXXX" value={newContact} onChangeText={setNewContact} />
-            </View>
+        {/* In-App Feedback Banner (Errors or Status) */}
+        {bannerFeedback && (
+          <View
+            style={[
+              styles.feedbackBanner,
+              bannerFeedback.type === 'error' ? styles.feedbackBannerError : styles.feedbackBannerSuccess,
+            ]}
+          >
+            <MaterialIcons
+              name={bannerFeedback.type === 'error' ? 'error-outline' : 'check-circle-outline'}
+              size={20}
+              color={bannerFeedback.type === 'error' ? '#DC2626' : '#059669'}
+              style={{ marginRight: 8 }}
+            />
+            <Text
+              style={[
+                styles.feedbackBannerText,
+                bannerFeedback.type === 'error' ? styles.feedbackBannerTextError : styles.feedbackBannerTextSuccess,
+              ]}
+            >
+              {bannerFeedback.message}
+            </Text>
+            <TouchableOpacity onPress={() => setBannerFeedback(null)} style={{ padding: 4 }}>
+              <MaterialIcons name="close" size={18} color="#64748B" />
+            </TouchableOpacity>
           </View>
         )}
 
-        <View style={styles.divider} />
-
-        <View style={styles.formGrid}>
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>EMPLOYEE ID</Text>
-            <TextInput style={styles.input} placeholder="CENRO-2024-XXXX" value={employeeId} onChangeText={setEmployeeId} />
-          </View>
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>LICENSE NUMBER</Text>
-            <TextInput style={styles.input} placeholder="N01-XX-XXXXXX" value={licenseNumber} onChangeText={setLicenseNumber} />
-          </View>
+        {/* Mode Toggle Switch */}
+        <View style={[styles.toggleContainer, isMobile && { flexDirection: 'column', gap: 6, height: 'auto', padding: 4 }]}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, mode === 'create' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
+            onPress={() => {
+              setMode('create');
+              setBannerFeedback(null);
+              setFormErrors({});
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="person-add" size={17} color={mode === 'create' ? '#1B4D3E' : '#64748B'} style={{ marginRight: 6 }} />
+            <Text style={[styles.toggleText, mode === 'create' && styles.toggleTextActive]}>
+              Create New Account
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleBtn, mode === 'upgrade' && styles.toggleBtnActive, isMobile && { width: '100%', paddingVertical: 10 }]}
+            onPress={() => {
+              setMode('upgrade');
+              setBannerFeedback(null);
+              setFormErrors({});
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="tune" size={17} color={mode === 'upgrade' ? '#1B4D3E' : '#64748B'} style={{ marginRight: 6 }} />
+            <Text style={[styles.toggleText, mode === 'upgrade' && styles.toggleTextActive]}>
+              Modify Existing Residents
+            </Text>
+          </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Vehicle Assignment Card */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <MaterialIcons name="local-shipping" size={20} color="#2E8B57" style={styles.cardIcon} />
-            <Text style={styles.cardTitle}>Vehicle Assignment (Optional)</Text>
+        {/* Main Registration Card */}
+        <View style={[styles.card, isMobile && { padding: 16 }]}>
+          
+          {/* SECTION 1: TOP - Official Credentials (Employee ID & License Number) */}
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIconBadge}>
+              <MaterialIcons name="badge" size={18} color="#1B4D3E" />
+            </View>
+            <Text style={styles.sectionTitle}>Employment & Government Credentials</Text>
           </View>
-        </View>
 
-        <View style={styles.assignmentRow}>
-          <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
-            <Text style={styles.label}>SELECT AVAILABLE UNIT</Text>
-            <View style={{ position: 'relative', zIndex: 10 }}>
-              <TouchableOpacity style={styles.dropdown} onPress={() => setIsDropdownOpen(!isDropdownOpen)}>
-                <Text style={[styles.dropdownText, !selectedTruckId && { color: '#9CA3AF' }]}>
-                  {selectedTruckId 
-                    ? availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber + ' - ' + availableTrucks.find(t => t.id === selectedTruckId)?.type
-                    : 'Select Truck'}
+          <View style={[styles.gridRow, isNarrow && { flexDirection: 'column', gap: 14 }]}>
+            {/* Employee ID with prefilled CENRO-2026- badge and Auto-Next ID */}
+            <View style={styles.formGroup}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>
+                  EMPLOYEE ID <Text style={styles.requiredAsterisk}>*</Text>
                 </Text>
-                <MaterialIcons name={isDropdownOpen ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={20} color="#6B7280" />
-              </TouchableOpacity>
-              
-              {isDropdownOpen && (
-                <View style={styles.dropdownMenu}>
-                  <ScrollView style={{ maxHeight: 200 }}>
-                    <TouchableOpacity 
-                      style={styles.dropdownItem} 
-                      onPress={() => { setSelectedTruckId(''); setIsDropdownOpen(false); }}
-                    >
-                      <Text style={styles.dropdownItemText}>None (Assign Later)</Text>
+                <TouchableOpacity
+                  style={styles.autoGenBtn}
+                  onPress={fetchNextEmployeeId}
+                  activeOpacity={0.7}
+                  disabled={isCalculatingId}
+                >
+                  <MaterialIcons
+                    name={isCalculatingId ? 'hourglass-empty' : 'sync'}
+                    size={12}
+                    color="#059669"
+                    style={{ marginRight: 3 }}
+                  />
+                  <Text style={styles.autoGenBtnText}>
+                    {isCalculatingId ? 'Checking...' : 'Auto-Next'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View
+                style={[
+                  styles.compoundInputContainer,
+                  formErrors.employeeSuffix ? styles.inputErrorBorder : null,
+                ]}
+              >
+                <View style={styles.compoundPrefixBadge}>
+                  <Text style={styles.compoundPrefixText}>CENRO-2026-</Text>
+                </View>
+                <TextInput
+                  style={styles.compoundInput}
+                  placeholder="0001"
+                  placeholderTextColor="#94A3B8"
+                  value={employeeSuffix}
+                  onChangeText={t => {
+                    setEmployeeSuffix(t.replace(/[^A-Z0-9-]/gi, '').toUpperCase());
+                    if (formErrors.employeeSuffix) {
+                      setFormErrors(prev => {
+                        const next = { ...prev };
+                        delete next.employeeSuffix;
+                        return next;
+                      });
+                    }
+                  }}
+                  autoCapitalize="characters"
+                  maxLength={10}
+                />
+              </View>
+              {formErrors.employeeSuffix ? (
+                <Text style={styles.errorHelperText}>{formErrors.employeeSuffix}</Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  Assigned ID: <Text style={styles.boldText}>{fullEmployeeId || 'CENRO-2026-0001'}</Text>
+                </Text>
+              )}
+            </View>
+
+            {/* Philippine Driver's License Input with LTO Format A00-YY-XXXXXX */}
+            <View style={styles.formGroup}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>
+                  DRIVER'S LICENSE NUMBER <Text style={styles.requiredAsterisk}>*</Text>
+                </Text>
+                <View style={styles.npdlBadge}>
+                  <Text style={styles.npdlBadgeText}>LTO PH</Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.compoundInputContainer,
+                  formErrors.licenseNumber ? styles.inputErrorBorder : null,
+                ]}
+              >
+                <View style={styles.ltoPrefixBadge}>
+                  <MaterialIcons name="credit-card" size={15} color="#1B4D3E" style={{ marginRight: 4 }} />
+                  <Text style={styles.ltoPrefixText}>LTO</Text>
+                </View>
+                <TextInput
+                  style={styles.compoundInput}
+                  placeholder="D01-26-001234"
+                  placeholderTextColor="#94A3B8"
+                  value={licenseNumber}
+                  onChangeText={handleLicenseChange}
+                  onFocus={handleLicenseFocus}
+                  autoCapitalize="characters"
+                  maxLength={13}
+                />
+              </View>
+              {formErrors.licenseNumber ? (
+                <Text style={styles.errorHelperText}>{formErrors.licenseNumber}</Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  Format: <Text style={styles.boldText}>A00-YY-XXXXXX</Text> (e.g. <Text style={styles.boldText}>D01-26-001234</Text>)
+                </Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.sectionDivider} />
+
+          {mode === 'upgrade' ? (
+            /* SECTION 2 (Modify Mode): Search & Select Resident / Driver */
+            <View style={styles.upgradeSection}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionIconBadge}>
+                  <MaterialIcons name="manage-accounts" size={18} color="#1B4D3E" />
+                </View>
+                <Text style={styles.sectionTitle}>Select Resident or Driver to Modify</Text>
+              </View>
+
+              <View style={styles.formGroupFull}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>
+                    SEARCH REGISTERED ACCOUNTS <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                </View>
+                <View style={styles.searchContainer}>
+                  <MaterialIcons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+                  <TextInput
+                    style={[styles.input, { paddingLeft: 40, width: '100%' }]}
+                    placeholder="Type name, email, or barangay to filter..."
+                    placeholderTextColor="#9CA3AF"
+                    value={searchEmail}
+                    onChangeText={text => {
+                      setSearchEmail(text);
+                    }}
+                    autoCapitalize="none"
+                  />
+                </View>
+                {formErrors.foundUser && (
+                  <Text style={styles.errorHelperText}>{formErrors.foundUser}</Text>
+                )}
+              </View>
+
+              {foundUser ? (
+                <View style={styles.foundUserCard}>
+                  <View style={styles.foundUserRow}>
+                    <View style={[styles.avatarBadge, foundUser.role === 'driver' && { backgroundColor: '#E0F2FE' }]}>
+                      <Text style={[styles.avatarText, foundUser.role === 'driver' && { color: '#0369A1' }]}>
+                        {foundUser.displayName?.substring(0, 2).toUpperCase() || 'DR'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={styles.foundUserName}>{foundUser.displayName || 'Unknown Name'}</Text>
+                        <View style={[styles.roleBadgeSmall, { backgroundColor: foundUser.role === 'driver' ? '#E0F2FE' : '#F3F4F6' }]}>
+                          <Text style={[styles.roleBadgeSmallText, { color: foundUser.role === 'driver' ? '#0369A1' : '#4B5563' }]}>
+                            {foundUser.role === 'driver' ? 'Current Driver' : 'Resident'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.foundUserEmail}>{foundUser.email}</Text>
+                      <Text style={styles.foundUserMeta}>
+                        Barangay: <Text style={{ fontWeight: '700', color: '#1B4D3E' }}>{assignedBarangay || foundUser.assignedBarangay || foundUser.barangay || 'None'}</Text> • Contact: {foundUser.phoneNumber || foundUser.contactInfo || 'None'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => { setFoundUser(null); setAssignedBarangay(''); }} style={styles.removeUserBtn}>
+                      <MaterialIcons name="close" size={20} color="#EF4444" />
                     </TouchableOpacity>
-                    {availableTrucks.map(truck => (
-                      <TouchableOpacity 
-                        key={truck.id} 
-                        style={styles.dropdownItem}
-                        onPress={() => { setSelectedTruckId(truck.id); setIsDropdownOpen(false); }}
-                      >
-                        <Text style={styles.dropdownItemText}>{truck.plateNumber} - {truck.type}</Text>
-                      </TouchableOpacity>
-                    ))}
-                    {availableTrucks.length === 0 && (
-                      <View style={styles.dropdownItem}><Text style={styles.dropdownItemText}>No available trucks</Text></View>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.residentsListContainer}>
+                  <Text style={styles.listHeader}>
+                    Available Accounts (
+                    {
+                      residentsList.filter(
+                        r =>
+                          (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.barangay?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.assignedBarangay?.toLowerCase() || '').includes(searchEmail.toLowerCase())
+                      ).length
+                    }
+                    )
+                  </Text>
+                  <ScrollView style={styles.residentsScroll} nestedScrollEnabled={true}>
+                    {residentsList
+                      .filter(
+                        r =>
+                          (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.barangay?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                          (r.assignedBarangay?.toLowerCase() || '').includes(searchEmail.toLowerCase())
+                      )
+                      .map(r => (
+                        <TouchableOpacity
+                          key={r.id}
+                          style={styles.residentListItem}
+                          onPress={() => handleSelectResident(r)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.avatarBadgeSmall, r.role === 'driver' && { backgroundColor: '#E0F2FE' }]}>
+                            <Text style={[styles.avatarTextSmall, r.role === 'driver' && { color: '#0369A1' }]}>
+                              {r.displayName?.substring(0, 2).toUpperCase() || 'RS'}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.residentListName}>{r.displayName || 'Unknown Name'}</Text>
+                              <View style={[styles.roleBadgeSmall, { backgroundColor: r.role === 'driver' ? '#E0F2FE' : '#F3F4F6' }]}>
+                                <Text style={[styles.roleBadgeSmallText, { color: r.role === 'driver' ? '#0369A1' : '#4B5563' }]}>
+                                  {r.role === 'driver' ? 'Driver' : 'Resident'}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={styles.residentListEmail}>{r.email} • {r.assignedBarangay || r.barangay || 'No Barangay'}</Text>
+                          </View>
+                          <View style={styles.selectResidentBadge}>
+                            <Text style={styles.selectResidentText}>Select →</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    {residentsList.filter(
+                      r =>
+                        (r.displayName?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                        (r.email?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                        (r.barangay?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
+                        (r.assignedBarangay?.toLowerCase() || '').includes(searchEmail.toLowerCase())
+                    ).length === 0 && (
+                      <Text style={styles.noResidentsText}>No matching accounts found.</Text>
                     )}
                   </ScrollView>
                 </View>
               )}
             </View>
+          ) : (
+            /* SECTION 2 (Create Mode): Personal Details & Login Credentials */
+            <View>
+              {/* Section 2 Header: Driver Personal Details */}
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionIconBadge}>
+                  <MaterialIcons name="person" size={18} color="#1B4D3E" />
+                </View>
+                <Text style={styles.sectionTitle}>Driver Personal Details</Text>
+              </View>
+
+              {/* Separated Name Fields (Last Name *, First Name *, M.I.) */}
+              <View style={[styles.nameRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
+                <View style={[styles.formGroup, { flex: 2.2 }]}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>
+                      LAST NAME <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, formErrors.lastName ? styles.inputErrorBorder : null]}
+                    placeholder="Dela Cruz"
+                    placeholderTextColor="#9CA3AF"
+                    value={lastName}
+                    onChangeText={t => {
+                      setLastName(t);
+                      if (formErrors.lastName) {
+                        setFormErrors(prev => {
+                          const next = { ...prev };
+                          delete next.lastName;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+                  {formErrors.lastName ? (
+                    <Text style={styles.errorHelperText}>{formErrors.lastName}</Text>
+                  ) : (
+                    <Text style={styles.helperText}>Driver's surname</Text>
+                  )}
+                </View>
+
+                <View style={[styles.formGroup, { flex: 2.2 }]}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>
+                      FIRST NAME <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, formErrors.firstName ? styles.inputErrorBorder : null]}
+                    placeholder="Juan"
+                    placeholderTextColor="#9CA3AF"
+                    value={firstName}
+                    onChangeText={t => {
+                      setFirstName(t);
+                      if (formErrors.firstName) {
+                        setFormErrors(prev => {
+                          const next = { ...prev };
+                          delete next.firstName;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+                  {formErrors.firstName ? (
+                    <Text style={styles.errorHelperText}>{formErrors.firstName}</Text>
+                  ) : (
+                    <Text style={styles.helperText}>Given name</Text>
+                  )}
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>M.I.</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, { textAlign: 'center' }]}
+                    placeholder="A."
+                    placeholderTextColor="#9CA3AF"
+                    maxLength={3}
+                    value={middleInitial}
+                    onChangeText={setMiddleInitial}
+                    autoCapitalize="characters"
+                  />
+                  <Text style={[styles.helperText, { textAlign: 'center' }]}>Optional</Text>
+                </View>
+              </View>
+
+              <View style={styles.sectionDivider} />
+
+              {/* Section 3 Header: Access & Contact */}
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionIconBadge}>
+                  <MaterialIcons name="vpn-key" size={18} color="#1B4D3E" />
+                </View>
+                <Text style={styles.sectionTitle}>Access Credentials & Contact</Text>
+              </View>
+
+              {/* Email & Temporary Password (with Auto-Generate) */}
+              <View style={[styles.gridRow, isNarrow && { flexDirection: 'column', gap: 14 }]}>
+                {/* Email Address */}
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>
+                      EMAIL ADDRESS (LOGIN) <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, formErrors.email ? styles.inputErrorBorder : null]}
+                    placeholder="driver@trashtrack.gov.ph"
+                    placeholderTextColor="#9CA3AF"
+                    value={newEmail}
+                    onChangeText={t => {
+                      setNewEmail(t);
+                      if (formErrors.email) {
+                        setFormErrors(prev => {
+                          const next = { ...prev };
+                          delete next.email;
+                          return next;
+                        });
+                      }
+                    }}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                  />
+                  {formErrors.email ? (
+                    <Text style={styles.errorHelperText}>{formErrors.email}</Text>
+                  ) : (
+                    <Text style={styles.helperText}>Driver mobile app login credential</Text>
+                  )}
+                </View>
+
+                {/* Temporary Password */}
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>
+                      TEMPORARY PASSWORD <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.autoGenBtn}
+                      onPress={handleAutoGeneratePassword}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="auto-fix-high" size={12} color="#059669" style={{ marginRight: 3 }} />
+                      <Text style={styles.autoGenBtnText}>Auto-Generate</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View
+                    style={[
+                      styles.passwordInputWrapper,
+                      formErrors.password ? styles.inputErrorBorder : null,
+                    ]}
+                  >
+                    <TextInput
+                      style={styles.passwordField}
+                      placeholder="Enter or auto-generate password"
+                      placeholderTextColor="#9CA3AF"
+                      value={newPassword}
+                      onChangeText={t => {
+                        setNewPassword(t);
+                        if (formErrors.password) {
+                          setFormErrors(prev => {
+                            const next = { ...prev };
+                            delete next.password;
+                            return next;
+                          });
+                        }
+                      }}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.passwordEyeBtn}
+                      onPress={() => setShowPassword(!showPassword)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons
+                        name={showPassword ? 'visibility-off' : 'visibility'}
+                        size={18}
+                        color="#64748B"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {formErrors.password ? (
+                    <Text style={styles.errorHelperText}>{formErrors.password}</Text>
+                  ) : (
+                    <Text style={styles.helperText}>
+                      Min. 8 chars with uppercase, lowercase, numbers & symbols
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {/* Contact Number with 🇵🇭 +63 Pill */}
+              <View style={styles.formGroupFull}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>
+                    CONTACT NUMBER (PHILIPPINES) <Text style={styles.requiredAsterisk}>*</Text>
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.phoneInputContainer,
+                    formErrors.phoneNumber ? styles.inputErrorBorder : null,
+                  ]}
+                >
+                  <View style={styles.countryPickerPill}>
+                    <Text style={styles.flagEmoji}>🇵🇭</Text>
+                    <Text style={styles.countryCodeText}>+63</Text>
+                    <MaterialIcons name="arrow-drop-down" size={18} color="#64748B" />
+                  </View>
+
+                  <TextInput
+                    style={styles.phoneNumberInput}
+                    placeholder="9XX XXX XXXX"
+                    placeholderTextColor="#94A3B8"
+                    value={phoneNumber}
+                    onChangeText={handlePhoneChange}
+                    keyboardType="phone-pad"
+                    maxLength={13}
+                  />
+
+                  {phoneNumber.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setPhoneNumber('');
+                        if (formErrors.phoneNumber) {
+                          setFormErrors(prev => {
+                            const next = { ...prev };
+                            delete next.phoneNumber;
+                            return next;
+                          });
+                        }
+                      }}
+                      style={styles.phoneClearBtn}
+                    >
+                      <MaterialIcons name="cancel" size={18} color="#94A3B8" />
+                    </TouchableOpacity>
+                  ) : (
+                    <MaterialIcons name="phone" size={18} color="#CBD5E1" style={{ marginRight: 14 }} />
+                  )}
+                </View>
+                {formErrors.phoneNumber ? (
+                  <Text style={styles.errorHelperText}>{formErrors.phoneNumber}</Text>
+                ) : (
+                  <Text style={styles.helperText}>Format: +63 9XX XXX XXXX (10-digit PH mobile)</Text>
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* SECTION 4: Work & Operational Assignment Card */}
+        <View
+          style={[
+            styles.card,
+            isMobile && { padding: 16 },
+            (isBarangayDropdownOpen || isDropdownOpen) && {
+              zIndex: 1000,
+              elevation: 10,
+            },
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIconBadge}>
+              <MaterialIcons name="place" size={18} color="#1B4D3E" />
+            </View>
+            <Text style={styles.sectionTitle}>Work & Operational Assignment</Text>
           </View>
 
-          <View style={styles.infoBox}>
-            <MaterialIcons name="info-outline" size={20} color="#2E8B57" style={styles.infoIcon} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.infoTitle}>Route Optimization</Text>
-              <Text style={styles.infoText}>Assigning a truck automatically links the driver to the pre-designated AI-optimized route for that vehicle.</Text>
+          <View
+            style={[
+              styles.assignmentRow,
+              isMobile && { flexDirection: 'column', gap: 14 },
+              (isBarangayDropdownOpen || isDropdownOpen) && { zIndex: 1000 },
+            ]}
+          >
+            {/* Assigned Barangay Dropdown */}
+            <View
+              style={[
+                styles.formGroup,
+                { flex: 1, marginBottom: 0 },
+                isBarangayDropdownOpen && { zIndex: 1000, position: 'relative' },
+              ]}
+            >
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>
+                  ASSIGNED BARANGAY / AREA <Text style={styles.requiredAsterisk}>*</Text>
+                </Text>
+              </View>
+              <View
+                style={[
+                  { position: 'relative' },
+                  isBarangayDropdownOpen && { zIndex: 1000 },
+                ]}
+              >
+                <TouchableOpacity
+                  style={[styles.dropdown, formErrors.assignedBarangay ? styles.inputErrorBorder : null]}
+                  onPress={() => {
+                    setIsBarangayDropdownOpen(!isBarangayDropdownOpen);
+                    setIsDropdownOpen(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.dropdownText, !assignedBarangay && { color: '#9CA3AF' }]}>
+                    {assignedBarangay ? `Brgy. ${assignedBarangay}` : 'Select operational barangay...'}
+                  </Text>
+                  <MaterialIcons
+                    name={isBarangayDropdownOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                    size={20}
+                    color="#6B7280"
+                  />
+                </TouchableOpacity>
+
+                {isBarangayDropdownOpen && (
+                  <View style={[styles.dropdownMenu, { maxHeight: 220, zIndex: 9999, elevation: 20 }]}>
+                    <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
+                      {DANAO_CITY_BARANGAYS.map(b => (
+                        <TouchableOpacity
+                          key={b}
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            setAssignedBarangay(b);
+                            setIsBarangayDropdownOpen(false);
+                            if (formErrors.assignedBarangay) {
+                              setFormErrors(prev => {
+                                const next = { ...prev };
+                                delete next.assignedBarangay;
+                                return next;
+                              });
+                            }
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, assignedBarangay === b && { color: '#1B4D3E', fontWeight: '700' }]}>
+                            {b}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+              {formErrors.assignedBarangay ? (
+                <Text style={styles.errorHelperText}>{formErrors.assignedBarangay}</Text>
+              ) : (
+                <Text style={styles.helperText}>Scopes the driver's collection duty to this barangay</Text>
+              )}
+            </View>
+
+            {/* Truck Assignment Dropdown */}
+            <View
+              style={[
+                styles.formGroup,
+                { flex: 1, marginBottom: 0 },
+                isDropdownOpen && { zIndex: 1000, position: 'relative' },
+              ]}
+            >
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>ASSIGN TRUCK / VEHICLE (OPTIONAL)</Text>
+              </View>
+              <View
+                style={[
+                  { position: 'relative' },
+                  isDropdownOpen && { zIndex: 1000 },
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.dropdown}
+                  onPress={() => {
+                    setIsDropdownOpen(!isDropdownOpen);
+                    setIsBarangayDropdownOpen(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.dropdownText, !selectedTruckId && { color: '#9CA3AF' }]}>
+                    {selectedTruckId
+                      ? `${availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber || selectedTruckId} — ${availableTrucks.find(t => t.id === selectedTruckId)?.type || 'Truck'}`
+                      : 'Select available truck unit...'}
+                  </Text>
+                  <MaterialIcons
+                    name={isDropdownOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                    size={20}
+                    color="#6B7280"
+                  />
+                </TouchableOpacity>
+
+                {isDropdownOpen && (
+                  <View style={styles.dropdownMenu}>
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setSelectedTruckId('');
+                        setIsDropdownOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.dropdownItemText, !selectedTruckId && { color: '#1B4D3E', fontWeight: '700' }]}>
+                        None (Assign Later)
+                      </Text>
+                    </TouchableOpacity>
+                    {availableTrucks.map(truck => (
+                      <TouchableOpacity
+                        key={truck.id}
+                        style={styles.dropdownItem}
+                        onPress={() => {
+                          setSelectedTruckId(truck.id);
+                          setIsDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedTruckId === truck.id && { color: '#1B4D3E', fontWeight: '700' }]}>
+                          {truck.plateNumber} — {truck.type}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    {availableTrucks.length === 0 && (
+                      <View style={styles.dropdownItem}>
+                        <Text style={{ color: '#9CA3AF', fontSize: 13 }}>No unassigned trucks currently available.</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+              <Text style={styles.helperText}>Syncs routes and telemetry for this vehicle</Text>
             </View>
           </View>
         </View>
+
+        {/* Submission Action */}
+        <View style={styles.submitSection}>
+          <TouchableOpacity
+            style={[styles.submitBtn, isSubmitting && styles.submitBtnDisabled]}
+            onPress={handleCompleteOnboarding}
+            disabled={isSubmitting}
+            activeOpacity={0.8}
+          >
+            {isSubmitting ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.submitBtnText}>Saving Driver Profile...</Text>
+              </View>
+            ) : (
+              <>
+                <MaterialIcons
+                  name={mode === 'create' ? 'how-to-reg' : (foundUser?.role === 'driver' ? 'save' : 'upgrade')}
+                  size={20}
+                  color="#FFFFFF"
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.submitBtnText}>
+                  {mode === 'create'
+                    ? 'Complete Driver Onboarding'
+                    : (foundUser?.role === 'driver' ? 'Save Driver Changes & Reassign' : 'Promote & Assign Driver')}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Action Buttons */}
-      <View style={styles.actionsRow}>
-        <TouchableOpacity 
-          style={styles.primaryBtn} 
-          onPress={handleCompleteOnboarding}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <MaterialIcons name="person-add" size={18} color="#fff" />
-              <Text style={styles.primaryBtnText}>Complete Onboarding</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-      <View style={{ height: 40 }} />
+      {/* Success Confirmation Modal */}
+      {successModalData && (
+        <Modal visible={true} transparent={true} animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalSuccessIconBadge}>
+                <MaterialIcons name="check-circle" size={48} color="#059669" />
+              </View>
+
+              <Text style={styles.modalTitle}>
+                {successModalData.isDriverUpdate
+                  ? 'Driver Profile Updated Successfully!'
+                  : (successModalData.mode === 'create' ? 'Driver Onboarded Successfully!' : 'Resident Promoted to Driver!')}
+              </Text>
+              <Text style={styles.modalSubtitle}>
+                {successModalData.isDriverUpdate
+                  ? 'Driver assignment, barangay, and truck details have been updated.'
+                  : (successModalData.mode === 'create'
+                      ? 'The driver profile has been created and credentials have been dispatched.'
+                      : 'The resident account has been upgraded to official driver status.')}
+              </Text>
+
+              <View style={styles.modalSummaryBox}>
+                <View style={styles.modalSummaryRow}>
+                  <Text style={styles.modalSummaryLabel}>Full Name:</Text>
+                  <Text style={styles.modalSummaryValue}>{successModalData.name}</Text>
+                </View>
+                <View style={styles.modalSummaryRow}>
+                  <Text style={styles.modalSummaryLabel}>Employee ID:</Text>
+                  <Text style={styles.modalSummaryValue}>{successModalData.employeeId}</Text>
+                </View>
+                <View style={styles.modalSummaryRow}>
+                  <Text style={styles.modalSummaryLabel}>License No:</Text>
+                  <Text style={styles.modalSummaryValue}>{successModalData.licenseNumber}</Text>
+                </View>
+                <View style={styles.modalSummaryRow}>
+                  <Text style={styles.modalSummaryLabel}>Assigned Barangay:</Text>
+                  <Text style={[styles.modalSummaryValue, { color: '#059669', fontWeight: '800' }]}>
+                    Brgy. {successModalData.barangay}
+                  </Text>
+                </View>
+                <View style={styles.modalSummaryRow}>
+                  <Text style={styles.modalSummaryLabel}>Login Email:</Text>
+                  <Text style={styles.modalSummaryValue}>{successModalData.email}</Text>
+                </View>
+                <View style={[styles.modalSummaryRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.modalSummaryLabel}>Assigned Truck:</Text>
+                  <Text style={styles.modalSummaryValue}>{successModalData.truck}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.modalDoneBtn}
+                onPress={() => {
+                  setSuccessModalData(null);
+                  if (onClose) onClose();
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalDoneBtnText}>Done & Return</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 32 },
-  headerSubtitle: { fontSize: 12, fontWeight: '700', color: '#6B7280', letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' },
-  headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#111827', marginBottom: 24 },
-  
-  toggleContainer: { flexDirection: 'row', backgroundColor: '#E5E7EB', borderRadius: 8, padding: 4, marginBottom: 24, alignSelf: 'flex-start' },
-  toggleBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6 },
-  toggleBtnActive: { backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  toggleText: { fontSize: 14, fontWeight: '600', color: '#6B7280' },
-  toggleTextActive: { color: '#111827' },
-
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 24, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardIcon: { marginRight: 4 },
-  cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
-  
-  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-  formGroup: { width: '100%', maxWidth: 450, marginBottom: 16, flex: 1, minWidth: 260 },
-  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginBottom: 8, letterSpacing: 0.5 },
-  input: { backgroundColor: '#F9FAFB', borderRadius: 8, padding: 14, fontSize: 14, color: '#111827', borderWidth: 1, borderColor: '#E5E7EB' },
-  passwordContainer: { position: 'relative', justifyContent: 'center' },
-  passwordInput: { paddingRight: 45 },
-  eyeIcon: { position: 'absolute', right: 12, top: 14 },
-  
-  divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 24 },
-  
-  upgradeSection: { marginBottom: 16 },
-  searchRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 16 },
-  searchBtn: { backgroundColor: '#2E8B57', width: 50, height: 50, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  foundUserCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F6FBF7', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#dcfce7', marginTop: 16 },
-  foundUserRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  foundUserName: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
-  foundUserEmail: { fontSize: 14, color: '#4B5563', marginTop: 2 },
-
-  searchContainer: { position: 'relative', justifyContent: 'center' },
-  searchIcon: { position: 'absolute', left: 14, zIndex: 1 },
-  residentsListContainer: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, backgroundColor: '#fff', overflow: 'hidden' },
-  listHeader: { padding: 12, backgroundColor: '#F9FAFB', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', fontSize: 12, fontWeight: '700', color: '#6B7280' },
-  residentsScroll: { maxHeight: 250 },
-  residentListItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  avatarBadgeSmall: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  avatarTextSmall: { fontSize: 12, fontWeight: 'bold', color: '#064e3b' },
-  residentListName: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  residentListEmail: { fontSize: 12, color: '#4B5563' },
-  avatarBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 14, fontWeight: 'bold', color: '#064e3b' },
-  
-  roleBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
-  roleText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-
-  quickToggleBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
-  quickTogglePromote: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
-  quickToggleDemote: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-  quickToggleText: { fontSize: 11, fontWeight: '700' },
-  
-  assignmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 24 },
-  dropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-  dropdownText: { fontSize: 14, color: '#111827' },
-  dropdownMenu: { position: 'absolute', top: 52, left: 0, right: 0, backgroundColor: '#FFFFFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },
-  dropdownItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  dropdownItemText: { fontSize: 14, color: '#374151' },
-  
-  infoBox: { flex: 1, flexDirection: 'row', backgroundColor: '#F6FBF7', padding: 20, borderRadius: 8, borderWidth: 1, borderColor: '#dcfce7', gap: 12, marginTop: 20 },
-  infoIcon: { marginTop: 2 },
-  infoTitle: { fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4 },
-  infoText: { fontSize: 12, color: '#4B5563', lineHeight: 18 },
-  
-  actionsRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 16, marginBottom: 32 },
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 8, backgroundColor: '#2E8B57' },
-  primaryBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    padding: 20,
+  },
+  contentWrapper: {
+    maxWidth: 960,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  header: {
+    marginBottom: 16,
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 1,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 2,
+    letterSpacing: -0.5,
+  },
+  feedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1.5,
+  },
+  feedbackBannerError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  feedbackBannerSuccess: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  feedbackBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  feedbackBannerTextError: {
+    color: '#B91C1C',
+  },
+  feedbackBannerTextSuccess: {
+    color: '#065F46',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 18,
+    maxWidth: 440,
+  },
+  toggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  toggleBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  toggleText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  toggleTextActive: {
+    color: '#1B4D3E',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  sectionIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 18,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  formGroup: {
+    flex: 1,
+    marginBottom: 6,
+  },
+  formGroupFull: {
+    width: '100%',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 24,
+    marginBottom: 6,
+  },
+  label: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.3,
+  },
+  npdlBadge: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  npdlBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  requiredAsterisk: {
+    color: '#DC2626',
+    fontWeight: '800',
+  },
+  input: {
+    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13.5,
+    color: '#0F172A',
+    ...Platform.select({
+      web: { outlineStyle: 'none' } as any,
+    }),
+  },
+  inputErrorBorder: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  compoundInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  compoundPrefixBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    height: '100%',
+    justifyContent: 'center',
+    borderRightWidth: 1.5,
+    borderRightColor: '#E2E8F0',
+  },
+  compoundPrefixText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1B4D3E',
+    letterSpacing: 0.2,
+  },
+  ltoPrefixBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    height: '100%',
+    justifyContent: 'center',
+    borderRightWidth: 1.5,
+    borderRightColor: '#E2E8F0',
+  },
+  ltoPrefixText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1B4D3E',
+    letterSpacing: 0.5,
+  },
+  compoundInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 12,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0F172A',
+    ...Platform.select({
+      web: { outlineStyle: 'none' } as any,
+    }),
+  },
+  passwordInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  passwordField: {
+    flex: 1,
+    height: '100%',
+    fontSize: 13.5,
+    color: '#0F172A',
+    ...Platform.select({
+      web: { outlineStyle: 'none' } as any,
+    }),
+  },
+  passwordEyeBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  autoGenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  autoGenBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  helperText: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  errorHelperText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+    marginTop: 4,
+  },
+  boldText: {
+    fontWeight: '700',
+    color: '#1B4D3E',
+  },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  countryPickerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    height: '100%',
+    borderRightWidth: 1.5,
+    borderRightColor: '#E2E8F0',
+    gap: 4,
+  },
+  flagEmoji: {
+    fontSize: 15,
+  },
+  countryCodeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  phoneNumberInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 14,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+    ...Platform.select({
+      web: { outlineStyle: 'none' } as any,
+    }),
+  },
+  phoneClearBtn: {
+    padding: 10,
+    marginRight: 4,
+  },
+  upgradeSection: {
+    width: '100%',
+  },
+  searchContainer: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 2,
+  },
+  foundUserCard: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 14,
+  },
+  foundUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  foundUserName: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  foundUserEmail: {
+    fontSize: 12.5,
+    color: '#047857',
+    marginTop: 1,
+  },
+  foundUserMeta: {
+    fontSize: 11.5,
+    color: '#059669',
+    marginTop: 3,
+  },
+  removeUserBtn: {
+    padding: 6,
+  },
+  residentsListContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  listHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#F1F5F9',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  residentsScroll: {
+    maxHeight: 180,
+  },
+  residentListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  avatarBadgeSmall: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  avatarTextSmall: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  residentListName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  residentListEmail: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  selectResidentBadge: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  selectResidentText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  noResidentsText: {
+    padding: 16,
+    textAlign: 'center',
+    color: '#94A3B8',
+    fontSize: 13,
+  },
+  assignmentRow: {
+    flexDirection: 'row',
+    gap: 16,
+    alignItems: 'flex-start',
+  },
+  dropdown: {
+    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+    zIndex: 100,
+    maxHeight: 180,
+  },
+  dropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  dropdownItemText: {
+    fontSize: 12.5,
+    color: '#334155',
+  },
+  infoCallout: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 12,
+    padding: 12,
+  },
+  infoCalloutTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  infoCalloutText: {
+    fontSize: 11,
+    color: '#047857',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  submitSection: {
+    alignItems: 'flex-end',
+    marginBottom: 40,
+  },
+  submitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1B4D3E',
+    paddingHorizontal: 26,
+    paddingVertical: 13,
+    borderRadius: 11,
+    shadowColor: '#1B4D3E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  submitBtnText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalSuccessIconBadge: {
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  modalSummaryBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginVertical: 18,
+  },
+  modalSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  modalSummaryLabel: {
+    fontSize: 12.5,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  modalSummaryValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  modalDoneBtn: {
+    width: '100%',
+    backgroundColor: '#1B4D3E',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalDoneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  roleBadgeSmall: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  roleBadgeSmallText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
 });

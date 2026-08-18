@@ -1,11 +1,13 @@
 import { AuthProvider, useAuthContext } from '@/components/AuthContext';
+import RequireChangePasswordModal from '@/components/RequireChangePasswordModal';
 import { db } from '@/config/firebase';
 import { ThemeProvider } from '@/hooks/useTheme';
 import '@/services/notificationService';
 import { getTransitionConfig } from '@/utils/transitions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { isDictEmail, ensureDictProfileInFirestore } from '@/constants/dictConfig';
@@ -17,6 +19,63 @@ function RootLayoutNav() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [roleLoading, setRoleLoading] = useState(false);
   const [roleResolvedForUid, setRoleResolvedForUid] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  // Listen for mustChangePassword and 24-hour snooze time limit on authenticated user profile
+  useEffect(() => {
+    if (!user?.uid || !db) {
+      setMustChangePassword(false);
+      return;
+    }
+
+    const evaluatePasswordRequirement = async (data: any) => {
+      if (data?.mustChangePassword === true) {
+        const now = Date.now();
+        let isSnoozed = false;
+
+        // 1. Check Firestore snooze timestamp
+        const firestoreSnooze = typeof data?.passwordChangeSnoozedUntil === 'number'
+          ? data.passwordChangeSnoozedUntil
+          : (data?.passwordChangeSnoozedUntil?.toMillis ? data.passwordChangeSnoozedUntil.toMillis() : null);
+
+        if (firestoreSnooze && now < firestoreSnooze) {
+          isSnoozed = true;
+        }
+
+        // 2. Check local device snooze fallback
+        if (!isSnoozed) {
+          try {
+            const localSnoozeStr = await AsyncStorage.getItem(`@trashtrack_pwd_snooze_${user.uid}`);
+            if (localSnoozeStr) {
+              const localSnooze = parseInt(localSnoozeStr, 10);
+              if (localSnooze && now < localSnooze) {
+                isSnoozed = true;
+              }
+            }
+          } catch {}
+        }
+
+        setMustChangePassword(!isSnoozed);
+      } else {
+        setMustChangePassword(false);
+      }
+    };
+
+    const userRef = doc(db, 'users', user.uid);
+    const unsub = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        evaluatePasswordRequirement(data);
+      } else {
+        setMustChangePassword(false);
+      }
+    }, (err) => {
+      if (err?.code !== 'permission-denied') {
+        console.warn('RootLayoutNav: user profile listener error:', err);
+      }
+    });
+    return () => unsub();
+  }, [user?.uid]);
 
   // Resolve user role for access control
   useEffect(() => {
@@ -88,9 +147,18 @@ function RootLayoutNav() {
           router.replace('/dict/dashboard' as any);
         }
       } else {
-        // Regular user app: redirect splash / auth screens to home
-        if (currentSegment === 'splash' || currentSegment === 'auth') {
-          router.replace('/home' as any);
+        // Redirect splash / auth / driver-login screens
+        if (
+          currentSegment === 'splash' ||
+          currentSegment === 'auth' ||
+          currentSegment === '(auth)' ||
+          currentSegment === 'driver-login'
+        ) {
+          if (userRole === 'driver') {
+            router.replace('/(driver)' as any);
+          } else {
+            router.replace('/home' as any);
+          }
         }
       }
     }
@@ -153,9 +221,12 @@ function RootLayoutNav() {
   if (!loaded || loading) {
     // Async font loading only occurs in development.
     return null;
-  }  return (
-    <Stack 
-      initialRouteName="splash"
+  }
+
+  return (
+    <>
+      <Stack 
+        initialRouteName="splash"
       screenOptions={{
         headerShown: false,
         ...getTransitionConfig('slideFromRight'),
@@ -267,6 +338,13 @@ function RootLayoutNav() {
         }} 
       />
     </Stack>
+    <RequireChangePasswordModal
+      visible={mustChangePassword}
+      user={user}
+      onSuccess={() => setMustChangePassword(false)}
+      onSnooze={() => setMustChangePassword(false)}
+    />
+    </>
   );
 }
 

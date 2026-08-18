@@ -13,3 +13,5 @@ export { default as DriverAccountsTab } from './DriverAccountsTab';
 export { default as AnnouncementsTab } from './AnnouncementsTab';
 export { default as FleetMonitoringTab } from './FleetMonitoringTab';
 export { default as DictCommandsTab } from './DictCommandsTab';
+export { default as CenroProfileSettingsModal } from './CenroProfileSettingsModal';
+export { default as CoordinatorOnboardingTab } from './CoordinatorOnboardingTab';

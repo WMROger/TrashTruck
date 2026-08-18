@@ -12,6 +12,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -134,13 +135,15 @@ export default function LoginScreen() {
             updatedAt: serverTimestamp(),
           });
         } else {
+          const existingData = snap.data();
+          const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'dict' || existingData?.role === 'coordinator';
           await setDoc(
             userRef,
             {
               email: rawEmail || '',
               displayName: currentUser.displayName || '',
               photoURL: currentUser.photoURL || '',
-              verified: currentUser.emailVerified === true,
+              verified: isSpecialVerified ? true : currentUser.emailVerified === true,
               provider,
               updatedAt: serverTimestamp(),
             },
@@ -269,149 +272,173 @@ export default function LoginScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
         >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back-circle-outline" size={32} color="#6B705C" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Content */}
-        <View style={styles.content}>
-          {/* Top Section - Title and Inputs */}
-          <View style={styles.topSection}>
-            <Text style={styles.title}>
-              Login to <Text style={styles.titleHighlight}>TrashTrack</Text>
-            </Text>
-            <Text style={styles.subtitle}>Enter your email and password to login</Text>
-
-            {/* Input Fields */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  email.length > 0 && !validateEmail(email) && styles.inputError
-                ]}
-                placeholder=""
-                placeholderTextColor="#999"
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  if (text.length > 0 && !validateEmail(text)) {
-                    setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
-                  } else {
-                    clearError('email');
-                  }
-                }}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              {errors.email && (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
-                  <Text style={styles.errorText}>{errors.email}</Text>
-                </View>
-              )}
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Ionicons name="arrow-back-circle-outline" size={32} color="#6B705C" />
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Password</Text>
-              <View style={styles.passwordInputContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder=""
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color="#666" />
+            {/* Content */}
+            <View style={styles.content}>
+              {/* Top Section - Title and Inputs */}
+              <View style={styles.topSection}>
+                <Text style={styles.title}>
+                  Login to <Text style={styles.titleHighlight}>TrashTrack</Text>
+                </Text>
+                <Text style={styles.subtitle}>Enter your email and password to login</Text>
+
+                {/* Input Fields */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Email</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      email.length > 0 && email.includes('@') && !validateEmail(email) && styles.inputError
+                    ]}
+                    placeholder=""
+                    placeholderTextColor="#999"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      clearError('email');
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {errors.email ? (
+                    <View style={styles.errorContainer}>
+                      <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                      <Text style={styles.errorText}>{errors.email}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Password</Text>
+                  <View style={[
+                    styles.passwordInputContainer,
+                    errors.password && styles.inputError
+                  ]}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder=""
+                      placeholderTextColor="#999"
+                      value={password}
+                      onChangeText={(text) => {
+                        setPassword(text);
+                        clearError('password');
+                      }}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                        size={20}
+                        color="#666"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.password ? (
+                    <View style={styles.errorContainer}>
+                      <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                      <Text style={styles.errorText}>{errors.password}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Remember Me and Forgot Password */}
+                <View style={styles.rememberForgotContainer}>
+                  <TouchableOpacity
+                    style={styles.rememberMeContainer}
+                    onPress={handleRememberMeToggle}
+                  >
+                    <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                      {rememberMe && <Ionicons name="checkmark" size={12} color="#FFF" />}
+                    </View>
+                    <Text style={styles.rememberMeText}>Remember me</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={handleForgotPassword}>
+                    <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Bottom Section - Buttons */}
+              <View style={styles.bottomSection}>
+                {/* Login Button */}
+                <TouchableOpacity
+                  style={[styles.primaryButton, isLoading && styles.disabledButton]}
+                  onPress={handleLogin}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {isLoading ? 'Signing In...' : 'Login'}
+                  </Text>
                 </TouchableOpacity>
+
+                {/* Separator */}
+                <View style={styles.separatorContainer}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>or</Text>
+                  <View style={styles.separatorLine} />
+                </View>
+
+                {/* Social Login Buttons */}
+                <View style={styles.socialButtons}>
+                  <TouchableOpacity
+                    style={styles.socialButton}
+                    onPress={handleGoogleLogin}
+                    disabled={isLoading}
+                  >
+                    <View style={styles.socialIconCircle}>
+                      <Text style={{fontWeight: 'bold', color: '#DB4437'}}>G</Text>
+                    </View>
+                    <Text style={styles.socialButtonText}>Continue with Google</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.socialButton}
+                    onPress={handleFacebookLogin}
+                    disabled={isLoading}
+                  >
+                    <Ionicons name="logo-facebook" size={20} color="#1877F2" style={{marginRight: 8}} />
+                    <Text style={styles.socialButtonText}>Continue with Facebook</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Sign Up Link */}
+                <View style={styles.signUpContainer}>
+                  <Text style={styles.signUpText}>Don’t have an account? </Text>
+                  <TouchableOpacity onPress={handleSignUp}>
+                    <Text style={styles.signUpLink}>Signup</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
+          </ScrollView>
 
-            {/* Remember Me and Forgot Password */}
-            <View style={styles.rememberForgotContainer}>
-              <TouchableOpacity 
-                style={styles.rememberMeContainer}
-                onPress={handleRememberMeToggle}
-              >
-                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                  {rememberMe && <Ionicons name="checkmark" size={14} color="white" />}
-                </View>
-                <Text style={styles.rememberMeText}>Remember me</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleForgotPassword}>
-                <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Bottom Section - Buttons */}
-          <View style={styles.bottomSection}>
-            {/* Login Button */}
-            <TouchableOpacity 
-              style={[styles.primaryButton, isLoading && styles.disabledButton]}
-              onPress={handleLogin}
-              disabled={isLoading}
-            >
-              <Text style={styles.primaryButtonText}>
-                {isLoading ? 'Logging in...' : 'Login'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Separator */}
-            <View style={styles.separatorContainer}>
-              <View style={styles.separatorLine} />
-              <Text style={styles.separatorText}>or sign in with</Text>
-              <View style={styles.separatorLine} />
-            </View>
-
-            {/* Social Login Buttons */}
-            <View style={styles.socialButtons}>
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={handleGoogleLogin}
-                disabled={isLoading}
-              >
-                <View style={styles.socialIconCircle}>
-                  <Text style={{fontWeight: 'bold', color: '#DB4437'}}>G</Text>
-                </View>
-                <Text style={styles.socialButtonText}>Continue with Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={handleFacebookLogin}
-                disabled={isLoading}
-              >
-                <Ionicons name="logo-facebook" size={20} color="#1877F2" style={{marginRight: 8}} />
-                <Text style={styles.socialButtonText}>Continue with Facebook</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Sign Up Link */}
-            <View style={styles.signUpContainer}>
-              <Text style={styles.signUpText}>Don’t have an account? </Text>
-              <TouchableOpacity onPress={handleSignUp}>
-                <Text style={styles.signUpLink}>Signup</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* Error Modal */}
-        <ErrorModal
-          visible={errorModal.visible}
-          title={errorModal.title}
-          message={errorModal.message}
-          type={errorModal.type}
-          onClose={closeErrorModal}
-          autoClose={true}
-          autoCloseDelay={4000}
-        />
+          {/* Error Modal */}
+          <ErrorModal
+            visible={errorModal.visible}
+            title={errorModal.title}
+            message={errorModal.message}
+            type={errorModal.type}
+            onClose={closeErrorModal}
+            autoClose={true}
+            autoCloseDelay={4000}
+          />
         </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>

@@ -58,27 +58,34 @@ export default function LoadingPage() {
       const userSnap = await getDoc(userRef);
       
       if (!userSnap.exists()) {
-        // New user - create profile
+        // New user - create profile adhering strictly to security rules
         await setDoc(userRef, {
           uid: user.uid,
-          email: user.email,
+          email: user.email || '',
+          displayName: user.displayName || user.email?.split('@')[0] || 'User',
           name: user.displayName || user.email?.split('@')[0] || 'User',
+          verified: user.emailVerified === true,
           role: 'user', // Default role
+          provider: provider,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          provider: provider,
         });
         console.log('Created new user profile');
       } else {
         // Existing user - update login timestamp
+        const existingData = userSnap.data();
+        const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'dict' || existingData?.role === 'coordinator';
         await setDoc(userRef, {
+          email: user.email || existingData?.email || '',
+          displayName: user.displayName || existingData?.displayName || existingData?.name || 'User',
+          verified: isSpecialVerified ? true : user.emailVerified === true,
           updatedAt: serverTimestamp(),
           lastLogin: serverTimestamp(),
         }, { merge: true });
         console.log('Updated existing user profile');
       }
     } catch (error) {
-      console.error('Error upserting user profile:', error);
+      console.warn('Upserting user profile note:', error);
     }
   };
 
@@ -148,12 +155,16 @@ export default function LoadingPage() {
       setLoadingText('Checking user role...');
       setProgress(50);
 
+      let isDriverOrPreVerified = false;
       // Check user role and prevent admin login on user/driver UI
       if (db) {
         const snap = await getDoc(doc(db, 'users', user.uid));
         if (snap.exists()) {
           const data = snap.data();
           const userRole = (data as any)?.role;
+          if (userRole === 'driver' || userRole === 'admin' || userRole === 'dict' || (data as any)?.verified === true) {
+            isDriverOrPreVerified = true;
+          }
           
           // Prevent admin and dict logins on the mobile app
           if (userRole === 'admin' || userRole === 'dict') {
@@ -174,12 +185,12 @@ export default function LoadingPage() {
         }
       }
 
-      setLoadingText('Verifying email...');
+      setLoadingText('Verifying credentials...');
       setProgress(75);
 
-      // Password accounts must verify their email before any role can proceed.
+      // Password accounts must verify their email before proceeding (unless pre-verified or driver).
       const isPasswordProvider = Array.isArray(user.providerData) && user.providerData.some(p => p?.providerId === 'password');
-      if (isPasswordProvider && !user.emailVerified) {
+      if (isPasswordProvider && !user.emailVerified && !isDriverOrPreVerified) {
         try {
           await sendEmailVerification(user);
           showError('A verification link has been sent to your email. Please verify before logging in.', 'Email Verification Required', 'info');
@@ -293,8 +304,8 @@ export default function LoadingPage() {
               router.replace('/dict/dashboard' as any);
             }
           } else if (role === 'driver') {
-            console.log('Driver user detected, redirecting to resident home');
-            router.replace('/(tabs)/home' as any);
+            console.log('Driver user detected, redirecting to driver interface');
+            router.replace('/(driver)' as any);
           } else {
             console.log('Regular user detected, redirecting to home');
             router.replace('/(tabs)/home' as any);

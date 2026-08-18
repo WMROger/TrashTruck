@@ -36,8 +36,11 @@ export default function TabLayout() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          setIsAdmin(userData.role === 'admin');
-          // Drivers stay on the regular user portal but have access to driver features
+          if (userData.role === 'admin') {
+            setIsAdmin(true);
+            router.replace('/admin/dashboard' as any);
+            return;
+          }
           setRole(userData.role || null);
         }
         setIsAdmin(false);

@@ -21,12 +21,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Enforce account disabling during an active session, not only at the next login.
   useEffect(() => {
     if (!auth.user?.uid || !db) return;
-    return onSnapshot(doc(db, 'users', auth.user.uid), snapshot => {
-      const profile = snapshot.data();
-      if (profile?.disabled === true || profile?.status === 'disabled') {
-        signOut(firebaseAuth).catch(error => console.warn('Unable to end disabled account session:', error));
+    return onSnapshot(
+      doc(db, 'users', auth.user.uid),
+      snapshot => {
+        const profile = snapshot.data();
+        if (profile?.disabled === true || profile?.status === 'disabled') {
+          signOut(firebaseAuth).catch(error => console.warn('Unable to end disabled account session:', error));
+        }
+      },
+      error => {
+        // Silently ignore permission-denied during logout / session termination
+        if (error?.code !== 'permission-denied') {
+          console.warn('AuthContext profile listener warning:', error);
+        }
       }
-    });
+    );
   }, [auth.user?.uid]);
 
   useEffect(() => {

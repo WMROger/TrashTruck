@@ -249,6 +249,21 @@ export default function IdentityAccessTab() {
       return;
     }
 
+    if (!cenroContact.trim() || cenroContact.replace(/\D/g, '').length < 10) {
+      showFeedback('Validation Error', 'A valid 10-digit contact number is required (9XX XXX XXXX).', 'error');
+      return;
+    }
+
+    if (!cenroDepartment.trim()) {
+      showFeedback('Validation Error', 'Department / Office is required.', 'error');
+      return;
+    }
+
+    if (!cenroDesignation.trim()) {
+      showFeedback('Validation Error', 'Designation / Title is required.', 'error');
+      return;
+    }
+
     const targetEmail = cenroEmail.trim();
     const targetPassword = cenroPassword;
 
@@ -620,7 +635,9 @@ export default function IdentityAccessTab() {
             <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
               <View style={styles.formGrid}>
                 <View style={styles.formGroupHalf}>
-                  <Text style={styles.formLabel}>OFFICIAL EMAIL (LOGIN) *</Text>
+                  <Text style={styles.formLabel}>
+                    OFFICIAL EMAIL (LOGIN)<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="e.g. cenro.danao@gmail.com"
@@ -634,7 +651,9 @@ export default function IdentityAccessTab() {
 
                 <View style={styles.formGroupHalf}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <Text style={styles.formLabel}>AUTO-GENERATED PASSWORD *</Text>
+                    <Text style={styles.formLabel}>
+                      AUTO-GENERATED PASSWORD<Text style={styles.requiredAsterisk}> *</Text>
+                    </Text>
                     <TouchableOpacity
                       onPress={handleRegeneratePassword}
                       style={styles.pwdInlineBtn}
@@ -695,7 +714,9 @@ export default function IdentityAccessTab() {
                 </View>
 
                 <View style={styles.formGroupFull}>
-                  <Text style={styles.formLabel}>CONTACT NUMBER</Text>
+                  <Text style={styles.formLabel}>
+                    CONTACT NUMBER<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <View style={styles.phoneInputContainer}>
                     <View style={styles.phonePrefixBox}>
                       <Text style={styles.phonePrefixFlag}>🇵🇭</Text>
@@ -714,7 +735,9 @@ export default function IdentityAccessTab() {
                 </View>
 
                 <View style={styles.formGroupFull}>
-                  <Text style={styles.formLabel}>DEPARTMENT / OFFICE</Text>
+                  <Text style={styles.formLabel}>
+                    DEPARTMENT / OFFICE<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="e.g. CENRO Danao City - Solid Waste Management Office"
@@ -725,7 +748,9 @@ export default function IdentityAccessTab() {
                 </View>
 
                 <View style={styles.formGroupFull}>
-                  <Text style={styles.formLabel}>DESIGNATION / TITLE</Text>
+                  <Text style={styles.formLabel}>
+                    DESIGNATION / TITLE<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="e.g. CENRO Administrator"
@@ -1277,6 +1302,10 @@ const styles = StyleSheet.create({
     color: '#374151',
     letterSpacing: 0.5,
     marginBottom: 6,
+  },
+  requiredAsterisk: {
+    color: '#EF4444',
+    fontWeight: '800',
   },
   formInput: {
     backgroundColor: '#F9FAFB',

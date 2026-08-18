@@ -27,11 +27,26 @@ export default function AnnouncementsPage() {
   useEffect(() => {
     if (!db) return;
     const announcementsRef = collection(db, "announcements");
-    const q = query(announcementsRef, where("isPublished", "==", true), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAllAnnouncements(data);
-    });
+    const q = query(announcementsRef, where("isPublished", "==", true));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        data.sort((a: any, b: any) => {
+          const timeA = a.createdAt?.toDate
+            ? a.createdAt.toDate().getTime()
+            : new Date(a.createdAt || 0).getTime();
+          const timeB = b.createdAt?.toDate
+            ? b.createdAt.toDate().getTime()
+            : new Date(b.createdAt || 0).getTime();
+          return timeB - timeA;
+        });
+        setAllAnnouncements(data);
+      },
+      (error) => {
+        console.warn("Announcements snapshot warning:", error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 

@@ -2,7 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { auth } from '@/config/firebase';
 
 export default function ChangePasswordScreen() {
@@ -43,52 +43,72 @@ export default function ChangePasswordScreen() {
     }
   };
 
-  return <SafeAreaView style={styles.container}>
-    <View style={styles.header}>
-      <TouchableOpacity style={styles.back} onPress={() => router.back()}><MaterialIcons name="arrow-back" size={23} color="#1F2937" /></TouchableOpacity>
-      <Text style={styles.headerTitle}>Change Password</Text>
-      <View style={styles.back} />
-    </View>
-    <View style={styles.card}>
-      <View style={styles.icon}><MaterialIcons name="lock-reset" size={30} color="#2E8B57" /></View>
-      <Text style={styles.title}>Secure your account</Text>
-      <Text style={styles.subtitle}>Confirm your current password before choosing a new one.</Text>
-      {[
-        ['Current password', currentPassword, setCurrentPassword],
-        ['New password', newPassword, setNewPassword],
-        ['Confirm new password', confirmPassword, setConfirmPassword],
-      ].map(([label, value, setter]) => <View key={label as string} style={styles.field}>
-        <Text style={styles.label}>{label as string}</Text>
-        <TextInput
-          style={styles.input}
-          value={value as string}
-          onChangeText={setter as (value: string) => void}
-          secureTextEntry={!showPasswords}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      </View>)}
-      <TouchableOpacity style={styles.showRow} onPress={() => setShowPasswords(value => !value)}>
-        <MaterialIcons name={showPasswords ? 'visibility-off' : 'visibility'} size={18} color="#64748B" />
-        <Text style={styles.showText}>{showPasswords ? 'Hide passwords' : 'Show passwords'}</Text>
-      </TouchableOpacity>
-      <View style={styles.requirements}>
-        {[
-          ['At least 12 characters', requirements.length],
-          ['Uppercase and lowercase letters', requirements.upper && requirements.lower],
-          ['At least one number', requirements.number],
-          ['At least one symbol (@$!%*?&)', requirements.symbol],
-          ['Confirmation matches', !!confirmPassword && newPassword === confirmPassword],
-        ].map(([label, met]) => <View key={label as string} style={styles.requirementRow}>
-          <MaterialIcons name={met ? 'check-circle' : 'radio-button-unchecked'} size={16} color={met ? '#16A34A' : '#94A3B8'} />
-          <Text style={[styles.requirementText, met && styles.requirementMet]}>{label as string}</Text>
-        </View>)}
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.back} onPress={() => router.back()}>
+          <MaterialIcons name="arrow-back" size={23} color="#1F2937" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Change Password</Text>
+        <View style={styles.back} />
       </View>
-      <TouchableOpacity style={[styles.save, (!valid || saving) && styles.disabled]} onPress={save} disabled={!valid || saving}>
-        {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveText}>Update Password</Text>}
-      </TouchableOpacity>
-    </View>
-  </SafeAreaView>;
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView 
+          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <View style={styles.icon}><MaterialIcons name="lock-reset" size={30} color="#2E8B57" /></View>
+            <Text style={styles.title}>Secure your account</Text>
+            <Text style={styles.subtitle}>Confirm your current password before choosing a new one.</Text>
+            {[
+              ['Current password', currentPassword, setCurrentPassword],
+              ['New password', newPassword, setNewPassword],
+              ['Confirm new password', confirmPassword, setConfirmPassword],
+            ].map(([label, value, setter]) => (
+              <View key={label as string} style={styles.field}>
+                <Text style={styles.label}>{label as string}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={value as string}
+                  onChangeText={setter as (value: string) => void}
+                  secureTextEntry={!showPasswords}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+            ))}
+            <TouchableOpacity style={styles.showRow} onPress={() => setShowPasswords(value => !value)}>
+              <MaterialIcons name={showPasswords ? 'visibility-off' : 'visibility'} size={18} color="#64748B" />
+              <Text style={styles.showText}>{showPasswords ? 'Hide passwords' : 'Show passwords'}</Text>
+            </TouchableOpacity>
+            <View style={styles.requirements}>
+              {[
+                ['At least 12 characters', requirements.length],
+                ['Uppercase and lowercase letters', requirements.upper && requirements.lower],
+                ['At least one number', requirements.number],
+                ['At least one symbol (@$!%*?&)', requirements.symbol],
+                ['Confirmation matches', !!confirmPassword && newPassword === confirmPassword],
+              ].map(([label, met]) => (
+                <View key={label as string} style={styles.requirementRow}>
+                  <MaterialIcons name={met ? 'check-circle' : 'radio-button-unchecked'} size={16} color={met ? '#16A34A' : '#94A3B8'} />
+                  <Text style={[styles.requirementText, met && styles.requirementMet]}>{label as string}</Text>
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity style={[styles.save, (!valid || saving) && styles.disabled]} onPress={save} disabled={!valid || saving}>
+              {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveText}>Update Password</Text>}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 }
 
 const styles = StyleSheet.create({
