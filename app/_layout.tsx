@@ -54,13 +54,15 @@ function RootLayoutNav() {
     if (loading || (isAuthenticated && (roleLoading || roleResolvedForUid !== user?.uid))) return;
     const currentSegment = segments[0];
 
+    const segmentStr = String(currentSegment || '');
     if (!isAuthenticated) {
       // Unauthenticated access
-      if (currentSegment === 'admin') {
-        // Admin segment: allow explicit navigation to admin screens
-      } else if (currentSegment === 'dict') {
-        // DICT portal requires admin/dict login
-        router.replace('/admin/login' as any);
+      if (
+        segmentStr === 'admin' ||
+        segmentStr.toLowerCase() === 'cenro' ||
+        segmentStr.toLowerCase() === 'dict'
+      ) {
+        // Allow unauthenticated portal access to login screens
       } else {
         // Regular user portal: redirect to /auth if not on allowed entry routes
         if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)' && currentSegment !== 'driver-login') {
@@ -69,15 +71,21 @@ function RootLayoutNav() {
       }
     } else if (isAuthenticated) {
       // Authenticated access
-      if (currentSegment === 'admin') {
-        // Only allow users with admin role in /admin
-        if (userRole !== 'admin') {
-          router.replace('/home' as any);
+      if (segmentStr === 'admin' || segmentStr.toLowerCase() === 'cenro') {
+        if (segments[1] === 'dashboard') {
+          if (userRole !== 'admin') {
+            router.replace('/cenro' as any);
+          }
+        } else if (userRole === 'admin' && (segmentStr.toLowerCase() === 'cenro' || segments[1] === 'login')) {
+          router.replace('/admin/dashboard' as any);
         }
-      } else if (currentSegment === 'dict') {
-        // Only allow users with dict role in /dict
-        if (userRole !== 'dict') {
-          router.replace('/home' as any);
+      } else if (segmentStr.toLowerCase() === 'dict') {
+        if (segments[1] === 'dashboard') {
+          if (userRole !== 'dict') {
+            router.replace('/dict' as any);
+          }
+        } else if (userRole === 'dict' && (segments.length === 1 || segments[1] === 'login')) {
+          router.replace('/dict/dashboard' as any);
         }
       } else {
         // Regular user app: redirect splash / auth screens to home
@@ -88,10 +96,13 @@ function RootLayoutNav() {
     }
   }, [userRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
 
-  // Route-scoped global font: Poppins on admin/dict, Plus Jakarta Sans & Inter elsewhere
+  // Route-scoped global font: Poppins on admin/dict/cenro, Plus Jakarta Sans & Inter elsewhere
   useEffect(() => {
-    const currentSegment = segments[0];
-    const isAdminRoute = currentSegment === 'admin' || currentSegment === 'dict';
+    const segmentStr = String(segments[0] || '').toLowerCase();
+    const isAdminRoute =
+      segmentStr === 'admin' ||
+      segmentStr === 'dict' ||
+      segmentStr === 'cenro';
 
     const adminFont = Platform.select({
       web: "'Poppins', 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -142,12 +153,13 @@ function RootLayoutNav() {
   if (!loaded || loading) {
     // Async font loading only occurs in development.
     return null;
-  }
-
-  return (
+  }  return (
     <Stack 
       initialRouteName="splash"
-      screenOptions={getTransitionConfig('slideFromRight')}
+      screenOptions={{
+        headerShown: false,
+        ...getTransitionConfig('slideFromRight'),
+      }}
     >
       <Stack.Screen 
         name="index" 
@@ -212,6 +224,20 @@ function RootLayoutNav() {
           ...getTransitionConfig('admin'),
         }} 
       />
+      <Stack.Screen 
+        name="cenro" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('admin'),
+        }} 
+      />
+      <Stack.Screen 
+        name="CENRO" 
+        options={{ 
+          headerShown: false,
+          ...getTransitionConfig('admin'),
+        }} 
+      />
       <Stack.Screen
         name="rewards"
         options={{
@@ -226,11 +252,19 @@ function RootLayoutNav() {
           ...getTransitionConfig('admin'),
         }}
       />
+      <Stack.Screen
+        name="DICT"
+        options={{
+          headerShown: false,
+          ...getTransitionConfig('admin'),
+        }}
+      />
       <Stack.Screen 
         name="+not-found" 
         options={{
+          headerShown: false,
           ...getTransitionConfig('fade'),
-        }}
+        }} 
       />
     </Stack>
   );

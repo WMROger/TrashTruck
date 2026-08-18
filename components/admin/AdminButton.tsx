@@ -5,23 +5,48 @@ interface AdminButtonProps {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary';
+  colorScheme?: 'green' | 'teal' | 'slate';
   disabled?: boolean;
+  style?: any;
 }
 
-export default function AdminButton({ title, onPress, variant = 'primary', disabled = false }: AdminButtonProps) {
+export default function AdminButton({
+  title,
+  onPress,
+  variant = 'primary',
+  colorScheme = 'green',
+  disabled = false,
+  style,
+}: AdminButtonProps) {
+  const getThemeColor = () => {
+    switch (colorScheme) {
+      case 'teal':
+        return '#0F766E';
+      case 'slate':
+        return '#1E293B';
+      case 'green':
+      default:
+        return '#2E7D32';
+    }
+  };
+
+  const themeColor = getThemeColor();
+
   return (
     <TouchableOpacity 
       style={[
         styles.button, 
-        variant === 'primary' ? styles.primaryButton : styles.secondaryButton,
-        disabled && styles.disabledButton
+        variant === 'primary' ? { backgroundColor: themeColor } : { backgroundColor: 'transparent', borderWidth: 2, borderColor: themeColor },
+        disabled && styles.disabledButton,
+        style,
       ]} 
       onPress={onPress}
       disabled={disabled}
+      activeOpacity={0.85}
     >
       <Text style={[
         styles.buttonText, 
-        variant === 'primary' ? styles.primaryButtonText : styles.secondaryButtonText,
+        variant === 'primary' ? styles.primaryButtonText : { color: themeColor },
         disabled && styles.disabledButtonText
       ]}>
         {title}

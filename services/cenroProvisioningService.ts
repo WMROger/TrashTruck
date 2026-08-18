@@ -3,15 +3,16 @@ import { deleteApp, initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, deleteUser, getAuth, sendEmailVerification, updateProfile } from 'firebase/auth';
 import { doc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { writeAuditLog } from './auditLogService';
+import { sendCenroWelcomeEmail } from './emailNotificationService';
 
 export type CenroProvisionInput = {
   mode: 'create' | 'upgrade';
   email?: string;
   password?: string;
-  fullName: string;
+  fullName?: string;
   contactInfo?: string;
   existingUserId?: string;
-  employeeId: string;
+  employeeId?: string;
   department?: string;
   designation?: string;
 };
@@ -24,27 +25,20 @@ const normalize = (raw: CenroProvisionInput) => {
     ...raw,
     email: String(raw.email || '').trim().toLowerCase(),
     password: String(raw.password || ''),
-    fullName: String(raw.fullName || '').trim(),
+    fullName: String(raw.fullName || 'CENRO Administrator').trim(),
     contactInfo: String(raw.contactInfo || '').trim().slice(0, 100),
     existingUserId: String(raw.existingUserId || '').trim(),
-    employeeId: String(raw.employeeId || '').trim().toUpperCase(),
-    department: String(raw.department || 'CENRO Danao City').trim().slice(0, 120),
+    employeeId: String(raw.employeeId || 'CENRO-ADMIN').trim().toUpperCase(),
+    department: String(raw.department || 'CENRO Danao City - Solid Waste Management Office').trim().slice(0, 120),
     designation: String(raw.designation || 'CENRO Administrator').trim().slice(0, 120),
   };
-
-  if (!ID_PATTERN.test(input.employeeId)) {
-    throw new Error('Enter a valid CENRO employee ID (e.g. CENRO-ADM-01).');
-  }
-  if (input.fullName.length < 2 || input.fullName.length > 100) {
-    throw new Error('Enter the full name of the CENRO administrator.');
-  }
 
   if (input.mode === 'create') {
     if (!EMAIL_PATTERN.test(input.email)) {
       throw new Error('Enter a valid email address for the CENRO account.');
     }
-    if (input.password.length < 12 || input.password.length > 128) {
-      throw new Error('The temporary password must contain at least 12 characters.');
+    if (input.password.length < 6 || input.password.length > 128) {
+      throw new Error('The password must contain at least 6 characters.');
     }
   } else if (!input.existingUserId) {
     throw new Error('Select an existing resident account to elevate to CENRO.');
@@ -88,7 +82,7 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
         role: 'admin', // CENRO Municipal Admin role
         status: 'active',
         disabled: false,
-        verified: input.mode === 'upgrade' ? existingData?.verified === true : false,
+        verified: true,
         updatedAt: timestamp,
         ...(profile.exists() ? {} : { createdAt: timestamp, provider: 'password' }),
       },
@@ -139,7 +133,19 @@ export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
     const credential = await createUserWithEmailAndPassword(secondaryAuth, input.email, input.password);
     createdUser = credential.user;
     await updateProfile(createdUser, { displayName: input.fullName });
-    await sendEmailVerification(createdUser);
+
+    // Dispatch professional executive welcome email with credentials & password
+    try {
+      await sendCenroWelcomeEmail({
+        toEmail: input.email,
+        temporaryPassword: input.password,
+        adminName: input.fullName,
+        department: input.department,
+        designation: input.designation,
+      });
+    } catch (emailErr) {
+      console.warn('Welcome email dispatch note:', emailErr);
+    }
 
     const result = await writeCenroRecords(createdUser.uid, input);
     await writeAuditLog('notification.preferences_updated' as any, 'user_role', createdUser.uid, {

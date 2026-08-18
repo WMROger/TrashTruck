@@ -14,8 +14,9 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db } from '../../../config/firebase';
+import { auth, db } from '../../../config/firebase';
 import { provisionCenroOnSpark } from '../../../services/cenroProvisioningService';
+import { isDictEmail, ensureDictProfileInFirestore } from '../../../constants/dictConfig';
 
 interface UserData {
   id: string;
@@ -48,19 +49,62 @@ export default function IdentityAccessTab() {
   // New CENRO Form fields
   const [cenroEmail, setCenroEmail] = useState('');
   const [cenroPassword, setCenroPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [cenroFullName, setCenroFullName] = useState('');
+  const [showPassword, setShowPassword] = useState(true);
+  const [copiedPassword, setCopiedPassword] = useState(false);
   const [cenroContact, setCenroContact] = useState('');
-  const [cenroEmployeeId, setCenroEmployeeId] = useState('');
   const [cenroDepartment, setCenroDepartment] = useState('CENRO Danao City - Solid Waste Management Office');
   const [cenroDesignation, setCenroDesignation] = useState('CENRO Administrator');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
+  // Result & Feedback Modal state
+  const [resultModal, setResultModal] = useState<{
+    visible: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    subtitle: string;
+    email?: string;
+    password?: string;
+    copied?: boolean;
+  }>({
+    visible: false,
+    type: 'success',
+    title: '',
+    subtitle: '',
+  });
+
+  const showFeedback = (
+    title: string,
+    subtitle: string,
+    type: 'success' | 'error' | 'info' = 'info',
+    extra?: { email?: string; password?: string }
+  ) => {
+    setResultModal({
+      visible: true,
+      type,
+      title,
+      subtitle,
+      email: extra?.email,
+      password: extra?.password,
+      copied: false,
+    });
+  };
+
+  const generateSecureCenroPassword = () => {
+    const prefixes = ['Cenro@Danao', 'Cenro#Danao', 'Cenro!Eco', 'Cenro$Admin', 'Danao#Green'];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const suffixes = ['2026', 'Gov', 'PH', 'Sec'];
+    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+    return `${prefix}${randomNum}!${suffix}`;
+  };
+
+  const fetchUsers = () => {
     if (!db) {
       setLoading(false);
-      return;
+      return () => {};
     }
 
+    setIsRefreshing(true);
     const q = query(collection(db, 'users'));
     const unsubscribe = onSnapshot(
       q,
@@ -90,14 +134,33 @@ export default function IdentityAccessTab() {
 
         setUsers(userData);
         setLoading(false);
+        setIsRefreshing(false);
       },
       (error) => {
         console.error('Error listening to users collection:', error);
         setLoading(false);
+        setIsRefreshing(false);
       }
     );
 
-    return () => unsubscribe();
+    return unsubscribe;
+  };
+
+  useEffect(() => {
+    // Initial fetch + real-time listener
+    const unsubscribe = fetchUsers();
+
+    // Periodic 1-hour background scan
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const interval = setInterval(() => {
+      console.log('🔄 Executing 1-hour periodic directory re-scan...');
+      fetchUsers();
+    }, ONE_HOUR_MS);
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   // Filtered lists
@@ -120,60 +183,108 @@ export default function IdentityAccessTab() {
   const residentCount = users.filter((u) => u.role === 'user').length;
 
   const handleOpenCreateCenro = () => {
+    const autoPassword = generateSecureCenroPassword();
     setCenroEmail('');
-    setCenroPassword('');
-    setShowPassword(false);
-    setCenroFullName('');
+    setCenroPassword(autoPassword);
+    setShowPassword(true);
+    setCopiedPassword(false);
     setCenroContact('');
-    setCenroEmployeeId(`CENRO-ADM-${String(cenroCount + 1).padStart(2, '0')}`);
     setCenroDepartment('CENRO Danao City - Solid Waste Management Office');
     setCenroDesignation('CENRO Administrator');
     setIsCenroModalOpen(true);
   };
 
+  const handleRegeneratePassword = () => {
+    const freshPassword = generateSecureCenroPassword();
+    setCenroPassword(freshPassword);
+    setCopiedPassword(false);
+  };
+
+  const handleCopyPassword = async () => {
+    if (!cenroPassword) return;
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(cenroPassword);
+      }
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    } catch {
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    }
+  };
+
+  const formatPhoneNumber = (text: string) => {
+    let digits = text.replace(/\D/g, '');
+    if (digits.startsWith('63')) {
+      digits = digits.slice(2);
+    }
+    if (digits.startsWith('0')) {
+      digits = digits.slice(1);
+    }
+    digits = digits.slice(0, 10);
+
+    if (digits.length <= 3) {
+      return digits;
+    } else if (digits.length <= 6) {
+      return `${digits.slice(0, 3)} ${digits.slice(3)}`;
+    } else {
+      return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+    }
+  };
+
+  const handleContactChange = (text: string) => {
+    const formatted = formatPhoneNumber(text);
+    setCenroContact(formatted);
+  };
+
   const handleCreateCenroSubmit = async () => {
-    if (!cenroFullName.trim() || !cenroEmail.trim() || !cenroPassword.trim() || !cenroEmployeeId.trim()) {
-      showAlert('Validation Error', 'Full Name, Email Address, Temporary Password, and Employee ID are required.');
+    if (!cenroEmail.trim() || !cenroPassword.trim()) {
+      showFeedback('Validation Error', 'Official Email Address and Password are required.', 'error');
       return;
     }
 
-    if (cenroPassword.length < 12) {
-      showAlert('Validation Error', 'Temporary password must be at least 12 characters.');
+    if (cenroPassword.length < 6) {
+      showFeedback('Validation Error', 'Password must be at least 6 characters.', 'error');
       return;
     }
+
+    const targetEmail = cenroEmail.trim();
+    const targetPassword = cenroPassword;
 
     try {
       setIsSubmittingCenro(true);
 
+      // Ensure DICT identity profile exists in Firestore (auto-heals if database was wiped)
+      if (auth.currentUser && isDictEmail(auth.currentUser.email)) {
+        await ensureDictProfileInFirestore(auth.currentUser.uid, auth.currentUser.email || 'dict@trashtrack.gov.ph');
+      }
+
+      const formattedContact = cenroContact.trim() ? `+63 ${cenroContact.trim()}` : '';
+
       await provisionCenroOnSpark({
         mode: 'create',
-        email: cenroEmail,
-        password: cenroPassword,
-        fullName: cenroFullName,
-        contactInfo: cenroContact,
-        employeeId: cenroEmployeeId,
+        email: targetEmail,
+        password: targetPassword,
+        fullName: 'CENRO Administrator',
+        contactInfo: formattedContact,
+        employeeId: 'CENRO-ADMIN',
         department: cenroDepartment,
         designation: cenroDesignation,
       });
 
       setIsCenroModalOpen(false);
-      showAlert(
-        'Success',
-        `CENRO Admin account for ${cenroFullName} has been created successfully. A verification link has been sent to ${cenroEmail}.`
+      showFeedback(
+        'Account Provisioned Successfully',
+        `CENRO Administrator account created for ${targetEmail}. An official welcome email with login credentials and portal access instructions has been dispatched.`,
+        'success',
+        { email: targetEmail, password: targetPassword }
       );
     } catch (error: any) {
       console.error('Error provisioning CENRO account:', error);
-      showAlert('Provisioning Error', error.message || 'Failed to provision CENRO account.');
+      showFeedback('Provisioning Error', error.message || 'Failed to provision CENRO account.', 'error');
     } finally {
       setIsSubmittingCenro(false);
-    }
-  };
-
-  const showAlert = (title: string, message: string) => {
-    if (Platform.OS === 'web') {
-      window.alert(`${title}: ${message}`);
-    } else {
-      Alert.alert(title, message);
     }
   };
 
@@ -244,6 +355,22 @@ export default function IdentityAccessTab() {
         </View>
 
         <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%' }]}>
+          <TouchableOpacity
+            style={styles.refreshActionBtn}
+            onPress={() => fetchUsers()}
+            disabled={isRefreshing}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons
+              name="sync"
+              size={18}
+              color="#374151"
+            />
+            <Text style={styles.refreshActionBtnText}>
+              {isRefreshing ? 'Scanning...' : 'Refresh Directory'}
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.primaryActionBtn}
             onPress={handleOpenCreateCenro}
@@ -492,21 +619,12 @@ export default function IdentityAccessTab() {
             {/* Modal Body Scroll */}
             <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
               <View style={styles.formGrid}>
-                <View style={styles.formGroupFull}>
-                  <Text style={styles.formLabel}>FULL NAME *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="e.g. Engr. Maria Teresa Santos"
-                    value={cenroFullName}
-                    onChangeText={setCenroFullName}
-                  />
-                </View>
-
                 <View style={styles.formGroupHalf}>
                   <Text style={styles.formLabel}>OFFICIAL EMAIL (LOGIN) *</Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="e.g. cenro.danao@gmail.com"
+                    placeholderTextColor="#9CA3AF"
                     value={cenroEmail}
                     onChangeText={setCenroEmail}
                     keyboardType="email-address"
@@ -515,54 +633,92 @@ export default function IdentityAccessTab() {
                 </View>
 
                 <View style={styles.formGroupHalf}>
-                  <Text style={styles.formLabel}>TEMPORARY PASSWORD *</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={styles.formLabel}>AUTO-GENERATED PASSWORD *</Text>
+                    <TouchableOpacity
+                      onPress={handleRegeneratePassword}
+                      style={styles.pwdInlineBtn}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="refresh" size={13} color="#059669" />
+                      <Text style={styles.pwdInlineBtnText}>Regenerate</Text>
+                    </TouchableOpacity>
+                  </View>
                   <View style={styles.passwordContainer}>
                     <TextInput
-                      style={[styles.formInput, { paddingRight: 40 }]}
-                      placeholder="At least 12 characters..."
+                      style={[
+                        styles.formInput,
+                        {
+                          paddingRight: 80,
+                          fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+                          fontWeight: '700',
+                          letterSpacing: 0.5,
+                          backgroundColor: '#F0FDF4',
+                          borderColor: '#BBF7D0',
+                          color: '#065F46',
+                        },
+                      ]}
+                      placeholder="Generating secure password..."
+                      placeholderTextColor="#9CA3AF"
                       value={cenroPassword}
                       onChangeText={setCenroPassword}
                       secureTextEntry={!showPassword}
                     />
-                    <TouchableOpacity
-                      style={styles.passwordToggle}
-                      onPress={() => setShowPassword(!showPassword)}
-                    >
-                      <MaterialIcons
-                        name={showPassword ? 'visibility-off' : 'visibility'}
-                        size={18}
-                        color="#6B7280"
-                      />
-                    </TouchableOpacity>
+                    <View style={styles.passwordActions}>
+                      <TouchableOpacity
+                        style={styles.pwdIconBtn}
+                        onPress={handleCopyPassword}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons
+                          name={copiedPassword ? 'check' : 'content-copy'}
+                          size={16}
+                          color={copiedPassword ? '#059669' : '#6B7280'}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.pwdIconBtn}
+                        onPress={() => setShowPassword(!showPassword)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons
+                          name={showPassword ? 'visibility-off' : 'visibility'}
+                          size={16}
+                          color="#6B7280"
+                        />
+                      </TouchableOpacity>
+                    </View>
                   </View>
+                  <Text style={styles.pwdHintText}>
+                    {copiedPassword ? '✓ Copied to clipboard!' : '✉ This password & portal access will be emailed to the administrator.'}
+                  </Text>
                 </View>
 
-                <View style={styles.formGroupHalf}>
-                  <Text style={styles.formLabel}>EMPLOYEE ID *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="e.g. CENRO-ADM-01"
-                    value={cenroEmployeeId}
-                    onChangeText={setCenroEmployeeId}
-                    autoCapitalize="characters"
-                  />
-                </View>
-
-                <View style={styles.formGroupHalf}>
+                <View style={styles.formGroupFull}>
                   <Text style={styles.formLabel}>CONTACT NUMBER</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="e.g. +63 912 345 6789"
-                    value={cenroContact}
-                    onChangeText={setCenroContact}
-                  />
+                  <View style={styles.phoneInputContainer}>
+                    <View style={styles.phonePrefixBox}>
+                      <Text style={styles.phonePrefixFlag}>🇵🇭</Text>
+                      <Text style={styles.phonePrefixText}>+63</Text>
+                    </View>
+                    <TextInput
+                      style={styles.phoneInput}
+                      placeholder="9XX XXX XXXX"
+                      placeholderTextColor="#9CA3AF"
+                      value={cenroContact}
+                      onChangeText={handleContactChange}
+                      keyboardType="phone-pad"
+                      maxLength={12}
+                    />
+                  </View>
                 </View>
 
                 <View style={styles.formGroupFull}>
                   <Text style={styles.formLabel}>DEPARTMENT / OFFICE</Text>
                   <TextInput
                     style={styles.formInput}
-                    placeholder="Department"
+                    placeholder="e.g. CENRO Danao City - Solid Waste Management Office"
+                    placeholderTextColor="#9CA3AF"
                     value={cenroDepartment}
                     onChangeText={setCenroDepartment}
                   />
@@ -572,7 +728,8 @@ export default function IdentityAccessTab() {
                   <Text style={styles.formLabel}>DESIGNATION / TITLE</Text>
                   <TextInput
                     style={styles.formInput}
-                    placeholder="Designation"
+                    placeholder="e.g. CENRO Administrator"
+                    placeholderTextColor="#9CA3AF"
                     value={cenroDesignation}
                     onChangeText={setCenroDesignation}
                   />
@@ -613,6 +770,86 @@ export default function IdentityAccessTab() {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* RESULT & NOTIFICATION POPUP DIALOG */}
+      <Modal visible={resultModal.visible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.resultModalContent, isMobile && { width: '92%', padding: 20 }]}>
+            <View
+              style={[
+                styles.resultIconCircle,
+                resultModal.type === 'success'
+                  ? styles.resultIconSuccess
+                  : styles.resultIconError,
+              ]}
+            >
+              <MaterialIcons
+                name={resultModal.type === 'success' ? 'check-circle' : 'error-outline'}
+                size={40}
+                color={resultModal.type === 'success' ? '#059669' : '#DC2626'}
+              />
+            </View>
+
+            <Text style={styles.resultTitle}>{resultModal.title}</Text>
+            <Text style={styles.resultSubtitle}>{resultModal.subtitle}</Text>
+
+            {resultModal.type === 'success' && resultModal.email && (
+              <View style={styles.resultCredentialsBox}>
+                <View style={styles.resultCredRow}>
+                  <Text style={styles.resultCredLabel}>OFFICIAL EMAIL:</Text>
+                  <Text style={styles.resultCredValue}>{resultModal.email}</Text>
+                </View>
+                {resultModal.password && (
+                  <View style={styles.resultCredRow}>
+                    <Text style={styles.resultCredLabel}>PASSWORD:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.resultCredPassword}>{resultModal.password}</Text>
+                      <TouchableOpacity
+                        style={styles.resultCopyBtn}
+                        onPress={() => {
+                          if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+                            navigator.clipboard.writeText(resultModal.password || '');
+                          }
+                          setResultModal((prev) => ({ ...prev, copied: true }));
+                          setTimeout(() => setResultModal((prev) => ({ ...prev, copied: false })), 2000);
+                        }}
+                      >
+                        <MaterialIcons
+                          name={resultModal.copied ? 'check' : 'content-copy'}
+                          size={13}
+                          color={resultModal.copied ? '#059669' : '#374151'}
+                        />
+                        <Text style={[styles.resultCopyText, resultModal.copied && { color: '#059669' }]}>
+                          {resultModal.copied ? 'Copied' : 'Copy'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                <View style={styles.resultCredRow}>
+                  <Text style={styles.resultCredLabel}>PORTAL ACCESS:</Text>
+                  <Text style={[styles.resultCredValue, { color: '#059669', fontWeight: '800' }]}>
+                    /cenro (CENRO Portal)
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.resultActionBtn,
+                resultModal.type === 'error' && { backgroundColor: '#DC2626' },
+              ]}
+              onPress={() => setResultModal((prev) => ({ ...prev, visible: false }))}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.resultActionBtnText}>
+                {resultModal.type === 'success' ? 'Done / Return to Directory' : 'Dismiss'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -673,6 +910,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  refreshActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  refreshActionBtnText: {
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
   },
   primaryActionBtn: {
     flexDirection: 'row',
@@ -1030,14 +1288,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#111827',
   },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  phonePrefixBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRightWidth: 1,
+    borderRightColor: '#E5E7EB',
+  },
+  phonePrefixFlag: {
+    fontSize: 14,
+  },
+  phonePrefixText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#111827',
+  },
   passwordContainer: {
     position: 'relative',
     justifyContent: 'center',
   },
-  passwordToggle: {
+  passwordActions: {
     position: 'absolute',
-    right: 12,
-    top: 12,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pwdIconBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  pwdInlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#ECFDF5',
+  },
+  pwdInlineBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  pwdHintText: {
+    fontSize: 10,
+    color: '#059669',
+    marginTop: 4,
+    fontWeight: '600',
   },
 
   modalInfoBanner: {
@@ -1092,5 +1411,114 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // RESULT MODAL STYLES
+  resultModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 28,
+    width: 440,
+    maxWidth: '95%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  resultIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  resultIconSuccess: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 2,
+    borderColor: '#A7F3D0',
+  },
+  resultIconError: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 2,
+    borderColor: '#FECACA',
+  },
+  resultTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  resultSubtitle: {
+    fontSize: 13,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  resultCredentialsBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    gap: 10,
+  },
+  resultCredRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  resultCredLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  resultCredValue: {
+    fontSize: 13,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  resultCredPassword: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0369A1',
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  resultCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: '#E2E8F0',
+  },
+  resultCopyText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  resultActionBtn: {
+    width: '100%',
+    backgroundColor: '#059669',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

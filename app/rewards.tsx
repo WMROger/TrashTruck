@@ -20,18 +20,44 @@ export default function ResidentRewardsPage() {
   const { user } = useAuthContext();
   const [awards, setAwards] = useState<AwardEntry[]>([]);
   const [redemptions, setRedemptions] = useState<RedemptionEntry[]>([]);
+  const [catalogItems, setCatalogItems] = useState(REWARD_SOUVENIRS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!db || !user?.uid) {
+    if (!db) {
       setLoading(false);
       return;
     }
+
+    const unsubscribeCatalog = onSnapshot(collection(db, 'reward_catalog'), (snapshot) => {
+      if (!snapshot.empty) {
+        const customItems = snapshot.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name || 'Souvenir',
+          type: d.data().type || '',
+          cost: Number(d.data().cost || 0),
+          category: d.data().category || 'General',
+        }));
+        // Merge custom items with defaults without duplicate IDs
+        const existingIds = new Set(customItems.map((i) => i.id));
+        const merged = [...customItems, ...REWARD_SOUVENIRS.filter((i) => !existingIds.has(i.id))];
+        setCatalogItems(merged);
+      } else {
+        setCatalogItems(REWARD_SOUVENIRS);
+      }
+    });
+
+    if (!user?.uid) {
+      setLoading(false);
+      return () => unsubscribeCatalog();
+    }
+
     let loadedAwards = false;
     let loadedRedemptions = false;
     const finish = () => {
       if (loadedAwards && loadedRedemptions) setLoading(false);
     };
+
     const unsubscribeAwards = onSnapshot(
       query(collection(db, 'reward_awards'), where('userId', '==', user.uid)),
       snapshot => {
@@ -60,7 +86,7 @@ export default function ResidentRewardsPage() {
       },
       () => { loadedRedemptions = true; finish(); },
     );
-    return () => { unsubscribeAwards(); unsubscribeRedemptions(); };
+    return () => { unsubscribeCatalog(); unsubscribeAwards(); unsubscribeRedemptions(); };
   }, [user?.uid]);
 
   const earned = useMemo(() => awards.reduce((sum, item) => sum + item.tokens, 0), [awards]);
@@ -93,7 +119,7 @@ export default function ResidentRewardsPage() {
 
           <Text style={styles.sectionTitle}>Souvenir catalog</Text>
           <Text style={styles.sectionHelp}>No online payment is required. Bring your registered account email to the CENRO/DICT desk; authorized staff verify your balance and record the release.</Text>
-          {REWARD_SOUVENIRS.map(item => {
+          {catalogItems.map(item => {
             const eligible = balance >= item.cost;
             return (
               <View key={item.id} style={styles.catalogCard}>
@@ -115,7 +141,7 @@ export default function ResidentRewardsPage() {
             <View style={styles.emptyCard}>
               <MaterialIcons name="eco" size={34} color="#86A88F" />
               <Text style={styles.emptyTitle}>No reward activity yet</Text>
-              <Text style={styles.emptyText}>A verified completed pickup earns 100 tokens automatically.</Text>
+              <Text style={styles.emptyText}>A verified completed pickup earns 50 tokens automatically.</Text>
             </View>
           ) : (
             <>

@@ -17,15 +17,20 @@ export type RewardSouvenir = {
   name: string;
   type: string;
   cost: number;
+  stock?: number;
+  category?: string;
+  createdAt?: any;
 };
 
-export const COMPLETION_REWARD_TOKENS = 100;
+export const COMPLETION_REWARD_TOKENS = 50;
 
-export const REWARD_SOUVENIRS: RewardSouvenir[] = [
-  { id: 'tumbler', name: 'Eco-Friendly Tumbler', type: 'Matte Green, Double-walled insulation', cost: 1000 },
-  { id: 'tote', name: 'CENRO Tote Bag', type: 'Canvas, Heavy Duty', cost: 500 },
-  { id: 'kit', name: 'Reusable Utensil Kit', type: 'Bamboo with pouch', cost: 2000 },
+export const DEFAULT_REWARD_SOUVENIRS: RewardSouvenir[] = [
+  { id: 'tumbler', name: 'Eco-Friendly Tumbler', type: 'Matte Green, Double-walled insulation', cost: 1000, category: 'Merchandise', stock: 50 },
+  { id: 'tote', name: 'CENRO Tote Bag', type: 'Canvas, Heavy Duty', cost: 500, category: 'Apparel', stock: 100 },
+  { id: 'kit', name: 'Reusable Utensil Kit', type: 'Bamboo with pouch', cost: 2000, category: 'Eco Kit', stock: 30 },
 ];
+
+export const REWARD_SOUVENIRS = DEFAULT_REWARD_SOUVENIRS;
 
 type ScheduleRewardSource = {
   status?: string;
@@ -106,11 +111,85 @@ export async function reconcileCompletedRewardAwards(): Promise<RewardReconcilia
   return summary;
 }
 
+export async function addRewardCatalogItem(item: {
+  name: string;
+  type: string;
+  cost: number;
+  stock?: number;
+  category?: string;
+}) {
+  if (!db) throw new Error('Firestore is unavailable.');
+  const id = item.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString(36);
+  
+  const newItem: RewardSouvenir = {
+    id,
+    name: item.name.trim(),
+    type: item.type.trim(),
+    cost: Number(item.cost),
+    stock: Number(item.stock || 50),
+    category: item.category?.trim() || 'General',
+    createdAt: serverTimestamp(),
+  };
+
+  await setDoc(doc(db, 'reward_catalog', id), newItem);
+  return newItem;
+}
+
+export async function deleteRewardCatalogItem(id: string) {
+  if (!db) throw new Error('Firestore is unavailable.');
+  const { deleteDoc } = await import('firebase/firestore');
+  await deleteDoc(doc(db, 'reward_catalog', id));
+}
+
+export async function adjustCitizenPoints(
+  userId: string,
+  userName: string,
+  deltaTokens: number,
+  reason: string,
+  currentBalance: number
+) {
+  if (!db || !auth.currentUser) throw new Error('Authentication required.');
+
+  const awardDocRef = doc(collection(db, 'reward_awards'));
+  const timestamp = serverTimestamp();
+
+  await setDoc(awardDocRef, {
+    userId,
+    userName,
+    tokens: deltaTokens,
+    reason: `dict_adjustment: ${reason.trim()}`,
+    adjustedBy: 'DICT Super Admin',
+    createdByUid: auth.currentUser.uid,
+    actorEmail: auth.currentUser.email || 'dict@trashtrack.gov.ph',
+    awardedAt: timestamp,
+    previousBalance: currentBalance,
+    newBalance: Math.max(0, currentBalance + deltaTokens),
+  });
+
+  // Record into client activity audit trail
+  try {
+    const { writeAuditLog } = await import('./auditLogService');
+    await writeAuditLog('notification.preferences_updated' as any, 'citizen_points', userId, {
+      action: 'dict_adjust_points',
+      actorEmail: auth.currentUser.email || 'dict@trashtrack.gov.ph',
+      deltaTokens,
+      reason,
+      previousBalance: currentBalance,
+      newBalance: Math.max(0, currentBalance + deltaTokens),
+    });
+  } catch (auditErr) {
+    console.warn('Audit logging note:', auditErr);
+  }
+
+  return {
+    id: awardDocRef.id,
+    deltaTokens,
+    newBalance: Math.max(0, currentBalance + deltaTokens),
+  };
+}
+
 export async function redeemRewardFromLedger(userId: string, userName: string, souvenir: RewardSouvenir) {
   if (!db || !auth.currentUser) throw new Error('An authenticated DICT account is required.');
-  if (!REWARD_SOUVENIRS.some(item => item.id === souvenir.id && item.cost === souvenir.cost)) {
-    throw new Error('This souvenir is not in the approved capstone catalog.');
-  }
   const redemption = await addDoc(collection(db, 'reward_redemptions'), {
     userId,
     userName,

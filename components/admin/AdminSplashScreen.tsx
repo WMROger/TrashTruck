@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
@@ -12,16 +13,15 @@ import {
 
 export default function AdminSplashScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const isMobile = width < 768;
-  const isTablet = width >= 768 && width < 1024;
 
-  const handleAdminLogin = () => {
-    router.replace("/admin/login");
+  const handleEnterCenro = () => {
+    router.replace("/cenro" as any);
   };
 
-  const handleBackToApp = () => {
-    router.replace("/");
+  const handleEnterDict = () => {
+    router.replace("/dict" as any);
   };
 
   return (
@@ -42,73 +42,85 @@ export default function AdminSplashScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Left / Top Info Section */}
-        <View
-          style={[styles.infoSection, isMobile && styles.infoSectionMobile]}
-        >
-          <View style={styles.logoRow}>
+        <View style={[styles.mainSection, isMobile && styles.mainSectionMobile]}>
+          {/* Header & Logo */}
+          <View style={styles.headerBlock}>
             <Image
               source={require("@/assets/images/trashtrack_logo_driver.png")}
               style={[styles.logo, isMobile && styles.logoMobile]}
               resizeMode="contain"
             />
+            <Text style={[styles.title, isMobile && styles.titleMobile]}>
+              TrashTrack Portals
+            </Text>
+            <Text style={[styles.subtitle, isMobile && styles.subtitleMobile]}>
+              Select your administrative clearance portal to authenticate and access oversight tools.
+            </Text>
           </View>
 
-          <Text style={[styles.title, isMobile && styles.titleMobile]}>
-            TrashTrack
-          </Text>
-          <Text style={[styles.subtitle, isMobile && styles.subtitleMobile]}>
-            Admin Portal for Comprehensive Waste Management Oversight
-          </Text>
-
-          {/* Illustration on Mobile (placed inline) */}
-          {isMobile && (
-            <View style={styles.illustrationMobileWrapper}>
-              <Image
-                source={require("@/assets/images/splash_admin.png")}
-                style={styles.illustrationMobile}
-                resizeMode="contain"
-              />
-            </View>
-          )}
-
-          {/* Action Buttons */}
-          <View
-            style={[
-              styles.buttonContainer,
-              isMobile && styles.buttonContainerMobile,
-            ]}
-          >
+          {/* Dual Portal Selection Cards */}
+          <View style={[styles.cardsRow, isMobile && styles.cardsRowMobile]}>
+            {/* CENRO Portal Card */}
             <TouchableOpacity
-              style={[
-                styles.signInButton,
-                isMobile && styles.signInButtonMobile,
-              ]}
-              onPress={handleAdminLogin}
-              activeOpacity={0.85}
+              style={[styles.portalCard, styles.cenroCard]}
+              onPress={handleEnterCenro}
+              activeOpacity={0.88}
             >
-              <Text
-                style={[
-                  styles.signInButtonText,
-                  isMobile && styles.signInButtonTextMobile,
-                ]}
-              >
-                Admin Sign In
+              <View style={styles.cardHeader}>
+                <View style={[styles.iconCircle, styles.cenroIconCircle]}>
+                  <MaterialIcons name="eco" size={26} color="#1B4D3E" />
+                </View>
+                <View style={styles.badgeWrapper}>
+                  <Text style={[styles.badgeText, styles.cenroBadgeText]}>
+                    MUNICIPAL
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.cardTitle}>CENRO Admin</Text>
+              <Text style={styles.cardSub}>City Environment & Natural Resources</Text>
+
+              <Text style={styles.cardDescription}>
+                Dispatch garbage truck fleets, manage collection schedules, review citizen waste reports, and supervise municipal drivers.
               </Text>
+
+              <View style={[styles.cardButton, styles.cenroButton]}>
+                <Text style={styles.cardButtonText}>Enter CENRO Portal</Text>
+                <MaterialIcons name="arrow-forward" size={18} color="#FFFFFF" />
+              </View>
+            </TouchableOpacity>
+
+            {/* DICT Portal Card */}
+            <TouchableOpacity
+              style={[styles.portalCard, styles.dictCard]}
+              onPress={handleEnterDict}
+              activeOpacity={0.88}
+            >
+              <View style={styles.cardHeader}>
+                <View style={[styles.iconCircle, styles.dictIconCircle]}>
+                  <MaterialIcons name="security" size={26} color="#0F766E" />
+                </View>
+                <View style={styles.badgeWrapper}>
+                  <Text style={[styles.badgeText, styles.dictBadgeText]}>
+                    GOV.PH
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.cardTitle}>DICT Super Admin</Text>
+              <Text style={styles.cardSub}>Dept. of Information & Communications Tech</Text>
+
+              <Text style={styles.cardDescription}>
+                National technology governance, system health metrics, cross-agency commands, and data telemetry oversight.
+              </Text>
+
+              <View style={[styles.cardButton, styles.dictButton]}>
+                <Text style={styles.cardButtonText}>Enter DICT Portal</Text>
+                <MaterialIcons name="arrow-forward" size={18} color="#FFFFFF" />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Right Illustration Section (Desktop / Tablet) */}
-        {!isMobile && (
-          <View style={styles.illustrationDesktopWrapper}>
-            <Image
-              source={require("@/assets/images/splash_admin.png")}
-              style={styles.illustrationDesktop}
-              resizeMode="contain"
-            />
-          </View>
-        )}
       </ScrollView>
     </View>
   );
@@ -117,7 +129,7 @@ export default function AdminSplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ECFEE5",
+    backgroundColor: "#F4FDF4",
   },
   backgroundImage: {
     position: "absolute",
@@ -126,139 +138,166 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "70%",
     height: "100%",
-    opacity: 0.8,
+    opacity: 0.7,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
   },
   scrollContentDesktop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: "8%",
-    paddingVertical: 40,
+    paddingHorizontal: "6%",
   },
   scrollContentMobile: {
-    flexDirection: "column",
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 50,
-    paddingBottom: 40,
-    justifyContent: "space-between",
+    paddingHorizontal: 16,
   },
-  infoSection: {
-    maxWidth: 520,
+  mainSection: {
+    width: "100%",
+    maxWidth: 960,
+    alignItems: "center",
     zIndex: 10,
   },
-  infoSectionMobile: {
+  mainSectionMobile: {
     maxWidth: "100%",
-    width: "100%",
-    alignItems: "center",
-    textAlign: "center",
   },
-  logoRow: {
-    marginBottom: 16,
+  headerBlock: {
+    alignItems: "center",
+    marginBottom: 36,
   },
   logo: {
-    width: 180,
-    height: 100,
+    width: 170,
+    height: 70,
+    marginBottom: 8,
   },
   logoMobile: {
     width: 140,
-    height: 80,
-    alignSelf: "center",
+    height: 60,
   },
   title: {
-    fontSize: 54,
-    fontWeight: "800",
-    color: "#2D5A3D",
-    marginBottom: 16,
-    letterSpacing: -0.5,
+    fontSize: 42,
+    fontWeight: "900",
+    color: "#1E3A2B",
+    marginBottom: 10,
+    letterSpacing: -0.8,
+    textAlign: "center",
   },
   titleMobile: {
-    fontSize: 36,
-    textAlign: "center",
-    marginBottom: 12,
+    fontSize: 30,
   },
   subtitle: {
-    fontSize: 20,
-    color: "#2D5A3D",
-    fontWeight: "400",
-    lineHeight: 28,
-    marginBottom: 32,
+    fontSize: 16,
+    color: "#4A6B53",
+    textAlign: "center",
+    maxWidth: 580,
+    lineHeight: 24,
   },
   subtitleMobile: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-    marginBottom: 20,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  illustrationMobileWrapper: {
+  cardsRow: {
+    flexDirection: "row",
+    gap: 24,
     width: "100%",
-    height: 220,
     justifyContent: "center",
-    alignItems: "center",
-    marginVertical: 16,
   },
-  illustrationMobile: {
-    width: "100%",
-    height: "100%",
-    maxHeight: 220,
-  },
-  illustrationDesktopWrapper: {
-    flex: 1,
-    maxWidth: 600,
-    height: 480,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 5,
-  },
-  illustrationDesktop: {
-    width: "100%",
-    height: "100%",
-  },
-  buttonContainer: {
-    alignItems: "flex-start",
+  cardsRowMobile: {
+    flexDirection: "column",
     gap: 16,
   },
-  buttonContainerMobile: {
-    width: "100%",
-    alignItems: "center",
-    marginTop: 12,
-  },
-  signInButton: {
-    backgroundColor: "#4E6C50",
-    borderRadius: 25,
-    paddingVertical: 14,
-    paddingHorizontal: 36,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
+  portalCard: {
+    flex: 1,
+    maxWidth: 440,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    borderRadius: 24,
+    padding: 28,
+    borderWidth: 1.5,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
     elevation: 4,
+    justifyContent: "space-between",
   },
-  signInButtonMobile: {
-    width: "100%",
+  cenroCard: {
+    borderColor: "#A7F3D0",
+  },
+  dictCard: {
+    borderColor: "#99F6E4",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 16,
+    marginBottom: 16,
   },
-  signInButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 20,
+  iconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  signInButtonTextMobile: {
-    fontSize: 17,
+  cenroIconCircle: {
+    backgroundColor: "#ECFDF5",
   },
-  backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  dictIconCircle: {
+    backgroundColor: "#F0FDFA",
   },
-  backButtonText: {
-    color: "#4E6C50",
-    fontSize: 14,
+  badgeWrapper: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  cenroBadgeText: {
+    color: "#065F46",
+  },
+  dictBadgeText: {
+    color: "#0F766E",
+  },
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 4,
+  },
+  cardSub: {
+    fontSize: 12,
     fontWeight: "600",
-    textDecorationLine: "underline",
+    color: "#64748B",
+    marginBottom: 14,
+  },
+  cardDescription: {
+    fontSize: 14,
+    color: "#475569",
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+  cardButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  cenroButton: {
+    backgroundColor: "#1B4D3E",
+  },
+  dictButton: {
+    backgroundColor: "#0F766E",
+  },
+  cardButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

@@ -1,6 +1,14 @@
-import { MaterialIcons } from '@expo/vector-icons';
-import React from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { MaterialIcons } from "@expo/vector-icons";
+import React from "react";
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface SidebarProps {
   activeTab: string;
@@ -9,14 +17,49 @@ interface SidebarProps {
   collapsed?: boolean;
 }
 
-export default function DictSidebar({ activeTab, onTabChange, onLogout, collapsed = false }: SidebarProps) {
+export default function DictSidebar({
+  activeTab,
+  onTabChange,
+  onLogout,
+  collapsed = false,
+}: SidebarProps) {
   const navigationItems = [
-    { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
-    { id: 'identity-access', label: 'IDENTITY & ACCESS', icon: 'security', activeIcon: 'security' },
-    { id: 'rewards', label: 'REWARDS', icon: 'card-giftcard', activeIcon: 'card-giftcard' },
-    { id: 'data-management', label: 'DATA MANAGEMENT', icon: 'storage', activeIcon: 'storage' },
-    { id: 'fleet-ops', label: 'FLEET MONITORING', icon: 'directions-car', activeIcon: 'directions-car' },
-    { id: 'cenro-command', label: 'CENRO COMMAND & CHAT', icon: 'forum', activeIcon: 'forum' },
+    {
+      id: "dashboard",
+      label: "DASHBOARD",
+      icon: "grid-view",
+      activeIcon: "grid-view",
+    },
+    {
+      id: "identity-access",
+      label: "USER DIRECTORY",
+      icon: "security",
+      activeIcon: "security",
+    },
+    {
+      id: "rewards",
+      label: "REWARDS",
+      icon: "card-giftcard",
+      activeIcon: "card-giftcard",
+    },
+    {
+      id: "data-management",
+      label: "DATA MANAGEMENT",
+      icon: "storage",
+      activeIcon: "storage",
+    },
+    {
+      id: "fleet-ops",
+      label: "FLEET MONITORING",
+      icon: "directions-car",
+      activeIcon: "directions-car",
+    },
+    {
+      id: "cenro-command",
+      label: "CENRO COMMAND & CHAT",
+      icon: "forum",
+      activeIcon: "forum",
+    },
   ];
 
   return (
@@ -26,43 +69,51 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
           <View style={styles.logoBg}>
             <MaterialIcons name="computer" size={24} color="#FFF" />
           </View>
-          {!collapsed && <View>
-            <Text style={styles.logoTitle}>DICT</Text>
-            <Text style={styles.logoSubtitle}>SUPER ADMIN PORTAL</Text>
-          </View>}
+          {!collapsed && (
+            <View>
+              <Text style={styles.logoTitle}>DICT</Text>
+              <Text style={styles.logoSubtitle}>SUPER ADMIN PORTAL</Text>
+            </View>
+          )}
         </View>
       </View>
 
-      <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.sidebarNav}
+        showsVerticalScrollIndicator={false}
+      >
         {navigationItems.map((item, index) => {
           const isActive = activeTab === item.id;
 
           return (
             <React.Fragment key={item.id}>
               <TouchableOpacity
-                style={[
-                  styles.navItem,
-                  isActive && styles.navItemActive
-                ]}
+                style={[styles.navItem, isActive && styles.navItemActive]}
                 onPress={() => onTabChange(item.id)}
               >
                 <View style={styles.navItemIconContainer}>
                   <MaterialIcons
-                    name={isActive ? item.activeIcon as any : item.icon as any}
+                    name={
+                      isActive ? (item.activeIcon as any) : (item.icon as any)
+                    }
                     size={22}
-                    color={isActive ? '#FFF' : '#6B7280'}
+                    color={isActive ? "#FFF" : "#6B7280"}
                   />
                 </View>
-                {!collapsed && <Text style={[
-                  styles.navItemText,
-                  isActive && styles.navItemTextActive
-                ]}>
-                  {item.label}
-                </Text>}
+                {!collapsed && (
+                  <Text
+                    style={[
+                      styles.navItemText,
+                      isActive && styles.navItemTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                )}
               </TouchableOpacity>
 
               {/* Divider after Fleet Ops */}
-              {item.id === 'fleet-ops' && !collapsed && (
+              {item.id === "fleet-ops" && !collapsed && (
                 <View style={styles.dividerContainer}>
                   <Text style={styles.dividerText}>INTER-AGENCY CHANNELS</Text>
                 </View>
@@ -73,15 +124,25 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
       </ScrollView>
 
       <View style={styles.sidebarFooter}>
-        {!collapsed && <View style={styles.systemStatusContainer}>
-          <View style={styles.statusIndicator} />
-          <View>
-            <Text style={styles.statusTitle}>SYSTEM STATUS</Text>
-            <Text style={styles.statusValue}>Authenticated session</Text>
+        {!collapsed && (
+          <View style={styles.systemStatusContainer}>
+            <View style={styles.statusIndicator} />
+            <View>
+              <Text style={styles.statusTitle}>SYSTEM STATUS</Text>
+              <Text style={styles.statusValue}>Authenticated session</Text>
+            </View>
           </View>
-        </View>}
+        )}
 
-        <TouchableOpacity style={styles.footerLink} onPress={() => Alert.alert('DICT Support', 'For portal assistance, contact the designated TrashTrack system administrator.')}>
+        <TouchableOpacity
+          style={styles.footerLink}
+          onPress={() =>
+            Alert.alert(
+              "DICT Support",
+              "For portal assistance, contact the designated TrashTrack system administrator.",
+            )
+          }
+        >
           <MaterialIcons name="help-outline" size={18} color="#6B7280" />
           {!collapsed && <Text style={styles.footerLinkText}>SUPPORT</Text>}
         </TouchableOpacity>
@@ -98,43 +159,45 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
 const styles = StyleSheet.create({
   sidebar: {
     width: 280,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRightWidth: 1,
-    borderRightColor: '#E5E7EB',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    ...(Platform.OS === 'web' ? { position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 50 } : {})
+    borderRightColor: "#E5E7EB",
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
+    ...(Platform.OS === "web"
+      ? { position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 50 }
+      : {}),
   },
   sidebarCollapsed: { width: 80 },
   sidebarHeader: {
     padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: "#F3F4F6",
   },
   logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
   },
   logoBg: {
     width: 40,
     height: 40,
     borderRadius: 8,
-    backgroundColor: '#374151',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#374151",
+    justifyContent: "center",
+    alignItems: "center",
   },
   logoTitle: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#111827',
+    fontWeight: "800",
+    color: "#111827",
     letterSpacing: -0.5,
   },
   logoSubtitle: {
     fontSize: 10,
-    color: '#6B7280',
-    fontWeight: '700',
+    color: "#6B7280",
+    fontWeight: "700",
     letterSpacing: 1,
   },
   sidebarNav: {
@@ -143,8 +206,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   navItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -152,20 +215,20 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   navItemActive: {
-    backgroundColor: '#4B6354', // Dark green theme
+    backgroundColor: "#4B6354", // Dark green theme
   },
   navItemIconContainer: {
     width: 24,
-    alignItems: 'center',
+    alignItems: "center",
   },
   navItemText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#4B5563',
+    fontWeight: "600",
+    color: "#4B5563",
     letterSpacing: 0.5,
   },
   navItemTextActive: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   dividerContainer: {
     paddingVertical: 16,
@@ -174,21 +237,21 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#9CA3AF',
+    fontWeight: "700",
+    color: "#9CA3AF",
     letterSpacing: 1,
   },
   sidebarFooter: {
     padding: 24,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: "#F3F4F6",
   },
   systemStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 24,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     padding: 12,
     borderRadius: 8,
   },
@@ -196,29 +259,29 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
   },
   statusTitle: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#6B7280',
+    fontWeight: "700",
+    color: "#6B7280",
     letterSpacing: 1,
   },
   statusValue: {
     fontSize: 12,
-    color: '#111827',
+    color: "#111827",
     marginTop: 2,
   },
   footerLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     paddingVertical: 10,
   },
   footerLinkText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
     letterSpacing: 0.5,
   },
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 const DEFAULT_REWARD_CONFIG = Object.freeze({
-  completionTokens: 100,
+  completionTokens: 50,
   souvenirs: [
     { id: 'tumbler', name: 'Eco-Friendly Tumbler', type: 'Matte Green, Double-walled insulation', cost: 1000 },
     { id: 'tote', name: 'CENRO Tote Bag', type: 'Canvas, Heavy Duty', cost: 500 },

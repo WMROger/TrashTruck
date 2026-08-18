@@ -25,7 +25,7 @@ export default function DictDashboard() {
       if (authLoading) return;
       if (!user) {
         console.log('DICT dashboard: No user found, redirecting to login');
-        router.replace('/admin/login');
+        router.replace('/dict');
         return;
       }
 
@@ -53,24 +53,24 @@ export default function DictDashboard() {
               console.log('DICT dashboard: User does not have dict role:', user.email);
               Alert.alert('Access Denied', 'You do not have DICT admin privileges.');
               await signOut(auth);
-              router.replace('/admin/login');
+              router.replace('/dict');
             }
           } else {
             console.log('DICT dashboard: User document not found');
             Alert.alert('Access Denied', 'User profile not found.');
             await signOut(auth);
-            router.replace('/admin/login');
+            router.replace('/dict');
           }
         } catch (error) {
           console.error('DICT dashboard: Error checking role:', error);
           Alert.alert('Error', 'Failed to verify privileges.');
           await signOut(auth);
-          router.replace('/admin/login');
+          router.replace('/dict');
         }
       } else {
         Alert.alert('Access Unavailable', 'DICT clearance cannot be verified because Firestore is unavailable.');
         try { await signOut(auth); } catch {}
-        router.replace('/admin/login');
+        router.replace('/dict');
         setIsLoading(false);
       }
     };
@@ -86,7 +86,7 @@ export default function DictDashboard() {
     try {
       await signOut(auth);
       setShowLogoutModal(false);
-      router.replace('/admin/login');
+      router.replace('/dict');
     } catch (error) {
       console.error('DICT logout error:', error);
       Alert.alert('Logout Error', 'Failed to sign out. Please try again.');
