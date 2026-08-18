@@ -330,11 +330,11 @@ const ReportsHistoryTab: React.FC<Props> = ({
                   <Text style={styles.modalBulletPoint}>
                     • Street: {selectedReport.street}
                   </Text>
-                  {selectedReport.landmark && (
+                  {Boolean(selectedReport.landmark) ? (
                     <Text style={styles.modalBulletPoint}>
                       • Landmark: {selectedReport.landmark}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 {/* Reported By */}

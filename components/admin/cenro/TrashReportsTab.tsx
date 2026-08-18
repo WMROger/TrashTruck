@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Image, ActivityIndicator, Platform, TouchableWithoutFeedback, Pressable, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { db } from '../../../config/firebase';
+import { auth, db } from '../../../config/firebase';
 import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy, arrayUnion } from 'firebase/firestore';
 import { formatWasteAmount } from '../../../utils/wasteUnits';
 
@@ -163,11 +163,11 @@ export default function TrashReportsTab() {
     try {
       const reportRef = doc(db, 'reports', selectedReport.id);
       
-      const newHistoryItem = {
+      const newHistoryItem: StatusHistoryItem = {
         status: newStatus,
-        notes: adminNotes || '',
+        notes: adminNotes?.trim() || '',
         timestamp: new Date().toISOString(),
-        adminEmail: 'admin@cenro.gov.ph' // Placeholder for auth user
+        adminEmail: auth?.currentUser?.email || 'admin@cenro.gov.ph'
       };
       
       await updateDoc(reportRef, {
@@ -176,23 +176,30 @@ export default function TrashReportsTab() {
         statusHistory: arrayUnion(newHistoryItem)
       });
 
-      // Send notification
-      await addDoc(collection(db, 'notifications'), {
-        userId: selectedReport.userId,
-        type: 'report_status_update',
-        reportId: selectedReport.id,
-        reportTitle: selectedReport.title,
-        oldStatus: selectedReport.status,
-        newStatus: newStatus,
-        adminNotes: adminNotes || '',
-        read: false,
-        createdAt: serverTimestamp()
-      });
+      // Send notification to user if userId is available
+      const targetUserId = selectedReport.userId || (selectedReport as any).userUid || (selectedReport as any).uid;
+      if (targetUserId) {
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            userId: targetUserId,
+            type: 'report_status_update',
+            reportId: selectedReport.id,
+            reportTitle: selectedReport.title || 'Trash Report',
+            oldStatus: selectedReport.status,
+            newStatus: newStatus,
+            adminNotes: adminNotes?.trim() || '',
+            read: false,
+            createdAt: serverTimestamp()
+          });
+        } catch (notifErr) {
+          console.warn("Could not dispatch push/in-app notification:", notifErr);
+        }
+      }
       
       setAdminNotes('');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating report:", error);
-      alert("Failed to update report status.");
+      alert(`Failed to update report status: ${error?.message || error}`);
     } finally {
       setUpdating(false);
     }
@@ -204,9 +211,9 @@ export default function TrashReportsTab() {
     if (selectedReport.status === 'acknowledged') {
       return (
         <View style={[styles.actionContainer, { alignItems: 'center', paddingVertical: 16 }]}>
-           <Text style={{color: '#6B7280', fontSize: 13, fontStyle: 'italic', textAlign: 'center'}}>
-             ✅ Report is Acknowledged.{"\n"}Head to the Route Optimization tab to assign a driver. This report will automatically move to “In Progress” once dispatched.
-           </Text>
+          <Text style={{ color: '#6B7280', fontSize: 13, fontStyle: 'italic', textAlign: 'center' }}>
+            {`✅ Report is Acknowledged.\nHead to the Route Optimization tab to assign a driver. This report will automatically move to “In Progress” once dispatched.`}
+          </Text>
         </View>
       );
     }
@@ -515,7 +522,9 @@ export default function TrashReportsTab() {
                     <View style={styles.detailsGroup}>
                       <Text style={styles.detailLabel}>LOCATION</Text>
                       <Text style={styles.detailValue}>{selectedReport.street}, {selectedReport.barangay}</Text>
-                      {selectedReport.landmark && <Text style={styles.detailSubValue}>Landmark: {selectedReport.landmark}</Text>}
+                      {Boolean(selectedReport.landmark) ? (
+                        <Text style={styles.detailSubValue}>Landmark: {selectedReport.landmark}</Text>
+                      ) : null}
                     </View>
 
                     <View style={styles.detailsGroup}>
@@ -524,7 +533,7 @@ export default function TrashReportsTab() {
                       <Text style={styles.detailSubValue}>Submitted: {formatDate(selectedReport.createdAt)}</Text>
                     </View>
 
-                    {selectedReport.assignedDriver && (
+                    {Boolean(selectedReport.assignedDriver) ? (
                       <View style={styles.detailsGroup}>
                         <Text style={styles.detailLabel}>ASSIGNED DRIVER</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -532,16 +541,16 @@ export default function TrashReportsTab() {
                           <Text style={{ fontSize: 15, fontWeight: '700', color: '#2E8B57' }}>{selectedReport.assignedDriver}</Text>
                         </View>
                       </View>
-                    )}
+                    ) : null}
 
-                    {selectedReport.aiAnalysis && (
+                    {selectedReport.aiAnalysis ? (
                       <View style={styles.aiCard}>
                         <Text style={styles.aiCardTitle}>AI Analysis</Text>
                         <Text style={styles.aiDetail}>Type: <Text style={{fontWeight: 'bold'}}>{selectedReport.aiAnalysis.wasteType}</Text></Text>
                         <Text style={styles.aiDetail}>Est. Weight: {formatWasteAmount(selectedReport.aiAnalysis.estimatedWeight)}</Text>
                         <Text style={styles.aiDetail}>Confidence: {selectedReport.aiAnalysis.confidence}</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
 
                   <View style={[styles.modalRight, isMobile && { borderLeftWidth: 0, paddingLeft: 0, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 20 }]}>
@@ -550,7 +559,7 @@ export default function TrashReportsTab() {
                       {/* Initial Report Created State (Always visible at the top of the timeline) */}
                       <View style={styles.timelineItem}>
                         <View style={styles.timelineDot} />
-                        {(selectedReport.statusHistory?.length || 0) > 0 && <View style={styles.timelineLine} />}
+                        {Boolean((selectedReport.statusHistory?.length || 0) > 0) ? <View style={styles.timelineLine} /> : null}
                         <View style={styles.timelineContent}>
                           <Text style={styles.timelineStatus}>Pending</Text>
                           <Text style={styles.timelineTime}>{formatDate(selectedReport.createdAt)}</Text>
@@ -562,11 +571,11 @@ export default function TrashReportsTab() {
                       {(selectedReport.statusHistory || []).map((history, idx) => (
                         <View key={idx} style={styles.timelineItem}>
                           <View style={styles.timelineDot} />
-                          {idx !== (selectedReport.statusHistory?.length || 0) - 1 && <View style={styles.timelineLine} />}
+                          {idx !== (selectedReport.statusHistory?.length || 0) - 1 ? <View style={styles.timelineLine} /> : null}
                           <View style={styles.timelineContent}>
                             <Text style={styles.timelineStatus}>{getStatusLabel(history.status)}</Text>
                             <Text style={styles.timelineTime}>{formatDate(history.timestamp)}</Text>
-                            {history.notes ? <Text style={styles.timelineNotes}>“{history.notes}”</Text> : null}
+                            {Boolean(history.notes) ? <Text style={styles.timelineNotes}>“{history.notes}”</Text> : null}
                           </View>
                         </View>
                       ))}

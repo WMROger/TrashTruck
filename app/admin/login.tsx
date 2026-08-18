@@ -18,6 +18,12 @@ import AdminInput from '../../components/admin/AdminInput';
 import ErrorModal from '../../components/ErrorModal';
 import { auth, db } from '../../config/firebase';
 import { adminStyles } from '../../styles/admin';
+import {
+  isDictIdentifier,
+  isDictEmail,
+  loginOrBootstrapDictAccount,
+  ensureDictProfileInFirestore,
+} from '../../constants/dictConfig';
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
@@ -59,6 +65,15 @@ export default function AdminLogin() {
     try {
       console.log('Admin login attempt:', { username });
       
+      // Check if user is logging in as DICT (hardcoded support)
+      if (isDictIdentifier(username)) {
+        await setPersistence(auth, keepLoggedIn ? browserLocalPersistence : browserSessionPersistence);
+        const dictUser = await loginOrBootstrapDictAccount(username, password);
+        console.log('DICT login & bootstrap successful for:', dictUser.email);
+        router.replace('/dict/dashboard');
+        return;
+      }
+
       // Use the entered email directly
       const email = username.includes('@') ? username : `${username}@admin.com`;
       
@@ -67,8 +82,10 @@ export default function AdminLogin() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      const isDict = isDictEmail(user.email);
+
       const usesPassword = user.providerData.some(provider => provider.providerId === 'password');
-      if (usesPassword && !user.emailVerified) {
+      if (!isDict && usesPassword && !user.emailVerified) {
         try { await sendEmailVerification(user); } catch {}
         await signOut(auth);
         showError('A verification link was sent to this administrator email. Verify it before signing in.', 'Email Verification Required', 'warning');
@@ -79,6 +96,13 @@ export default function AdminLogin() {
       
       // Check if user has admin role in Firestore
       if (db) {
+        if (isDict) {
+          await ensureDictProfileInFirestore(user.uid, user.email || 'dict@trashtrack.gov.ph', user.displayName || 'DICT Super Admin');
+          console.log('DICT role confirmed via email pattern, redirecting to dict dashboard');
+          router.replace('/dict/dashboard');
+          return;
+        }
+
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
         

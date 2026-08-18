@@ -8,6 +8,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import { isDictEmail, ensureDictProfileInFirestore } from '@/constants/dictConfig';
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
@@ -29,12 +30,17 @@ function RootLayoutNav() {
 
       setRoleLoading(true);
       try {
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        setUserRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
+        if (isDictEmail(user.email)) {
+          await ensureDictProfileInFirestore(user.uid, user.email || 'dict@trashtrack.gov.ph', user.displayName || 'DICT Super Admin');
+          setUserRole('dict');
+        } else {
+          const userRef = doc(db, 'users', user.uid);
+          const userSnap = await getDoc(userRef);
+          setUserRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
+        }
       } catch (error) {
         console.error('Error checking user role:', error);
-        setUserRole('user');
+        setUserRole(isDictEmail(user.email) ? 'dict' : 'user');
       } finally {
         setRoleResolvedForUid(user.uid);
         setRoleLoading(false);
@@ -82,26 +88,26 @@ function RootLayoutNav() {
     }
   }, [userRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
 
-  // Route-scoped global font: Poppins on admin, SF Pro stack elsewhere
+  // Route-scoped global font: Poppins on admin/dict, Plus Jakarta Sans & Inter elsewhere
   useEffect(() => {
     const currentSegment = segments[0];
     const isAdminRoute = currentSegment === 'admin' || currentSegment === 'dict';
 
     const adminFont = Platform.select({
-      web: 'Poppins, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+      web: "'Poppins', 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       ios: 'Poppins',
       android: 'Poppins',
       default: 'System',
     }) as string;
 
-    const sfProStack = Platform.select({
-      web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+    const modernFontStack = Platform.select({
+      web: "'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       ios: 'System',
-      android: 'Roboto', // Closest system match to SF Pro on Android
+      android: 'Roboto',
       default: 'System',
     }) as string;
 
-    const targetFont = isAdminRoute ? adminFont : sfProStack;
+    const targetFont = isAdminRoute ? adminFont : modernFontStack;
 
     // Set global font styles using style injection (web only)
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -114,6 +120,9 @@ function RootLayoutNav() {
         body, button, input, select, textarea,
         p, span, div, h1, h2, h3, h4, h5, h6, a, label, li, td, th {
           font-family: ${targetFont};
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
         }
       `;
       document.head.appendChild(style);
@@ -231,10 +240,7 @@ export default function RootLayout() {
   // Set global default fonts using CSS for web platform
   useEffect(() => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const defaultFont = Platform.select({
-        web: 'SF Pro, SF Pro Display, -apple-system, system-ui, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
-        default: 'System',
-      }) as string;
+      const defaultFont = "'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
       const style = document.createElement('style');
       style.textContent = `
@@ -245,6 +251,9 @@ export default function RootLayout() {
         body, button, input, select, textarea,
         p, span, div, h1, h2, h3, h4, h5, h6, a, label, li, td, th {
           font-family: ${defaultFont};
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
         }
         /* Ensure Material Icons ligature font renders correctly */
         .material-icons {

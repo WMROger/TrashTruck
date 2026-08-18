@@ -160,8 +160,8 @@ service cloud.firestore {
   function dictRoleUpdateOnly(userId) {
     return isDict()
       && userId != request.auth.uid
-      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'updatedAt'])
-      && request.resource.data.role in ['user', 'admin', 'dict', 'coordinator'];
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'department', 'designation', 'employeeId', 'status', 'updatedAt'])
+      && request.resource.data.role in ['user', 'admin'];
   }
 
   function ownDriverLocation(locationId) {
@@ -217,9 +217,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if validResidentProfileCreate(userId) || isAdmin();
+      allow create: if validResidentProfileCreate(userId) || isAdmin() || isDict();
       allow read: if isOwner(userId) || isAdmin() || isDict();
-      allow update: if isAdmin() || dictRoleUpdateOnly(userId)
+      allow update: if isAdmin() || isDict() || dictRoleUpdateOnly(userId)
         || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
       allow delete: if isAdmin();
 
@@ -231,7 +231,8 @@ service cloud.firestore {
     }
 
     match /employee_ids/{employeeId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isDict();
+      allow write: if isAdmin() || isDict();
     }
 
     match /license_numbers/{licenseNumber} {

@@ -1,6 +1,6 @@
-import React from 'react';
-import { Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import React from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface SidebarProps {
   activeTab: string;
@@ -12,10 +12,10 @@ interface SidebarProps {
 export default function DictSidebar({ activeTab, onTabChange, onLogout, collapsed = false }: SidebarProps) {
   const navigationItems = [
     { id: 'dashboard', label: 'DASHBOARD', icon: 'grid-view', activeIcon: 'grid-view' },
-    { id: 'rewards', label: 'REWARDS', icon: 'card-giftcard', activeIcon: 'card-giftcard' },
     { id: 'identity-access', label: 'IDENTITY & ACCESS', icon: 'security', activeIcon: 'security' },
+    { id: 'rewards', label: 'REWARDS', icon: 'card-giftcard', activeIcon: 'card-giftcard' },
     { id: 'data-management', label: 'DATA MANAGEMENT', icon: 'storage', activeIcon: 'storage' },
-    { id: 'fleet-ops', label: 'FLEET OPS', icon: 'directions-car', activeIcon: 'directions-car' },
+    { id: 'fleet-ops', label: 'FLEET MONITORING', icon: 'directions-car', activeIcon: 'directions-car' },
     { id: 'cenro-command', label: 'CENRO COMMAND & CHAT', icon: 'forum', activeIcon: 'forum' },
   ];
 
@@ -36,7 +36,7 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
       <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
         {navigationItems.map((item, index) => {
           const isActive = activeTab === item.id;
-          
+
           return (
             <React.Fragment key={item.id}>
               <TouchableOpacity
@@ -47,10 +47,10 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
                 onPress={() => onTabChange(item.id)}
               >
                 <View style={styles.navItemIconContainer}>
-                  <MaterialIcons 
-                    name={isActive ? item.activeIcon as any : item.icon as any} 
-                    size={22} 
-                    color={isActive ? '#FFF' : '#6B7280'} 
+                  <MaterialIcons
+                    name={isActive ? item.activeIcon as any : item.icon as any}
+                    size={22}
+                    color={isActive ? '#FFF' : '#6B7280'}
                   />
                 </View>
                 {!collapsed && <Text style={[
@@ -60,7 +60,7 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
                   {item.label}
                 </Text>}
               </TouchableOpacity>
-              
+
               {/* Divider after Fleet Ops */}
               {item.id === 'fleet-ops' && !collapsed && (
                 <View style={styles.dividerContainer}>
@@ -85,7 +85,7 @@ export default function DictSidebar({ activeTab, onTabChange, onLogout, collapse
           <MaterialIcons name="help-outline" size={18} color="#6B7280" />
           {!collapsed && <Text style={styles.footerLinkText}>SUPPORT</Text>}
         </TouchableOpacity>
-        
+
         <TouchableOpacity style={styles.footerLink} onPress={onLogout}>
           <MaterialIcons name="logout" size={18} color="#6B7280" />
           {!collapsed && <Text style={styles.footerLinkText}>LOGOUT</Text>}

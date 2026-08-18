@@ -8,6 +8,7 @@ import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
 import DictSidebar from '../../components/admin/DictSidebar';
 import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, DictLogoutModal } from '../../components/admin/dict';
+import { isDictEmail, ensureDictProfileInFirestore } from '../../constants/dictConfig';
 
 export default function DictDashboard() {
   const { user, loading: authLoading } = useAuthContext();
@@ -25,6 +26,15 @@ export default function DictDashboard() {
       if (!user) {
         console.log('DICT dashboard: No user found, redirecting to login');
         router.replace('/admin/login');
+        return;
+      }
+
+      // Check if user has recognized DICT email
+      if (isDictEmail(user.email)) {
+        console.log('DICT dashboard: Hardcoded DICT identity recognized for:', user.email);
+        await ensureDictProfileInFirestore(user.uid, user.email || 'dict@trashtrack.gov.ph', user.displayName || 'DICT Super Admin');
+        setIsDictAdmin(true);
+        setIsLoading(false);
         return;
       }
 
