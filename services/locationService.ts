@@ -75,6 +75,41 @@ class LocationService {
     driverId: '',
   };
 
+  // =========================================================================
+  // STANDALONE APK: BACKGROUND LOCATION TRACKING (UNCOMMENT WHEN BUILDING APK)
+  // =========================================================================
+  // When building a standalone APK (with `eas build` or `npx expo run:android`),
+  // you can enable true 24/7 background GPS tracking even when the phone screen is locked.
+  //
+  // Steps to enable for APK:
+  // 1. Run: npx expo install expo-task-manager
+  // 2. Uncomment the TaskManager code and startBackgroundTracking() below.
+  // 3. Set "locationAlwaysAndWhenInUsePermission": true in app.json.
+  //
+  // /*
+  // import * as TaskManager from 'expo-task-manager';
+  // export const BACKGROUND_LOCATION_TASK = 'TRASHTRACK_BACKGROUND_LOCATION';
+  //
+  // TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
+  //   if (error) {
+  //     console.error('Background location error:', error);
+  //     return;
+  //   }
+  //   if (data) {
+  //     const { locations } = data as { locations: Location.LocationObject[] };
+  //     const latest = locations[locations.length - 1];
+  //     if (latest && locationService.currentDriverId && locationService.currentTruckId) {
+  //       await locationService.updateLocationInFirestore(
+  //         locationService.currentDriverId,
+  //         locationService.currentTruckId,
+  //         latest.coords,
+  //         locationService.currentTrackingContext
+  //       );
+  //     }
+  //   }
+  // });
+  // */
+
   async startTracking(driverId: string, truckId: string, context: FleetTrackingContext = {}) {
     if (!driverId || !truckId) {
       console.warn('GPS tracking requires both an authenticated driver and an assigned truck.');
@@ -117,7 +152,7 @@ class LocationService {
         }
       }
 
-      // Start watching location — this is more resilient than getCurrentPositionAsync
+      // --- [FOR EXPO GO: Standard Foreground Location Watcher] ---
       this.locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -128,6 +163,22 @@ class LocationService {
           this.updateLocationInFirestore(driverId, truckId, location.coords, context);
         }
       );
+
+      // --- [FOR STANDALONE APK: UNCOMMENT FOR BACKGROUND TRACKING WHEN SCREEN IS LOCKED] ---
+      // const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      // if (bgStatus === 'granted') {
+      //   await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+      //     accuracy: Location.Accuracy.High,
+      //     timeInterval: 10000,
+      //     distanceInterval: 10,
+      //     showsBackgroundLocationIndicator: true,
+      //     foregroundService: {
+      //       notificationTitle: 'TrashTrack Driver Active',
+      //       notificationBody: 'Broadcasting live collection truck coordinates to CENRO dispatch.',
+      //       notificationColor: '#2E8B57',
+      //     },
+      //   });
+      // }
       
       console.log('Started live GPS tracking for driver:', driverId);
     } catch (error) {
