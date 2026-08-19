@@ -2,13 +2,12 @@ import { useAuthContext } from '@/components/AuthContext';
 import { auth, db } from '@/config/firebase';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 
 import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
-import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 import { useTheme } from '@/hooks/useTheme';
 import { locationService, SimulationState } from '@/services/locationService';
 
@@ -54,19 +53,11 @@ export default function DriverIndex() {
   // Current truck assignment
   const [currentTruck, setCurrentTruck] = useState<{ id: string; plateNumber: string; type: string } | null>(null);
 
+  // Driver assigned barangay from Firestore
+  const [assignedBarangay, setAssignedBarangay] = useState<string>('Poblacion');
+
   // GPS Simulation state
   const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
-  const [selectedSimBarangay, setSelectedSimBarangay] = useState<string>(
-    (user as any)?.assignedBarangay || (user as any)?.barangay || 'Poblacion'
-  );
-  const [showBarangayPicker, setShowBarangayPicker] = useState(false);
-  const [barangaySearchText, setBarangaySearchText] = useState('');
-
-  useEffect(() => {
-    if ((user as any)?.assignedBarangay || (user as any)?.barangay) {
-      setSelectedSimBarangay((user as any)?.assignedBarangay || (user as any)?.barangay || 'Poblacion');
-    }
-  }, [user]);
 
   useEffect(() => {
     return locationService.onSimulationChange((state) => {
@@ -85,7 +76,7 @@ export default function DriverIndex() {
       await locationService.stopSimulation(activeUser.uid);
     } else {
       const truckId = currentTruck?.id || currentTruck?.plateNumber || 'TRUCK-DANAO-01';
-      await locationService.startSimulation(activeUser.uid, truckId, selectedSimBarangay);
+      await locationService.startSimulation(activeUser.uid, truckId, assignedBarangay);
     }
   };
 
@@ -109,7 +100,10 @@ export default function DriverIndex() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        if (data.status === 'pending' || !data.status) {
+        if (data.status === 'pending' || data.status === 'in_progress' || !data.status) {
+          if (data.barangay && typeof data.barangay === 'string' && data.barangay.trim()) {
+            setAssignedBarangay(data.barangay.trim());
+          }
           if (data.isLiveDispatch) {
             liveDispatchesData.push({
               id: doc.id,
@@ -180,13 +174,18 @@ export default function DriverIndex() {
     };
   }, [user]);
 
-  // Listen for current truck assignment
+  // Listen for current user profile & truck assignment
   useEffect(() => {
-    if (!db || !user?.uid) return;
+    const currentUid = auth?.currentUser?.uid || user?.uid;
+    if (!db || !currentUid) return;
 
-    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+    const unsubUser = onSnapshot(doc(db, 'users', currentUid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        const b = (data.assignedBarangay || data.barangay || '').trim();
+        if (b) {
+          setAssignedBarangay(b);
+        }
         if (data.currentTruckId) {
           // Listen to the truck document for real-time info
           const unsubTruck = onSnapshot(doc(db, 'trucks', data.currentTruckId), (truckSnap) => {
@@ -212,7 +211,7 @@ export default function DriverIndex() {
     });
 
     return () => unsubUser();
-  }, [user]);
+  }, [user?.uid, auth?.currentUser?.uid]);
 
   const handleCompletePickup = (id: string) => {
     setSelectedPickupId(id);
@@ -246,22 +245,40 @@ export default function DriverIndex() {
 
   const confirmEndShift = async () => {
     try {
-      if (simulationState.isActive && user?.uid) {
-        await locationService.stopSimulation(user.uid);
-      }
-      if (currentTruck && user?.uid) {
-        // Unassign driver from truck
-        await updateDoc(doc(db, 'trucks', currentTruck.id), {
-          assignedDriverId: null,
-          assignedDriverName: null,
-          shiftStartedAt: null,
-          updatedAt: serverTimestamp(),
-        });
-        // Clear truck from user profile
+      if (user?.uid) {
+        if (simulationState.isActive) {
+          await locationService.stopSimulation(user.uid);
+        }
+        await locationService.stopTracking(user.uid);
+
+        if (currentTruck) {
+          // Unassign driver from truck
+          await updateDoc(doc(db, 'trucks', currentTruck.id), {
+            assignedDriverId: null,
+            assignedDriverName: null,
+            shiftStartedAt: null,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        // Clear truck and mark off-duty on user profile
         await updateDoc(doc(db, 'users', user.uid), {
           currentTruckId: null,
           currentTruckPlate: null,
+          status: 'off_duty',
+          dutyStatus: 'off_duty',
         });
+
+        // Ensure truck_locations is marked inactive
+        try {
+          await setDoc(doc(db, 'truck_locations', user.uid), {
+            status: 'inactive',
+            isBroadcasting: false,
+            lastUpdate: serverTimestamp(),
+          }, { merge: true });
+        } catch (locErr) {
+          console.warn('Could not update truck_locations on end shift:', locErr);
+        }
       }
       setIsShiftActive(false);
       setCurrentTruck(null);
@@ -344,7 +361,7 @@ export default function DriverIndex() {
       {isShiftActive && !!currentTruck && (
         <View style={[styles.simCard, isDark && styles.simCardDark, simulationState.isActive && styles.simCardActive]}>
           <View style={styles.simHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 160 }}>
               <View style={[styles.simIconBox, simulationState.isActive ? styles.simIconBoxActive : (isDark ? styles.simIconBoxDark : null)]}>
                 <MaterialIcons
                   name={simulationState.isActive ? 'navigation' : 'satellite-alt'}
@@ -352,10 +369,10 @@ export default function DriverIndex() {
                   color={simulationState.isActive ? '#FFFFFF' : (isDark ? '#86EFAC' : '#2E8B57')}
                 />
               </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Text style={[styles.simTitle, isDark && styles.textLight]}>
-                    {simulationState.isActive ? `Simulating Brgy. ${simulationState.barangay || selectedSimBarangay}` : 'GPS Route Simulator'}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Text style={[styles.simTitle, isDark && styles.textLight]} numberOfLines={1}>
+                    {simulationState.isActive ? `Simulating Brgy. ${assignedBarangay}` : 'GPS Route Simulator'}
                   </Text>
                   {simulationState.isActive && (
                     <View style={styles.simLiveBadge}>
@@ -367,7 +384,7 @@ export default function DriverIndex() {
                 <Text style={[styles.simSubtitle, isDark && styles.textMuted]} numberOfLines={1}>
                   {simulationState.isActive
                     ? `${simulationState.locationName} · ${simulationState.currentSpeedKph} km/h`
-                    : `Transmits live collection telemetry for Brgy. ${selectedSimBarangay}`}
+                    : `Transmits live collection telemetry for Brgy. ${assignedBarangay}`}
                 </Text>
               </View>
             </View>
@@ -388,27 +405,32 @@ export default function DriverIndex() {
             </TouchableOpacity>
           </View>
 
-          {/* Sector / Barangay Selector Row */}
+          {/* Sector / Barangay Fixed Assigned Row */}
           <View style={styles.simSectorRow}>
-            <Text style={[styles.simSectorLabel, isDark && styles.textMuted]}>Collection Sector:</Text>
-            <TouchableOpacity
+            <Text style={[styles.simSectorLabel, isDark && styles.textMuted]}>Assigned Sector:</Text>
+            <View
               style={[
                 styles.simSectorBtn,
                 isDark && styles.simSectorBtnDark,
-                simulationState.isActive && styles.simSectorBtnDisabled,
+                { opacity: 1 },
               ]}
-              onPress={() => !simulationState.isActive && setShowBarangayPicker(true)}
-              activeOpacity={simulationState.isActive ? 1 : 0.75}
-              disabled={simulationState.isActive}
             >
               <MaterialIcons name="location-on" size={15} color="#16A34A" />
-              <Text style={[styles.simSectorBtnText, isDark && styles.textLight]}>
-                Brgy. {simulationState.isActive ? (simulationState.barangay || selectedSimBarangay) : selectedSimBarangay}
+              <Text style={[styles.simSectorBtnText, isDark && styles.textLight, { fontWeight: '800' }]} numberOfLines={1}>
+                Brgy. {assignedBarangay}
               </Text>
-              {!simulationState.isActive && (
-                <MaterialIcons name="arrow-drop-down" size={18} color={isDark ? '#9CA3AF' : '#64748B'} />
-              )}
-            </TouchableOpacity>
+              <View
+                style={{
+                  backgroundColor: isDark ? '#064E3B' : '#DCFCE7',
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: 4,
+                  marginLeft: 4,
+                }}
+              >
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: isDark ? '#86EFAC' : '#166534' }}>ASSIGNED</Text>
+              </View>
+            </View>
           </View>
 
           {simulationState.isActive && (
@@ -430,7 +452,7 @@ export default function DriverIndex() {
                 <View
                   style={[
                     styles.simProgressBarFill,
-                    { width: `${(simulationState.currentStep / simulationState.totalSteps) * 100}%` },
+                    { width: `${Math.min(100, Math.max(0, (simulationState.currentStep / (simulationState.totalSteps || 1)) * 100))}%` },
                   ]}
                 />
               </View>
@@ -438,92 +460,6 @@ export default function DriverIndex() {
           )}
         </View>
       )}
-
-      {/* Barangay Route Selection Modal */}
-      <Modal
-        visible={showBarangayPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowBarangayPicker(false)}
-      >
-        <View style={styles.pickerModalOverlay}>
-          <View style={[styles.pickerModalContent, isDark && styles.pickerModalContentDark]}>
-            <View style={styles.pickerModalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <MaterialIcons name="alt-route" size={20} color="#16A34A" />
-                <Text style={[styles.pickerModalTitle, isDark && styles.textLight]}>
-                  Select Barangay Route
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowBarangayPicker(false)} style={styles.pickerCloseBtn}>
-                <Feather name="x" size={20} color={isDark ? '#9CA3AF' : '#64748B'} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Search Input */}
-            <View style={[styles.pickerSearchBox, isDark && styles.pickerSearchBoxDark]}>
-              <Feather name="search" size={16} color="#94A3B8" />
-              <TextInput
-                style={[styles.pickerSearchInput, isDark && styles.textLight]}
-                placeholder="Search Danao City barangay..."
-                placeholderTextColor="#94A3B8"
-                value={barangaySearchText}
-                onChangeText={setBarangaySearchText}
-              />
-              {barangaySearchText.length > 0 && (
-                <TouchableOpacity onPress={() => setBarangaySearchText('')}>
-                  <Feather name="x" size={14} color="#94A3B8" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* List of Barangays */}
-            <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
-              {DANAO_CITY_BARANGAYS
-                .filter(b => b.toLowerCase().includes(barangaySearchText.toLowerCase()))
-                .map((b) => {
-                  const isSelected = selectedSimBarangay.toLowerCase() === b.toLowerCase();
-                  return (
-                    <TouchableOpacity
-                      key={b}
-                      style={[
-                        styles.pickerItem,
-                        isDark && styles.pickerItemDark,
-                        isSelected && (isDark ? styles.pickerItemActiveDark : styles.pickerItemActive),
-                      ]}
-                      onPress={() => {
-                        setSelectedSimBarangay(b);
-                        setShowBarangayPicker(false);
-                        setBarangaySearchText('');
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <MaterialIcons
-                          name={isSelected ? 'radio-button-checked' : 'radio-button-unchecked'}
-                          size={18}
-                          color={isSelected ? '#16A34A' : '#94A3B8'}
-                        />
-                        <Text style={[
-                          styles.pickerItemText,
-                          isDark && styles.textLight,
-                          isSelected && { color: '#16A34A', fontWeight: '800' }
-                        ]}>
-                          Brgy. {b}
-                        </Text>
-                      </View>
-                      {isSelected && (
-                        <View style={styles.pickerSelectedBadge}>
-                          <Text style={styles.pickerSelectedBadgeText}>ACTIVE</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
       {/* Live Dispatches (AI Optimized Routes) */}
       {isShiftActive && liveDispatches.length > 0 && (
@@ -1383,7 +1319,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 14,
+    padding: 12,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     shadowColor: '#000',
@@ -1391,6 +1327,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 2,
+    overflow: 'hidden',
   },
   simCardDark: {
     backgroundColor: '#1F2937',
@@ -1404,11 +1341,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
+    flexWrap: 'wrap',
   },
   simIconBox: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
@@ -1421,14 +1359,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A',
   },
   simTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '800',
     color: '#0F172A',
+    flexShrink: 1,
   },
   simSubtitle: {
     fontSize: 11,
     color: '#64748B',
     marginTop: 2,
+    flexShrink: 1,
   },
   simLiveBadge: {
     flexDirection: 'row',
@@ -1455,8 +1395,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 10,
   },
   simBtnStart: {
@@ -1473,11 +1413,13 @@ const styles = StyleSheet.create({
   simSectorRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(226, 232, 240, 0.7)',
+    flexWrap: 'wrap',
   },
   simSectorLabel: {
     fontSize: 11,
@@ -1494,6 +1436,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   simSectorBtnDark: {
     backgroundColor: '#374151',
@@ -1506,6 +1450,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#0F172A',
+    flexShrink: 1,
   },
   simProgressSection: {
     marginTop: 10,
@@ -1517,6 +1462,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
     marginBottom: 6,
   },
   simMetricText: {
@@ -1537,98 +1484,5 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#16A34A',
     borderRadius: 3,
-  },
-  pickerModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    zIndex: 9999,
-  },
-  pickerModalContent: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  pickerModalContentDark: {
-    backgroundColor: '#1F2937',
-  },
-  pickerModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  pickerModalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  pickerCloseBtn: {
-    padding: 4,
-  },
-  pickerSearchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-  },
-  pickerSearchBoxDark: {
-    backgroundColor: '#111827',
-    borderColor: '#374151',
-  },
-  pickerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#0F172A',
-    padding: 0,
-  },
-  pickerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 4,
-  },
-  pickerItemDark: {
-    backgroundColor: 'transparent',
-  },
-  pickerItemActive: {
-    backgroundColor: '#F0FDF4',
-  },
-  pickerItemActiveDark: {
-    backgroundColor: 'rgba(22, 163, 74, 0.18)',
-  },
-  pickerItemText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  pickerSelectedBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  pickerSelectedBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#16A34A',
   },
 });

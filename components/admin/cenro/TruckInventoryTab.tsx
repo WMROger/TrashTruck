@@ -120,6 +120,8 @@ export default function TruckInventoryTab() {
                   await updateDoc(doc(db, 'users', truck.assignedDriverId), {
                     currentTruckId: null,
                     currentTruckPlate: null,
+                    status: 'off_duty',
+                    dutyStatus: 'off_duty',
                   });
                 } catch (userErr) {
                   console.warn('Could not clear driver user doc:', userErr);

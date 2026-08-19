@@ -288,29 +288,27 @@ export default function LoadingPage() {
         const snap = await getDoc(doc(db, 'users', currentUser.uid));
         const role = snap.exists() ? (snap.data() as any)?.role : 'user';
         
-        setTimeout(async () => {
-          if (role === 'admin' || role === 'dict') {
-            if (Platform.OS !== 'web') {
-              try { await signOut(auth); } catch {}
-              showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
-              setTimeout(() => { router.replace('/(auth)/login' as any); }, 3000);
-              return;
-            }
-            if (role === 'admin') {
-              console.log('Admin user detected, redirecting to admin dashboard');
-              router.replace('/admin/dashboard' as any);
-            } else {
-              console.log('DICT user detected, redirecting to DICT dashboard');
-              router.replace('/dict/dashboard' as any);
-            }
-          } else if (role === 'driver') {
-            console.log('Driver user detected, redirecting to driver interface');
-            router.replace('/(driver)' as any);
-          } else {
-            console.log('Regular user detected, redirecting to home');
-            router.replace('/(tabs)/home' as any);
+        if (role === 'admin' || role === 'dict') {
+          if (Platform.OS !== 'web') {
+            try { await signOut(auth); } catch {}
+            showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
+            setTimeout(() => { router.replace('/(auth)/login' as any); }, 3000);
+            return;
           }
-        }, 1000);
+          if (role === 'admin') {
+            console.log('Admin user detected, redirecting to admin dashboard');
+            router.replace('/admin/dashboard' as any);
+          } else {
+            console.log('DICT user detected, redirecting to DICT dashboard');
+            router.replace('/dict/dashboard' as any);
+          }
+        } else if (role === 'driver') {
+          console.log('Driver user detected, redirecting to driver interface');
+          router.replace('/(driver)' as any);
+        } else {
+          console.log('Regular user detected, redirecting to home');
+          router.replace('/(tabs)/home' as any);
+        }
       } else {
         throw new Error('Authentication profile services are unavailable.');
       }

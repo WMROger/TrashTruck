@@ -43,6 +43,7 @@ export default function SettingsPage() {
     displayName?: string;
     photoURL?: string;
     barangay?: string;
+    barangayUpdatedAt?: any;
   } | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -65,6 +66,27 @@ export default function SettingsPage() {
   const [redeemedRewardTokens, setRedeemedRewardTokens] = useState(0);
   const router = useRouter();
   const availableRewardTokens = Math.max(0, earnedRewardTokens - redeemedRewardTokens);
+
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const getBarangayLockStatus = () => {
+    if (!userProfile?.barangay || !userProfile?.barangayUpdatedAt) {
+      return { isLocked: false, remainingHours: 0, remainingMinutes: 0, formattedRemaining: '' };
+    }
+    const raw = userProfile.barangayUpdatedAt;
+    const updateTime = raw?.toDate ? raw.toDate().getTime() : (raw ? new Date(raw).getTime() : 0);
+    if (!updateTime || isNaN(updateTime)) {
+      return { isLocked: false, remainingHours: 0, remainingMinutes: 0, formattedRemaining: '' };
+    }
+    const elapsed = Date.now() - updateTime;
+    if (elapsed >= ONE_DAY_MS) {
+      return { isLocked: false, remainingHours: 0, remainingMinutes: 0, formattedRemaining: '' };
+    }
+    const remainingMs = ONE_DAY_MS - elapsed;
+    const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+    const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
+    const formattedRemaining = remainingHours > 1 ? `${remainingHours} hrs` : `${remainingMinutes} mins`;
+    return { isLocked: true, remainingHours, remainingMinutes, formattedRemaining };
+  };
 
   useEffect(() => {
     if (!user?.uid || !db) return;
@@ -210,6 +232,7 @@ export default function SettingsPage() {
             displayName: userData.displayName || user.displayName || 'User',
             photoURL: resolved,
             barangay: userData.barangay || '',
+            barangayUpdatedAt: userData.barangayUpdatedAt || userData.updatedAt || null,
           });
         } else {
           console.log('❌ No Firestore document found, checking auth data');
@@ -513,17 +536,31 @@ export default function SettingsPage() {
 
   const handleSaveBarangay = async () => {
     if (!auth || !user?.uid) return;
+    const lockStatus = getBarangayLockStatus();
+    if (lockStatus.isLocked && editBarangay !== userProfile?.barangay) {
+      Alert.alert(
+        'Barangay Locked',
+        `You can only change your registered barangay once every 24 hours. Remaining lock time: ${lockStatus.formattedRemaining}.`
+      );
+      return;
+    }
+    if (!editBarangay.trim()) {
+      Alert.alert('Selection Required', 'Please select a barangay.');
+      return;
+    }
     setIsSaving(true);
     try {
-      const { updateDoc } = require('firebase/firestore');
+      const { updateDoc, serverTimestamp } = require('firebase/firestore');
       const userRef = doc(db, 'users', user.uid);
+      const now = new Date();
       await updateDoc(userRef, {
         barangay: editBarangay,
-        updatedAt: new Date()
+        barangayUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
-      setUserProfile(prev => prev ? { ...prev, barangay: editBarangay } : null);
+      setUserProfile(prev => prev ? { ...prev, barangay: editBarangay, barangayUpdatedAt: now } : null);
       setShowBarangayModal(false);
-      Alert.alert('Success', 'Barangay preference updated successfully');
+      Alert.alert('Success', 'Barangay preference updated. Your registered barangay is now locked for 24 hours.');
     } catch (error) {
       console.error('Failed to update barangay:', error);
       Alert.alert('Error', 'Failed to update barangay preference');
@@ -686,8 +723,19 @@ export default function SettingsPage() {
               <IconSymbol name="mappin.circle.fill" size={20} color="#2E7D32" />
             </View>
             <View style={styles.settingsTextContainer}>
-              <Text style={styles.settingsRowTitle}>Barangay Preference</Text>
-              <Text style={styles.settingsRowSubtitle}>{userProfile?.barangay || "Tap to set barangay"}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.settingsRowTitle}>Barangay Preference</Text>
+                {getBarangayLockStatus().isLocked && (
+                  <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                    <Text style={{ fontSize: 10, color: '#92400E', fontWeight: 'bold' }}>24h Lock</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.settingsRowSubtitle}>
+                {userProfile?.barangay
+                  ? `${userProfile.barangay}${getBarangayLockStatus().isLocked ? ` · Locked (${getBarangayLockStatus().formattedRemaining})` : ''}`
+                  : "Tap to set barangay"}
+              </Text>
             </View>
             <IconSymbol name="chevron.right" size={20} color="#9E9E9E" />
           </TouchableOpacity>
@@ -1229,6 +1277,13 @@ export default function SettingsPage() {
                   />
                 </View>
               </View>
+              {getBarangayLockStatus().isLocked && (
+                <View style={{ backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+                    🔒 Barangay is locked for 24 hours. Remaining cooldown: {getBarangayLockStatus().formattedRemaining}.
+                  </Text>
+                </View>
+              )}
 
               <TouchableOpacity 
                 style={[styles.saveButton, { backgroundColor: colors.primary }]}

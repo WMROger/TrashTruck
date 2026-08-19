@@ -68,6 +68,7 @@ interface Driver {
   currentTruckId?: string;
   currentTruckPlate?: string;
   status?: string;
+  dutyStatus?: string;
 }
 
 export default function RouteOptimizationTab() {
@@ -81,6 +82,8 @@ export default function RouteOptimizationTab() {
   // Core Data
   const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
   const [selectedBarangay, setSelectedBarangay] = useState<string>('Poblacion');
+  const [isBarangayDropdownOpen, setIsBarangayDropdownOpen] = useState(false);
+  const [barangaySearchQuery, setBarangaySearchQuery] = useState('');
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string>('');
   const [trucksMap, setTrucksMap] = useState<Record<string, string>>({});
@@ -149,6 +152,10 @@ export default function RouteOptimizationTab() {
       snap.forEach((d) => {
         const u = d.data();
         if (u.disabled !== true && u.status !== 'disabled') {
+          const rawDuty = u.dutyStatus || u.status || 'off_duty';
+          const hasAssignedTruck = Boolean(u.currentTruckId);
+          const isOnDuty = (hasAssignedTruck || rawDuty === 'on_duty' || u.status === 'on_duty') && rawDuty !== 'off_duty' && u.status !== 'off_duty';
+
           driverList.push({
             id: d.id,
             displayName: u.displayName || u.name || u.email || 'Assigned Driver',
@@ -157,7 +164,8 @@ export default function RouteOptimizationTab() {
             barangay: (u.barangay || '').trim(),
             currentTruckId: u.currentTruckId || undefined,
             currentTruckPlate: u.currentTruckPlate || undefined,
-            status: u.status || 'active',
+            status: isOnDuty ? 'on_duty' : 'off_duty',
+            dutyStatus: rawDuty,
           });
         }
       });
@@ -191,12 +199,29 @@ export default function RouteOptimizationTab() {
     return () => unsubSim();
   }, []);
 
-  // 6. Filter Drivers by Selected Barangay (Active / On-Duty First)
+  // 6. Filter Barangays for Searchable Dropdown
+  const filteredBarangays = useMemo(() => {
+    const q = barangaySearchQuery.trim().toLowerCase();
+    if (!q) return availableBarangays;
+    return availableBarangays.filter((b) => b.toLowerCase().includes(q));
+  }, [availableBarangays, barangaySearchQuery]);
+
+  // 7. Filter Drivers strictly by Selected Barangay and Currently On Duty / Active
   const activeBarangayDrivers = useMemo(() => {
+    const current = selectedBarangay.trim().toLowerCase();
+    if (!current) return [];
+
     return drivers.filter((d) => {
       const b = (d.assignedBarangay || d.barangay || '').trim().toLowerCase();
-      const current = selectedBarangay.trim().toLowerCase();
-      return b === current || !b; // If unassigned or matches barangay
+      // Must be explicitly assigned to this barangay
+      if (!b) return false;
+      const isMatch = b === current || b === `${current} city` || current.includes(b) || b.includes(current);
+      if (!isMatch) return false;
+
+      // Must be currently on duty with an assigned truck / shift
+      const isAvailable = (d.status === 'on_duty' || d.dutyStatus === 'on_duty' || !!d.currentTruckId) &&
+        d.status !== 'off_duty' && d.dutyStatus !== 'off_duty' && d.status !== 'disabled' && d.status !== 'inactive';
+      return isAvailable;
     });
   }, [drivers, selectedBarangay]);
 
@@ -297,7 +322,8 @@ export default function RouteOptimizationTab() {
         const data = docSnap.data();
         const lat = data.lat ?? data.location?.latitude;
         const lng = data.lng ?? data.location?.longitude;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const isActive = data.status === 'active';
+        if (Number.isFinite(lat) && Number.isFinite(lng) && isActive) {
           setDriverLiveLocation({
             latitude: Number(lat),
             longitude: Number(lng),
@@ -384,6 +410,19 @@ export default function RouteOptimizationTab() {
         }
       }
 
+      // 3. Update driver's assigned barangay in their user profile
+      if (selectedDriverId) {
+        try {
+          await updateDoc(doc(db, 'users', selectedDriverId), {
+            assignedBarangay: selectedBarangay,
+            barangay: selectedBarangay,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (uErr) {
+          console.warn('Error updating driver assigned barangay:', uErr);
+        }
+      }
+
       await writeAuditLog('route.dispatched', 'driver', selectedDriverId, {
         barangay: selectedBarangay,
         driverName,
@@ -448,38 +487,142 @@ export default function RouteOptimizationTab() {
               color={activeSubView === 'report-dispatch' ? '#FFFFFF' : '#64748B'}
             />
             <Text style={[styles.subViewBtnText, activeSubView === 'report-dispatch' && styles.subViewBtnTextActive]}>
-              2. Insert Verified Reports ({selectedReportIds.size})
+              2. Insert Verified Reports ({selectedReportIds.size > 0 ? `${selectedReportIds.size}/${barangayReports.length}` : barangayReports.length})
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Operational Selection Card: Barangay & Active Driver */}
-      <View style={styles.selectorCard}>
-        <View style={[styles.selectorGrid, isNarrow && { flexDirection: 'column', gap: 12 }]}>
-          {/* 1. Barangay Filter Carousel */}
-          <View style={{ flex: 1.2 }}>
+      <View
+        style={[
+          styles.selectorCard,
+          isBarangayDropdownOpen && { zIndex: 1000, elevation: 25 },
+        ]}
+      >
+        <View
+          style={[
+            styles.selectorGrid,
+            isNarrow && { flexDirection: 'column', gap: 12 },
+            isBarangayDropdownOpen && { zIndex: 1000 },
+          ]}
+        >
+          {/* 1. Searchable Barangay Dropdown */}
+          <View style={{ flex: 1.2, zIndex: 1000, position: 'relative' }}>
             <View style={styles.selectorLabelRow}>
               <MaterialIcons name="location-city" size={16} color="#059669" />
               <Text style={styles.selectorLabel}>SELECT OPERATIONAL BARANGAY</Text>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsContainer}>
-              {availableBarangays.map((b) => {
-                const isSelected = selectedBarangay === b;
-                return (
-                  <TouchableOpacity
-                    key={b}
-                    style={[styles.barangayPill, isSelected && styles.barangayPillActive]}
-                    onPress={() => setSelectedBarangay(b)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.barangayPillText, isSelected && styles.barangayPillTextActive]}>
-                      Brgy. {b}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+
+            {/* Dropdown Button */}
+            <TouchableOpacity
+              style={[
+                styles.barangayDropdownBtn,
+                isBarangayDropdownOpen && styles.barangayDropdownBtnActive,
+              ]}
+              onPress={() => setIsBarangayDropdownOpen(!isBarangayDropdownOpen)}
+              activeOpacity={0.85}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    backgroundColor: '#ECFDF5',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <MaterialIcons name="holiday-village" size={16} color="#059669" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#0F172A' }}>
+                    Brgy. {selectedBarangay || 'Select Barangay'}
+                  </Text>
+                  <Text style={{ fontSize: 10.5, color: '#64748B' }}>
+                    {availableBarangays.length} Barangays Available
+                  </Text>
+                </View>
+              </View>
+              <MaterialIcons
+                name={isBarangayDropdownOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                size={22}
+                color="#64748B"
+              />
+            </TouchableOpacity>
+
+            {/* Dropdown Menu with Search Input */}
+            {isBarangayDropdownOpen && (
+              <View style={styles.barangayDropdownMenu}>
+                {/* Search box inside dropdown */}
+                <View style={styles.dropdownSearchContainer}>
+                  <MaterialIcons name="search" size={16} color="#64748B" />
+                  <TextInput
+                    style={styles.dropdownSearchInput}
+                    placeholder="Search barangay name..."
+                    placeholderTextColor="#94A3B8"
+                    value={barangaySearchQuery}
+                    onChangeText={setBarangaySearchQuery}
+                    autoFocus
+                  />
+                  {barangaySearchQuery ? (
+                    <TouchableOpacity onPress={() => setBarangaySearchQuery('')}>
+                      <MaterialIcons name="close" size={14} color="#94A3B8" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* List of Barangays */}
+                <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {filteredBarangays.length === 0 ? (
+                    <View style={{ padding: 14, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>
+                        No matching barangays found.
+                      </Text>
+                    </View>
+                  ) : (
+                    filteredBarangays.map((b) => {
+                      const isSelected = selectedBarangay === b;
+                      return (
+                        <TouchableOpacity
+                          key={b}
+                          style={[
+                            styles.barangayDropdownItem,
+                            isSelected && styles.barangayDropdownItemSelected,
+                          ]}
+                          onPress={() => {
+                            setSelectedBarangay(b);
+                            setIsBarangayDropdownOpen(false);
+                            setBarangaySearchQuery('');
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons
+                            name={isSelected ? 'check-circle' : 'location-on'}
+                            size={16}
+                            color={isSelected ? '#059669' : '#94A3B8'}
+                          />
+                          <Text
+                            style={[
+                              styles.barangayDropdownItemText,
+                              isSelected && styles.barangayDropdownItemTextSelected,
+                            ]}
+                          >
+                            Brgy. {b}
+                          </Text>
+                          {isSelected && (
+                            <View style={styles.activePillTag}>
+                              <Text style={styles.activePillTagText}>Selected</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+            )}
           </View>
 
           {/* 2. Active Driver Selector for this Barangay */}
@@ -491,7 +634,7 @@ export default function RouteOptimizationTab() {
             {activeBarangayDrivers.length === 0 ? (
               <View style={styles.noDriverNotice}>
                 <MaterialIcons name="info-outline" size={16} color="#D97706" />
-                <Text style={styles.noDriverNoticeText}>No drivers registered yet for Brgy. {selectedBarangay}.</Text>
+                <Text style={styles.noDriverNoticeText}>No drivers currently on duty in Brgy. {selectedBarangay}.</Text>
               </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverPillsContainer}>
@@ -885,7 +1028,9 @@ export default function RouteOptimizationTab() {
               activeOpacity={0.8}
             >
               <MaterialIcons name="visibility" size={16} color="#1B4D3E" />
-              <Text style={styles.switchBackBtnText}>Preview on Map ({selectedReportIds.size})</Text>
+              <Text style={styles.switchBackBtnText}>
+                Preview on Map ({selectedReportIds.size > 0 ? selectedReportIds.size : barangayReports.length})
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -1287,6 +1432,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 2,
+    position: 'relative',
+    zIndex: 10,
   },
   selectorGrid: {
     flexDirection: 'row',
@@ -1303,6 +1450,95 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#475569',
     letterSpacing: 0.5,
+  },
+  barangayDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  barangayDropdownBtnActive: {
+    borderColor: '#059669',
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  barangayDropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#059669',
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 30,
+    zIndex: 9999,
+    overflow: 'hidden',
+  },
+  dropdownSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    gap: 8,
+  },
+  dropdownSearchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#0F172A',
+    padding: 0,
+  },
+  barangayDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8FAFC',
+    gap: 8,
+  },
+  barangayDropdownItemSelected: {
+    backgroundColor: '#ECFDF5',
+  },
+  barangayDropdownItemText: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '600',
+    flex: 1,
+  },
+  barangayDropdownItemTextSelected: {
+    color: '#047857',
+    fontWeight: '800',
+  },
+  activePillTag: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  activePillTagText: {
+    fontSize: 10,
+    color: '#047857',
+    fontWeight: '800',
   },
   pillsContainer: {
     gap: 6,

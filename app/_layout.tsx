@@ -9,8 +9,15 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { LogBox, Platform } from 'react-native';
 import { isDictEmail, ensureDictProfileInFirestore } from '@/constants/dictConfig';
+
+LogBox.ignoreLogs([
+  'You are initializing Firebase Auth for React Native without providing AsyncStorage',
+  'expo-notifications: Android Push notifications',
+  '`expo-notifications` functionality is not fully supported in Expo Go',
+  'SafeAreaView has been deprecated',
+]);
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
@@ -147,16 +154,45 @@ function RootLayoutNav() {
           router.replace('/dict/dashboard' as any);
         }
       } else {
-        // Redirect splash / auth / driver-login screens
-        if (
-          currentSegment === 'splash' ||
-          currentSegment === 'auth' ||
-          currentSegment === '(auth)' ||
-          currentSegment === 'driver-login'
-        ) {
-          if (userRole === 'driver') {
+        // Route according to user role
+        if (userRole === 'driver') {
+          if (
+            currentSegment === 'splash' ||
+            currentSegment === 'auth' ||
+            currentSegment === '(auth)' ||
+            currentSegment === 'driver-login' ||
+            currentSegment === '(tabs)' ||
+            currentSegment === 'home' ||
+            !currentSegment
+          ) {
             router.replace('/(driver)' as any);
-          } else {
+          }
+        } else if (userRole === 'admin') {
+          if (
+            currentSegment === 'splash' ||
+            currentSegment === 'auth' ||
+            currentSegment === '(auth)' ||
+            currentSegment === 'driver-login'
+          ) {
+            router.replace('/admin/dashboard' as any);
+          }
+        } else if (userRole === 'dict') {
+          if (
+            currentSegment === 'splash' ||
+            currentSegment === 'auth' ||
+            currentSegment === '(auth)' ||
+            currentSegment === 'driver-login'
+          ) {
+            router.replace('/dict/dashboard' as any);
+          }
+        } else {
+          // Resident user
+          if (
+            currentSegment === 'splash' ||
+            currentSegment === 'auth' ||
+            currentSegment === '(auth)' ||
+            currentSegment === 'driver-login'
+          ) {
             router.replace('/home' as any);
           }
         }

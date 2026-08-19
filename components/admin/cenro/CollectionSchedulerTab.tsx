@@ -119,6 +119,8 @@ export default function CollectionSchedulerTab() {
   const [truckName, setTruckName] = useState('');
   const [wasteCategory, setWasteCategory] = useState('BIODEGRADABLE');
   const [modalTimeStr, setModalTimeStr] = useState('06:00 AM');
+  const [dayTimes, setDayTimes] = useState<{ [day: string]: string }>({});
+  const [timePickerTargetDay, setTimePickerTargetDay] = useState<string | null>(null);
   const [showModalAnalogTimePicker, setShowModalAnalogTimePicker] = useState(false);
   const [barangaySuggestionsOpen, setBarangaySuggestionsOpen] = useState(false);
   const [streetSuggestionsOpen, setStreetSuggestionsOpen] = useState(false);
@@ -376,6 +378,10 @@ export default function CollectionSchedulerTab() {
       setSelectedDays(selectedDays.filter((d) => d !== day));
     } else {
       setSelectedDays([...selectedDays, day]);
+      setDayTimes((prev) => ({
+        ...prev,
+        [day]: prev[day] || modalTimeStr || '06:00 AM',
+      }));
     }
     if (formErrors.selectedDays) {
       setFormErrors((prev) => {
@@ -391,6 +397,13 @@ export default function CollectionSchedulerTab() {
       setSelectedDays([]);
     } else {
       setSelectedDays([...DAYS_OF_WEEK]);
+      setDayTimes((prev) => {
+        const next = { ...prev };
+        DAYS_OF_WEEK.forEach((d) => {
+          if (!next[d]) next[d] = modalTimeStr || '06:00 AM';
+        });
+        return next;
+      });
     }
     if (formErrors.selectedDays) {
       setFormErrors((prev) => {
@@ -407,10 +420,17 @@ export default function CollectionSchedulerTab() {
     setBarangayName(presetBarangayName || '');
     setZone('');
     setStreetName('');
-    setSelectedDays(['MON', 'WED', 'FRI']);
+    const defaultDays = ['MON', 'WED', 'FRI'];
+    setSelectedDays(defaultDays);
     setTruckName('');
     setWasteCategory('BIODEGRADABLE');
     setModalTimeStr('06:00 AM');
+    setDayTimes({
+      MON: '06:00 AM',
+      WED: '06:00 AM',
+      FRI: '06:00 AM',
+    });
+    setTimePickerTargetDay(null);
     setShowModalAnalogTimePicker(false);
     setFormErrors({});
     setBarangaySuggestionsOpen(false);
@@ -425,10 +445,18 @@ export default function CollectionSchedulerTab() {
     setBarangayName(schedule.barangayName || '');
     setZone(schedule.zone || '');
     setStreetName(schedule.streetName || '');
-    setSelectedDays(schedule.days || []);
+    const currentDays = schedule.days || [];
+    setSelectedDays(currentDays);
     setTruckName(schedule.truck || '');
     setWasteCategory(schedule.wasteCategory || 'BIODEGRADABLE');
-    setModalTimeStr(schedule.time || schedule.timeText || schedule.collectionTime || '06:00 AM');
+    const defaultTime = schedule.time || schedule.timeText || schedule.collectionTime || '06:00 AM';
+    setModalTimeStr(defaultTime);
+    const dt: { [day: string]: string } = {};
+    currentDays.forEach((d: string) => {
+      dt[d] = (schedule.dayTimes && schedule.dayTimes[d]) || defaultTime;
+    });
+    setDayTimes(dt);
+    setTimePickerTargetDay(null);
     setShowModalAnalogTimePicker(false);
     setFormErrors({});
     setBarangaySuggestionsOpen(false);
@@ -459,12 +487,17 @@ export default function CollectionSchedulerTab() {
     setIsSubmitting(true);
     try {
       const chosenTime = modalTimeStr || '06:00 AM';
+      const cleanedDayTimes: { [day: string]: string } = {};
+      selectedDays.forEach((d) => {
+        cleanedDayTimes[d] = dayTimes[d] || chosenTime;
+      });
 
       const schedulePayload = {
         barangayName: barangayName.trim(),
         zone: zone.trim(),
         streetName: streetName.trim(),
         days: selectedDays,
+        dayTimes: cleanedDayTimes,
         truck: truckName.trim(),
         wasteCategory: wasteCategory,
         time: chosenTime,
@@ -491,6 +524,8 @@ export default function CollectionSchedulerTab() {
       setZone('');
       setStreetName('');
       setSelectedDays([]);
+      setDayTimes({});
+      setTimePickerTargetDay(null);
       setTruckName('');
       setWasteCategory('BIODEGRADABLE');
       setFormErrors({});
@@ -1186,29 +1221,66 @@ export default function CollectionSchedulerTab() {
                                             flexWrap: 'wrap',
                                           }}
                                         >
-                                          {(row.days || []).map((day: string, dIdx: number) => (
-                                            <View key={`d-${dIdx}`} style={styles.dayBadge}>
-                                              <Text style={styles.dayText}>{day}</Text>
-                                            </View>
-                                          ))}
-                                          <View
-                                            style={[
-                                              styles.dayBadge,
-                                              {
-                                                backgroundColor: '#F0FDF4',
-                                                borderColor: '#BBF7D0',
-                                                borderWidth: 1,
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                gap: 3,
-                                              },
-                                            ]}
-                                          >
-                                            <MaterialIcons name="access-time" size={11} color="#166534" />
-                                            <Text style={[styles.dayText, { color: '#166534', fontWeight: '800' }]}>
-                                              {row.time || row.timeText || row.collectionTime || '06:00 AM'}
-                                            </Text>
-                                          </View>
+                                          {(() => {
+                                            const days: string[] = row.days || [];
+                                            const dTimes: Record<string, string> = row.dayTimes || {};
+                                            const defaultTime = row.time || row.timeText || row.collectionTime || '06:00 AM';
+                                            const uniqueTimes = new Set(days.map((d: string) => dTimes[d] || defaultTime));
+                                            const hasDifferentTimes = uniqueTimes.size > 1;
+
+                                            if (hasDifferentTimes) {
+                                              return days.map((day: string, dIdx: number) => (
+                                                <View
+                                                  key={`d-${dIdx}`}
+                                                  style={[
+                                                    styles.dayBadge,
+                                                    {
+                                                      backgroundColor: '#F0FDF4',
+                                                      borderColor: '#BBF7D0',
+                                                      borderWidth: 1,
+                                                      flexDirection: 'row',
+                                                      alignItems: 'center',
+                                                      gap: 3,
+                                                    },
+                                                  ]}
+                                                >
+                                                  <Text style={[styles.dayText, { color: '#047857', fontWeight: '800' }]}>{day}</Text>
+                                                  <MaterialIcons name="access-time" size={10} color="#166534" />
+                                                  <Text style={[styles.dayText, { color: '#166534', fontWeight: '700' }]}>
+                                                    {dTimes[day] || defaultTime}
+                                                  </Text>
+                                                </View>
+                                              ));
+                                            }
+
+                                            return (
+                                              <>
+                                                {days.map((day: string, dIdx: number) => (
+                                                  <View key={`d-${dIdx}`} style={styles.dayBadge}>
+                                                    <Text style={styles.dayText}>{day}</Text>
+                                                  </View>
+                                                ))}
+                                                <View
+                                                  style={[
+                                                    styles.dayBadge,
+                                                    {
+                                                      backgroundColor: '#F0FDF4',
+                                                      borderColor: '#BBF7D0',
+                                                      borderWidth: 1,
+                                                      flexDirection: 'row',
+                                                      alignItems: 'center',
+                                                      gap: 3,
+                                                    },
+                                                  ]}
+                                                >
+                                                  <MaterialIcons name="access-time" size={11} color="#166534" />
+                                                  <Text style={[styles.dayText, { color: '#166534', fontWeight: '800' }]}>
+                                                    {defaultTime}
+                                                  </Text>
+                                                </View>
+                                              </>
+                                            );
+                                          })()}
                                         </View>
 
                                         {/* Specific Pickups */}
@@ -1619,22 +1691,15 @@ export default function CollectionSchedulerTab() {
                   ) : null}
                 </View>
 
-                {/* Regular Collection Time */}
+                {/* Regular Collection Time Configurator */}
                 <View style={{ marginBottom: 16 }}>
                   <View style={styles.labelRow}>
                     <Text style={styles.inputLabel}>
-                      REGULAR COLLECTION TIME <Text style={styles.requiredAsterisk}>*</Text>
+                      RECURRING PICKUP TIMES <Text style={styles.requiredAsterisk}>*</Text>
                     </Text>
-                    <TouchableOpacity
-                      onPress={() => setShowModalAnalogTimePicker(true)}
-                      style={styles.quickDayBtn}
-                    >
-                      <MaterialIcons name="schedule" size={14} color="#059669" />
-                      <Text style={[styles.quickDayBtnText, { marginLeft: 4 }]}>Open Clock Picker</Text>
-                    </TouchableOpacity>
                   </View>
 
-                  {/* Current Selected Time Banner */}
+                  {/* Standard / Batch Time Bar */}
                   <View
                     style={{
                       flexDirection: 'row',
@@ -1644,83 +1709,212 @@ export default function CollectionSchedulerTab() {
                       borderColor: '#BBF7D0',
                       borderWidth: 1.5,
                       borderRadius: 10,
-                      paddingHorizontal: 16,
-                      paddingVertical: 12,
-                      marginBottom: 10,
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                      marginBottom: 12,
                     }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <View
                         style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 17,
                           backgroundColor: '#DCFCE7',
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}
                       >
-                        <MaterialIcons name="alarm" size={20} color="#166534" />
+                        <MaterialIcons name="alarm" size={18} color="#166534" />
                       </View>
                       <View>
-                        <Text style={{ fontSize: 11, color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>
-                          Standard Daily Pickup Time
+                        <Text style={{ fontSize: 10.5, color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>
+                          Standard Pickup Time
                         </Text>
-                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#14532D' }}>
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#14532D' }}>
                           {modalTimeStr}
                         </Text>
                       </View>
                     </View>
 
-                    <TouchableOpacity
-                      onPress={() => setShowModalAnalogTimePicker(true)}
-                      style={{
-                        backgroundColor: '#059669',
-                        paddingHorizontal: 14,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 12 }}>Change Time</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Quick Preset Time Chips */}
-                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                    {['05:00 AM', '06:00 AM', '07:00 AM', '08:00 AM', '01:00 PM', '05:00 PM'].map((t) => {
-                      const isSel = modalTimeStr === t;
-                      return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {selectedDays.length > 0 && (
                         <TouchableOpacity
-                          key={t}
-                          style={[
-                            styles.dayBadge,
-                            {
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              backgroundColor: isSel ? '#059669' : '#FFFFFF',
-                              borderColor: isSel ? '#059669' : '#CBD5E1',
-                              borderWidth: 1,
-                            },
-                          ]}
-                          onPress={() => setModalTimeStr(t)}
+                          onPress={() => {
+                            setDayTimes((prev) => {
+                              const next = { ...prev };
+                              selectedDays.forEach((d) => {
+                                next[d] = modalTimeStr;
+                              });
+                              return next;
+                            });
+                          }}
+                          style={{
+                            backgroundColor: '#ECFDF5',
+                            borderWidth: 1,
+                            borderColor: '#A7F3D0',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
                           activeOpacity={0.8}
                         >
-                          <Text
-                            style={[
-                              styles.dayText,
-                              {
-                                color: isSel ? '#FFFFFF' : '#334155',
-                                fontWeight: isSel ? '800' : '600',
-                              },
-                            ]}
-                          >
-                            {t}
+                          <MaterialIcons name="sync" size={13} color="#047857" />
+                          <Text style={{ color: '#047857', fontWeight: '800', fontSize: 11 }}>
+                            Apply to All Days
                           </Text>
                         </TouchableOpacity>
-                      );
-                    })}
+                      )}
+
+                      <TouchableOpacity
+                        onPress={() => {
+                          setTimePickerTargetDay(null);
+                          setShowModalAnalogTimePicker(true);
+                        }}
+                        style={{
+                          backgroundColor: '#059669',
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 6,
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11 }}>
+                          Change
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
+
+                  {/* Day-by-Day Time Configurator */}
+                  {selectedDays.length === 0 ? (
+                    <View
+                      style={{
+                        padding: 12,
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: '#E2E8F0',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#94A3B8', fontSize: 12, fontStyle: 'italic' }}>
+                        Select regular collection days above to configure pickup times.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#475569', marginBottom: 2 }}>
+                        DAY-SPECIFIC PICKUP HOURS (OPTION C)
+                      </Text>
+                      {selectedDays.map((day) => {
+                        const currentTime = dayTimes[day] || modalTimeStr || '06:00 AM';
+                        return (
+                          <View
+                            key={day}
+                            style={{
+                              backgroundColor: '#FFFFFF',
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: '#E2E8F0',
+                              padding: 10,
+                            }}
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: 6,
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <View
+                                  style={{
+                                    backgroundColor: '#059669',
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: 5,
+                                  }}
+                                >
+                                  <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 11 }}>
+                                    {day}
+                                  </Text>
+                                </View>
+                                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0F172A' }}>
+                                  {currentTime}
+                                </Text>
+                              </View>
+
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setTimePickerTargetDay(day);
+                                  setShowModalAnalogTimePicker(true);
+                                }}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  backgroundColor: '#F1F5F9',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: 5,
+                                  borderWidth: 1,
+                                  borderColor: '#CBD5E1',
+                                }}
+                                activeOpacity={0.8}
+                              >
+                                <MaterialIcons name="schedule" size={13} color="#334155" />
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#334155' }}>
+                                  Clock Picker
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            {/* Quick Preset Time Chips for this Day */}
+                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                              {['05:00 AM', '06:00 AM', '07:00 AM', '08:00 AM', '01:00 PM', '05:00 PM'].map((t) => {
+                                const isSel = currentTime === t;
+                                return (
+                                  <TouchableOpacity
+                                    key={t}
+                                    style={{
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      backgroundColor: isSel ? '#059669' : '#F8FAFC',
+                                      borderColor: isSel ? '#059669' : '#E2E8F0',
+                                      borderWidth: 1,
+                                      borderRadius: 5,
+                                    }}
+                                    onPress={() => {
+                                      setDayTimes((prev) => ({
+                                        ...prev,
+                                        [day]: t,
+                                      }));
+                                    }}
+                                    activeOpacity={0.8}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10.5,
+                                        color: isSel ? '#FFFFFF' : '#475569',
+                                        fontWeight: isSel ? '800' : '600',
+                                      }}
+                                    >
+                                      {t}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
                 </View>
 
                 {/* Waste Category Selection */}
@@ -1856,9 +2050,15 @@ export default function CollectionSchedulerTab() {
         {/* Regular Schedule Analog Clock Modal */}
         <AnalogTimePicker
           visible={showModalAnalogTimePicker}
-          onClose={() => setShowModalAnalogTimePicker(false)}
+          onClose={() => {
+            setShowModalAnalogTimePicker(false);
+            setTimePickerTargetDay(null);
+          }}
           initialHours24={(() => {
-            const [timePart, ampm] = modalTimeStr.split(' ');
+            const activeTime = timePickerTargetDay
+              ? (dayTimes[timePickerTargetDay] || modalTimeStr || '06:00 AM')
+              : (modalTimeStr || '06:00 AM');
+            const [timePart, ampm] = activeTime.split(' ');
             if (!timePart) return 6;
             let [h] = timePart.split(':').map(Number);
             if (ampm === 'PM' && h !== 12) h += 12;
@@ -1866,7 +2066,10 @@ export default function CollectionSchedulerTab() {
             return h || 6;
           })()}
           initialMinutes={(() => {
-            const [timePart] = modalTimeStr.split(' ');
+            const activeTime = timePickerTargetDay
+              ? (dayTimes[timePickerTargetDay] || modalTimeStr || '06:00 AM')
+              : (modalTimeStr || '06:00 AM');
+            const [timePart] = activeTime.split(' ');
             if (!timePart) return 0;
             const [, m] = timePart.split(':').map(Number);
             return m || 0;
@@ -1877,7 +2080,11 @@ export default function CollectionSchedulerTab() {
             if (h12 === 0) h12 = 12;
             const mStr = minutes.toString().padStart(2, '0');
             const formatted = `${h12.toString().padStart(2, '0')}:${mStr} ${ampm}`;
-            setModalTimeStr(formatted);
+            if (timePickerTargetDay) {
+              setDayTimes((prev) => ({ ...prev, [timePickerTargetDay]: formatted }));
+            } else {
+              setModalTimeStr(formatted);
+            }
           }}
         />
       </Modal>

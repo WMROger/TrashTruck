@@ -125,8 +125,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const sidebarContent = (
     <>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>CENRO</Text>
-        <Text style={styles.headerSubtitle}>CITY GOVT PORTAL</Text>
+        <Text style={styles.headerTitle}>CENRO Civic Steward</Text>
       </View>
 
       <ScrollView style={styles.navigation} showsVerticalScrollIndicator={true}>
@@ -195,13 +194,6 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
       </ScrollView>
 
       <View style={styles.bottomSection}>
-        <View style={styles.statusBlock}>
-          <Text style={styles.statusLabel}>SYSTEM STATUS</Text>
-          <View style={styles.statusRow}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>Authenticated session</Text>
-          </View>
-        </View>
 
         <TouchableOpacity
           style={[
@@ -300,22 +292,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   header: {
-    padding: 24,
-    paddingTop: 40,
-    marginBottom: 8,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+    marginBottom: 6,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#2E8B57",
-    marginBottom: 4,
-    letterSpacing: 0.5,
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#1F2937",
+    letterSpacing: 0.2,
   },
   headerSubtitle: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#6B7280",
-    letterSpacing: 1,
+    color: "#15803D",
+    letterSpacing: 0.8,
   },
   navigation: {
     flex: 1,

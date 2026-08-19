@@ -9,7 +9,8 @@ import { analyzeWasteImage, WasteAnalysisResult } from "@/services/wasteAIServic
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { addDoc, collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { useRouter } from "expo-router";
+import { addDoc, collection, doc, getDoc, getDocs, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import React, { useMemo, useState, useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,6 +35,7 @@ import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/dana
 import { formatWasteAmount } from '@/utils/wasteUnits';
 
 export default function ReportScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
   const [barangay, setBarangay] = useState("");
@@ -89,7 +91,7 @@ export default function ReportScreen() {
             const data = userSnap.data();
             if (data.barangay) {
               setUserProfileBarangay(data.barangay);
-              setBarangay((prev) => (prev ? prev : data.barangay)); // Initialize input with profile barangay
+              setBarangay((prev) => prev || data.barangay); // Default to profile barangay on load if empty
             }
           }
         } catch (err) {
@@ -241,10 +243,9 @@ export default function ReportScreen() {
     if (
       !title.trim() ||
       !barangay.trim() ||
-      !street.trim() ||
-      !description.trim()
+      !street.trim()
     ) {
-      Alert.alert("Error", "Please fill in all required fields.");
+      Alert.alert("Error", "Please fill in all required fields (Title, Barangay, Street).");
       return;
     }
 
@@ -484,10 +485,10 @@ export default function ReportScreen() {
         return;
       }
 
-      // Quality 0.5 cuts payload size by ~70%, dramatically accelerating AI scan and Cloudinary upload
+      // Quality 0.3 cuts payload size to ~100-150KB for fast AI scan and Cloudinary upload
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
-        quality: 0.5,
+        quality: 0.3,
         base64: true,
       });
 
@@ -496,25 +497,24 @@ export default function ReportScreen() {
         const capturedBase64 = result.assets[0].base64;
         setImageUri(capturedUri);
 
-        // Trigger AI analysis in parallel with location fetching
+        // Trigger Hybrid Edge ML + Cloud AI analysis in parallel with location fetching
         setIsAnalyzingAI(true);
         setAiResult(null);
-        analyzeWasteImage(capturedUri, capturedBase64)
+        analyzeWasteImage(capturedUri, capturedBase64, (instantPrediction) => {
+          setAiResult(instantPrediction);
+          if (instantPrediction?.wasteType && instantPrediction.wasteType !== 'Not waste' && instantPrediction.wasteType !== 'Unable to determine') {
+            setTitle(`Report: ${instantPrediction.wasteType}`);
+          }
+        })
           .then((analysis) => {
             setAiResult(analysis);
-            console.log('🤖 AI analysis result:', analysis);
+            console.log('🤖 Hybrid AI final result:', analysis);
             if (analysis?.wasteType && analysis.wasteType !== 'Not waste' && analysis.wasteType !== 'Unable to determine') {
-              setTitle((prev) => (prev ? prev : `Report: ${analysis.wasteType}`));
+              setTitle(`Report: ${analysis.wasteType}`);
             }
           })
           .catch((err) => {
             console.error('🤖 AI analysis error:', err);
-            setAiResult({
-              wasteType: 'Analysis failed',
-              estimatedWeight: '—',
-              confidence: 'none',
-              details: 'Could not analyze the image.',
-            });
           })
           .finally(() => setIsAnalyzingAI(false));
 
@@ -535,14 +535,16 @@ export default function ReportScreen() {
             const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
             setLocationAddress(addressStr || "Unknown Location");
 
-            // Auto-detect barangay from backend collection schedules
+            // Auto-detect barangay from photo's GPS geolocation
             const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
             if (matchedBgry) {
               setBarangay(matchedBgry);
+            } else if (place.district || place.subregion || place.city) {
+              setBarangay(place.district || place.subregion || place.city || '');
             } else if (userProfileBarangay) {
               setBarangay(userProfileBarangay);
             } else {
-              setBarangay(place.district || place.city || place.subregion || 'Unknown Area');
+              setBarangay('Unknown Area');
             }
             setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           } else {
@@ -689,7 +691,7 @@ export default function ReportScreen() {
             ) : (
               <View style={styles.photoPlaceholder}>
                 <IconSymbol name="camera.fill" size={36} color="#4A6741" />
-                <Text style={styles.photoTextMain}>Capture Trash Pile</Text>
+                <Text style={styles.photoTextMain}>Capture Trash Pile <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>*</Text></Text>
                 <Text style={styles.photoTextSub}>Tap to take a Geo-Photo</Text>
               </View>
             )}
@@ -714,16 +716,16 @@ export default function ReportScreen() {
             )}
           </View>
 
-          {isAnalyzingAI ? (
-            <View style={styles.aiLoadingContainer}>
-              <ActivityIndicator size="small" color="#4A6741" />
-              <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
-            </View>
-          ) : aiResult ? (
+          {aiResult ? (
             <>
               <View style={styles.aiRow}>
                 <View style={styles.aiCard}>
-                  <Text style={styles.aiCardLabel}>Waste Type</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={styles.aiCardLabel}>Waste Type</Text>
+                    {isAnalyzingAI && (
+                      <ActivityIndicator size="small" color="#4A6741" style={{ transform: [{ scale: 0.7 }] }} />
+                    )}
+                  </View>
                   <View style={styles.aiCardValueRow}>
                     <IconSymbol
                       name={getWasteTypeIcon(aiResult.wasteType)}
@@ -750,6 +752,11 @@ export default function ReportScreen() {
                 </View>
               )}
             </>
+          ) : isAnalyzingAI ? (
+            <View style={styles.aiLoadingContainer}>
+              <ActivityIndicator size="small" color="#4A6741" />
+              <Text style={styles.aiLoadingText}>Analyzing waste with AI...</Text>
+            </View>
           ) : (
             <View style={styles.aiEmptyContainer}>
               <IconSymbol name="camera.fill" size={20} color="#9CA3AF" />
@@ -759,7 +766,7 @@ export default function ReportScreen() {
 
           {/* Title */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Report Title</Text>
+            <Text style={styles.label}>Report Title <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>*</Text></Text>
             <View style={styles.inputField}>
               <TextInput
                 value={title}
@@ -822,7 +829,7 @@ export default function ReportScreen() {
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text style={styles.label}>Barangay</Text>
+                <Text style={styles.label}>Barangay <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>*</Text></Text>
                 {barangay && scheduleBarangaySet.has(barangay) && (
                   <View style={styles.inlineScheduleBadge}>
                     <Text style={styles.inlineScheduleBadgeText}>Scheduled</Text>
@@ -847,7 +854,7 @@ export default function ReportScreen() {
               </TouchableOpacity>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { marginBottom: 8 }]}>Street</Text>
+              <Text style={[styles.label, { marginBottom: 8 }]}>Street <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>*</Text></Text>
               <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
                 <TextInput
                   value={street}
@@ -862,7 +869,7 @@ export default function ReportScreen() {
 
           {/* Description */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Additional Notes</Text>
+            <Text style={styles.label}>Additional Notes <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: 'normal' }}>(Optional)</Text></Text>
             <View style={styles.textArea}>
               <TextInput
                 value={description}

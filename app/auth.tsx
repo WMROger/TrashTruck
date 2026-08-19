@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
   },
   buttonSection: {
     position: "absolute",
-    bottom: 140,
+    bottom: 80,
     left: 24,
     right: 24,
     gap: 16,

@@ -562,7 +562,11 @@ export default function AdminDashboard() {
             <MaterialIcons name="menu" size={26} color="#2E8B57" />
           </TouchableOpacity>
         )}
-        <Text style={styles.topBarTitle}>{isNarrow ? 'CENRO' : 'CENRO Civic Steward'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' }} />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#15803D', letterSpacing: 0.8 }}>SYSTEM ACTIVE</Text>
+        </View>
+        <View style={{ flex: 1 }} />
         <View style={styles.topBarRight}>
           <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('announcements')}>
             <MaterialIcons name="notifications-none" size={24} color="#374151" />

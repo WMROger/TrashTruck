@@ -270,9 +270,10 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
 
             if (data.days && Array.isArray(data.days) && data.days.includes(todayDayStr)) {
               tot++;
+              const todayTime = (data.dayTimes && data.dayTimes[todayDayStr]) || data.time || data.timeText || 'Regular Route';
               schedules.push({
                 id: `${doc.id}-rec`,
-                time: 'Regular Route',
+                time: todayTime,
                 brgy: data.barangayName || 'Unknown',
                 truck: data.truck || 'Truck 02',
                 status: 'ON TRACK',

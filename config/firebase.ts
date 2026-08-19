@@ -104,9 +104,28 @@ let storage: any = null;
           }
         }
       } else {
-        // Native: getAuth uses AsyncStorage persistence by default in Firebase v9+
-        auth = getAuth(app);
-        console.log('Firebase: Auth ready (native / getAuth)');
+        // Native: configure AsyncStorage persistence explicitly to avoid warning
+        try {
+          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+          let rnPersistence: any = null;
+          try {
+            const rnAuth = require('@firebase/auth/dist/rn/index.js');
+            if (typeof rnAuth?.getReactNativePersistence === 'function') {
+              rnPersistence = rnAuth.getReactNativePersistence(AsyncStorage);
+            }
+          } catch {}
+
+          if (rnPersistence) {
+            auth = initializeAuth(app, { persistence: rnPersistence });
+            console.log('Firebase: Auth ready (native / AsyncStorage persistence)');
+          } else {
+            auth = getAuth(app);
+            console.log('Firebase: Auth ready (native / getAuth)');
+          }
+        } catch (nativeAuthErr) {
+          auth = getAuth(app);
+          console.log('Firebase: Auth ready (native / getAuth fallback)');
+        }
       }
     } catch (e: any) {
       console.error('Firebase: Auth initialization failed:', e.message);

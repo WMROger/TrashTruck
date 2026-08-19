@@ -66,48 +66,43 @@ export default function LoginScreen() {
     setErrorModal(prev => ({ ...prev, visible: false }));
   };
 
-  // Remember only the email address. Firebase Auth owns session persistence;
-  // plaintext passwords are never retained in browser or device storage.
+  // Remember credentials (email & password) using secure storage
   const CREDENTIALS_KEY = 'rememberedLogin';
-  const LEGACY_CREDENTIALS_KEY = 'loginCredentials';
 
-  const saveRememberedEmail = async (savedEmail: string) => {
+  const saveRememberedCredentials = async (savedEmail: string, savedPassword?: string) => {
     try {
-      await storage.setItem(CREDENTIALS_KEY, JSON.stringify({ email: savedEmail }));
-      await storage.deleteItem(LEGACY_CREDENTIALS_KEY).catch(() => undefined);
+      await storage.setItem(
+        CREDENTIALS_KEY,
+        JSON.stringify({ email: savedEmail, password: savedPassword || '' })
+      );
     } catch (error) {
-      console.error('Failed to remember email:', error);
+      console.error('Failed to remember credentials:', error);
     }
   };
 
-  const loadRememberedEmail = async () => {
+  const loadRememberedCredentials = async () => {
     try {
-      // Remove legacy records that may contain passwords from older builds.
-      const legacy = await storage.getItem(LEGACY_CREDENTIALS_KEY);
-      if (legacy) {
-        const parsed = JSON.parse(legacy);
-        if (typeof parsed?.email === 'string' && parsed.email) {
-          await saveRememberedEmail(parsed.email);
-        }
-        await storage.deleteItem(LEGACY_CREDENTIALS_KEY);
-      }
       const remembered = await storage.getItem(CREDENTIALS_KEY);
       if (remembered) {
-        const { email: savedEmail } = JSON.parse(remembered);
-        setEmail(savedEmail);
-        setRememberMe(true);
+        const parsed = JSON.parse(remembered);
+        if (parsed.email) {
+          setEmail(parsed.email);
+          setRememberMe(true);
+        }
+        if (parsed.password) {
+          setPassword(parsed.password);
+        }
       }
     } catch (error) {
-      console.error('Failed to load remembered email:', error);
+      console.error('Failed to load remembered credentials:', error);
     }
   };
 
-  const clearRememberedEmail = async () => {
+  const clearRememberedCredentials = async () => {
     try {
       await storage.deleteItem(CREDENTIALS_KEY);
-      await storage.deleteItem(LEGACY_CREDENTIALS_KEY).catch(() => undefined);
     } catch (error) {
-      console.error('Failed to clear remembered email:', error);
+      console.error('Failed to clear remembered credentials:', error);
     }
   };
 
@@ -169,7 +164,7 @@ export default function LoginScreen() {
 
   // Configure authentication on component mount
   useEffect(() => {
-    loadRememberedEmail();
+    loadRememberedCredentials();
   }, []);
 
   const handleLogin = async () => {
@@ -178,6 +173,7 @@ export default function LoginScreen() {
 
     // Support username without @ by mapping to driver domain
     let loginEmail = (email || '').trim();
+    const rawInputEmail = (email || '').trim();
     if (loginEmail && !loginEmail.includes('@')) {
       loginEmail = `${loginEmail}@driver.com`;
     }
@@ -197,11 +193,11 @@ export default function LoginScreen() {
       return;
     }
 
-    // Remember the identifier only; the password stays in memory for this request.
+    // Save both email/username and password securely if rememberMe is enabled
     if (rememberMe) {
-      await saveRememberedEmail(loginEmail);
+      await saveRememberedCredentials(rawInputEmail, password);
     } else {
-      await clearRememberedEmail();
+      await clearRememberedCredentials();
     }
 
     setPendingEmailAuth(loginEmail, password);
@@ -255,10 +251,12 @@ export default function LoginScreen() {
   const handleRememberMeToggle = async () => {
     const newRememberMe = !rememberMe;
     setRememberMe(newRememberMe);
-    
+
     // If unchecking remember me, clear saved credentials
     if (!newRememberMe) {
-      await clearRememberedEmail();
+      await clearRememberedCredentials();
+    } else if (email || password) {
+      await saveRememberedCredentials(email.trim(), password);
     }
   };
 

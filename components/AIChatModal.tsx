@@ -99,7 +99,14 @@ async function buildSchedulesContextForBarangay(barangay: string) {
         id: r.id,
         location: r.barangayName,
         category: r.wasteCategory || 'Mixed',
-        recurringDays: Array.isArray(r.days) ? r.days.join(', ') : 'None',
+        recurringDays: Array.isArray(r.days)
+          ? r.days
+              .map((d: string) => {
+                const dt = r.dayTimes && r.dayTimes[d];
+                return dt ? `${d} at ${dt}` : (r.time ? `${d} at ${r.time}` : d);
+              })
+              .join(', ')
+          : 'None',
         specialDates: Array.isArray(r.specificSchedules) 
           ? r.specificSchedules.map((s: any) => `${s.date || 'Unknown'} at ${s.time || 'Unknown'}${s.description ? ` (${s.description})` : ''}`).join('; ')
           : 'None',
@@ -357,12 +364,30 @@ When user asks "Can you tell me the schedules for trash collecting?" or similar:
     console.log('🚀 Using Gemini SDK for AI response');
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // Swapped to Flash Lite for lightning-fast, low latency responses
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
+    const candidateChatModels = [
+      'gemini-3.6-flash',
+      'gemini-2.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-2.0-flash-lite',
+    ];
 
     const fullPrompt = `${systemPrompt}\n\n--- USER CONTEXT DATA ---\n${JSON.stringify(options?.context || {}, null, 2)}\n-------------------------\n\nUser: ${query}`;
-    
-    const result = await model.generateContent(fullPrompt);
+    let result: any = null;
+
+    for (const chatModel of candidateChatModels) {
+      try {
+        const model = genAI.getGenerativeModel({ model: chatModel });
+        result = await model.generateContent(fullPrompt);
+        if (result) break;
+      } catch (err: any) {
+        console.warn(`⚠️ Chat model ${chatModel} attempt failed:`, err?.message || err);
+      }
+    }
+
+    if (!result) {
+      throw new Error('All Gemini chat models failed.');
+    }
+
     const responseText = result.response.text();
 
     let aiResponse = cleanAiResponse(responseText);

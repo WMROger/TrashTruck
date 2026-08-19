@@ -196,6 +196,8 @@ export default function SelectTruckScreen() {
       await updateDoc(userRef, {
         currentTruckId: truck.id,
         currentTruckPlate: truck.plateNumber,
+        status: 'on_duty',
+        dutyStatus: 'on_duty',
       });
 
       router.replace('/(driver)');

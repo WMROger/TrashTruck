@@ -236,7 +236,9 @@ class LocationService {
 
     if (Array.isArray(barangayOrRoute) && barangayOrRoute.length >= 2) {
       route = barangayOrRoute;
-      targetBarangay = barangayOrRoute[0]?.barangay || 'Poblacion';
+      // Use the most common non-Poblacion barangay in the route as the assigned sector
+      const routeBarangays = barangayOrRoute.map(wp => wp.barangay).filter(b => b && b !== 'Poblacion');
+      targetBarangay = routeBarangays[0] || barangayOrRoute[0]?.barangay || 'Poblacion';
     } else if (typeof barangayOrRoute === 'string' && barangayOrRoute.trim()) {
       targetBarangay = barangayOrRoute.trim();
       route = getBarangaySimulationRoute(targetBarangay);
@@ -261,7 +263,7 @@ class LocationService {
     this.notifySimulationListeners();
 
     // Emit first point immediately
-    await this.emitSimulationPoint(driverId, effectiveTruckId, route[0], route[1] || route[0], context);
+    await this.emitSimulationPoint(driverId, effectiveTruckId, route[0], route[1] || route[0], context, targetBarangay);
 
     // Step every 3.5 seconds
     this.simulationInterval = setInterval(async () => {
@@ -282,13 +284,13 @@ class LocationService {
         currentSpeedKph: speed,
         currentCoordinate: { latitude: currentPoint.latitude, longitude: currentPoint.longitude },
         locationName: currentPoint.name || `Waypoint ${currentIndex + 1}`,
-        barangay: currentPoint.barangay || targetBarangay,
+        barangay: targetBarangay,
         truckId: effectiveTruckId,
         driverId,
       };
       this.notifySimulationListeners();
 
-      await this.emitSimulationPoint(driverId, effectiveTruckId, currentPoint, nextPoint, context);
+      await this.emitSimulationPoint(driverId, effectiveTruckId, currentPoint, nextPoint, context, targetBarangay);
     }, 3500);
 
     console.log(`🚀 Started GPS movement simulation for Driver: ${driverId} in Brgy. ${targetBarangay} (Truck: ${effectiveTruckId})`);
@@ -329,7 +331,8 @@ class LocationService {
     truckId: string,
     currentPoint: { latitude: number; longitude: number; name?: string; speed?: number; barangay?: string },
     nextPoint: { latitude: number; longitude: number },
-    context: FleetTrackingContext
+    context: FleetTrackingContext,
+    assignedBarangay?: string
   ) {
     if (!db) return;
 
@@ -364,7 +367,7 @@ class LocationService {
         speedKph,
         heading,
         status: 'active',
-        barangay: currentPoint.barangay || 'Poblacion',
+        barangay: assignedBarangay || currentPoint.barangay || 'Poblacion',
         lastUpdate: serverTimestamp(),
       }, { merge: true });
     } catch (err) {

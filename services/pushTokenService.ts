@@ -1,11 +1,15 @@
 import { db } from '@/config/firebase';
 import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import { Platform } from 'react-native';
 
 export async function registerDeviceForFcm(userId: string): Promise<{ registered: boolean; reason?: string }> {
   if (!userId || Platform.OS !== 'android') return { registered: false, reason: 'android-only' };
+  if (Constants.appOwnership === 'expo') {
+    return { registered: false, reason: 'expo-go-not-supported' };
+  }
   const settings = await getDoc(doc(db, 'user_settings', userId));
   if (settings.data()?.notificationPreferences?.pushEnabled === false) return { registered: false, reason: 'disabled-by-user' };
 

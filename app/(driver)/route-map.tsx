@@ -68,6 +68,19 @@ export default function DriverRouteMap() {
     });
   }, []);
 
+  const [driverAssignedBarangay, setDriverAssignedBarangay] = useState<string>('Poblacion');
+
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    return onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const u = docSnap.data();
+        const b = (u.assignedBarangay || u.barangay || '').trim();
+        if (b) setDriverAssignedBarangay(b);
+      }
+    });
+  }, [user?.uid]);
+
   const handleToggleSimulation = async () => {
     if (!user?.uid) {
       Alert.alert('Authentication Required', 'Please sign in as a driver.');
@@ -77,7 +90,7 @@ export default function DriverRouteMap() {
     if (simulationState.isActive) {
       await locationService.stopSimulation(user.uid);
     } else {
-      const driverBarangay = (user as any)?.assignedBarangay || (user as any)?.barangay || 'Poblacion';
+      const driverBarangay = driverAssignedBarangay;
       const customRoute = locatedStops.length >= 2
         ? locatedStops.map(s => ({ latitude: s.coordinate.latitude, longitude: s.coordinate.longitude, name: s.stop.street, speed: 35, barangay: driverBarangay }))
         : driverBarangay;

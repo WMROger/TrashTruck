@@ -22,9 +22,9 @@ export default function TabLayout() {
   const [role, setRole] = useState<string | null>(null);
   const [showAIChat, setShowAIChat] = useState(false);
 
-  // Check if user has admin role and redirect if necessary
+  // Check if user has non-resident role and redirect if necessary
   useEffect(() => {
-    const checkAdminRole = async () => {
+    const checkRole = async () => {
       if (!user || !db) {
         setIsLoading(false);
         return;
@@ -41,18 +41,26 @@ export default function TabLayout() {
             router.replace('/admin/dashboard' as any);
             return;
           }
+          if (userData.role === 'driver') {
+            router.replace('/(driver)' as any);
+            return;
+          }
+          if (userData.role === 'dict') {
+            router.replace('/dict/dashboard' as any);
+            return;
+          }
           setRole(userData.role || null);
         }
         setIsAdmin(false);
       } catch (error) {
-        console.error('Error checking admin role in tabs:', error);
+        console.error('Error checking role in tabs:', error);
         setIsAdmin(false);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkAdminRole();
+    checkRole();
   }, [user, router]);
 
   // Show loading while checking admin role

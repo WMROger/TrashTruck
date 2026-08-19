@@ -22,6 +22,7 @@ export default function ScheduleScreen() {
 
   type RawSchedule = ScheduleData & {
     days?: string[];
+    dayTimes?: Record<string, string>;
     specificSchedules?: { date?: string; dateText?: string; wasteCategory?: string; timeText?: string }[];
     streetName?: string;
     barangayName?: string;
@@ -272,7 +273,7 @@ export default function ScheduleScreen() {
         // 1. Check if recurring day matches
         let isMatch = s.days && s.days.includes(dowStr);
         let category = s.wasteCategory;
-        let time = s.time || s.timeText || s.collectionTime || '06:00 AM';
+        let time = (s.dayTimes && s.dayTimes[dowStr]) || s.time || s.timeText || s.collectionTime || '06:00 AM';
 
         // 2. Check if a specific schedule was added for this date
         const specificMatches = (s.specificSchedules || []).filter((ss: any) => {

@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { auth, db } from '../../../config/firebase';
 import { collection, query, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, Timestamp, orderBy, arrayUnion } from 'firebase/firestore';
 import { formatWasteAmount } from '../../../utils/wasteUnits';
+import { autoDispatchReportToActiveRoute } from '../../../services/autoDispatchService';
 
 type ReportStatus = 'pending' | 'acknowledged' | 'in-progress' | 'resolved';
 
@@ -196,7 +197,32 @@ export default function TrashReportsTab() {
         }
       }
       
+      // Update local state and close modal cleanly
+      setSelectedReport((prev) => prev ? {
+        ...prev,
+        status: newStatus,
+        statusHistory: [...(prev.statusHistory || []), newHistoryItem]
+      } : null);
       setAdminNotes('');
+      setIsModalVisible(false);
+
+      // Auto-dispatch: If acknowledging, automatically slot into active on-duty driver's live route
+      if (newStatus === 'acknowledged') {
+        autoDispatchReportToActiveRoute({
+          id: selectedReport.id,
+          title: selectedReport.title,
+          street: selectedReport.street,
+          barangay: selectedReport.barangay,
+          location: selectedReport.location,
+          aiAnalysis: selectedReport.aiAnalysis,
+        }).then((res) => {
+          if (res.dispatched) {
+            console.log('🚛 Real-time auto-dispatch:', res.message);
+          }
+        }).catch((err) => {
+          console.warn('Auto-dispatch notice:', err);
+        });
+      }
     } catch (error: any) {
       console.error("Error updating report:", error);
       alert(`Failed to update report status: ${error?.message || error}`);
