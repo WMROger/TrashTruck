@@ -27,6 +27,8 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
+import { BARANGAY_COLLECTION_ROUTES } from '@/constants/barangaySimulationRoutes';
 import AnalogTimePicker from './AnalogTimePicker';
 
 const WebDatePicker = ({
@@ -116,7 +118,10 @@ export default function CollectionSchedulerTab() {
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [truckName, setTruckName] = useState('');
   const [wasteCategory, setWasteCategory] = useState('BIODEGRADABLE');
+  const [modalTimeStr, setModalTimeStr] = useState('06:00 AM');
+  const [showModalAnalogTimePicker, setShowModalAnalogTimePicker] = useState(false);
   const [barangaySuggestionsOpen, setBarangaySuggestionsOpen] = useState(false);
+  const [streetSuggestionsOpen, setStreetSuggestionsOpen] = useState(false);
   const [truckPickerOpen, setTruckPickerOpen] = useState(false);
 
   // Details Modal State (for specific date/time pickups)
@@ -196,6 +201,65 @@ export default function CollectionSchedulerTab() {
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [schedules]);
+
+  // List of hardcoded Danao City barangays that DO NOT exist in backend 'barangay_schedules' yet
+  const availableUnregisteredDanaoBarangays = useMemo(() => {
+    const existingLower = new Set(
+      dynamicBarangays.map((b) => b.trim().toLowerCase())
+    );
+    // If editing, allow the current barangay being edited
+    const editingLower = editingScheduleId
+      ? (schedules.find((s) => s.id === editingScheduleId)?.barangayName || '').trim().toLowerCase()
+      : null;
+    return DANAO_CITY_BARANGAYS.filter((b) => {
+      const lower = b.trim().toLowerCase();
+      if (editingLower && lower === editingLower) return true;
+      return !existingLower.has(lower);
+    });
+  }, [dynamicBarangays, editingScheduleId, schedules]);
+
+  // Suggested unadded barangays matching typed text
+  const suggestedUnregisteredBarangays = useMemo(() => {
+    const queryText = barangayName.trim().toLowerCase();
+    if (!queryText) {
+      return availableUnregisteredDanaoBarangays.slice(0, 10);
+    }
+    return availableUnregisteredDanaoBarangays.filter((b) =>
+      b.toLowerCase().includes(queryText)
+    );
+  }, [availableUnregisteredDanaoBarangays, barangayName]);
+
+  // Check if current typed barangay name is already registered
+  const isAlreadyRegistered = useMemo(() => {
+    const name = barangayName.trim().toLowerCase();
+    if (!name) return false;
+    const editingLower = editingScheduleId
+      ? (schedules.find((s) => s.id === editingScheduleId)?.barangayName || '').trim().toLowerCase()
+      : null;
+    if (editingLower && name === editingLower) return false;
+    return dynamicBarangays.some((b) => b.trim().toLowerCase() === name);
+  }, [barangayName, dynamicBarangays, editingScheduleId, schedules]);
+
+  // Suggested streets / route sectors for the chosen barangay
+  const suggestedStreetsForBarangay = useMemo(() => {
+    const bName = barangayName.trim();
+    const knownWaypoints = BARANGAY_COLLECTION_ROUTES[bName] || [];
+    const set = new Set<string>();
+    set.add('Whole Barangay');
+    knownWaypoints.forEach((w) => {
+      if (w.name && !w.name.includes('Depot') && !w.name.includes('Transfer Station')) {
+        set.add(w.name);
+      }
+    });
+    set.add('Purok 1');
+    set.add('Purok 2');
+    set.add('Purok 3');
+    set.add('Main Highway Sector');
+    const all = Array.from(set);
+    const q = streetName.trim().toLowerCase();
+    if (!q) return all.slice(0, 8);
+    return all.filter((s) => s.toLowerCase().includes(q));
+  }, [barangayName, streetName]);
 
   // Filtered list of barangays for the filter dropdown
   const filteredBarangayDropdownList = useMemo(() => {
@@ -346,8 +410,11 @@ export default function CollectionSchedulerTab() {
     setSelectedDays(['MON', 'WED', 'FRI']);
     setTruckName('');
     setWasteCategory('BIODEGRADABLE');
+    setModalTimeStr('06:00 AM');
+    setShowModalAnalogTimePicker(false);
     setFormErrors({});
     setBarangaySuggestionsOpen(false);
+    setStreetSuggestionsOpen(false);
     setTruckPickerOpen(false);
     setModalVisible(true);
   };
@@ -361,8 +428,11 @@ export default function CollectionSchedulerTab() {
     setSelectedDays(schedule.days || []);
     setTruckName(schedule.truck || '');
     setWasteCategory(schedule.wasteCategory || 'BIODEGRADABLE');
+    setModalTimeStr(schedule.time || schedule.timeText || schedule.collectionTime || '06:00 AM');
+    setShowModalAnalogTimePicker(false);
     setFormErrors({});
     setBarangaySuggestionsOpen(false);
+    setStreetSuggestionsOpen(false);
     setTruckPickerOpen(false);
     setModalVisible(true);
   };
@@ -373,6 +443,9 @@ export default function CollectionSchedulerTab() {
 
     if (!barangayName.trim()) {
       errors.barangayName = 'Barangay name is required.';
+    }
+    if (!streetName.trim()) {
+      errors.streetName = 'Street or route sector is required (e.g., Whole Barangay).';
     }
     if (selectedDays.length === 0) {
       errors.selectedDays = 'Select at least one regular collection day.';
@@ -385,6 +458,8 @@ export default function CollectionSchedulerTab() {
 
     setIsSubmitting(true);
     try {
+      const chosenTime = modalTimeStr || '06:00 AM';
+
       const schedulePayload = {
         barangayName: barangayName.trim(),
         zone: zone.trim(),
@@ -392,6 +467,9 @@ export default function CollectionSchedulerTab() {
         days: selectedDays,
         truck: truckName.trim(),
         wasteCategory: wasteCategory,
+        time: chosenTime,
+        timeText: chosenTime,
+        collectionTime: chosenTime,
         updatedAt: serverTimestamp(),
       };
 
@@ -936,10 +1014,8 @@ export default function CollectionSchedulerTab() {
             {/* Table Header */}
             <View style={styles.tableHead}>
               <Text style={[styles.th, { flex: 2.5 }]}>BARANGAY NAME</Text>
-              <Text style={[styles.th, { flex: 2.2 }]}>COLLECTION DAYS</Text>
-              <Text style={[styles.th, { flex: 2 }]}>ASSIGNED TRUCK</Text>
-              <Text style={[styles.th, { flex: 1.5 }]}>STATUS / TYPE</Text>
-              <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>ACTIONS</Text>
+              <Text style={[styles.th, { flex: 3.5 }]}>RECURRING COLLECTION SCHEDULE</Text>
+              <Text style={[styles.th, { flex: 1.5, textAlign: 'right', paddingRight: 24 }]}>ACTIONS</Text>
             </View>
 
             {loading ? (
@@ -1008,9 +1084,7 @@ export default function CollectionSchedulerTab() {
                         <View>
                           <Text style={styles.brgyName}>{bName}</Text>
                           <Text style={styles.brgyDesc}>
-                            {streetCount} {streetCount === 1 ? 'Route / Sector' : 'Routes / Sectors'} •{' '}
-                            {allSchedsInBarangay.length} active{' '}
-                            {allSchedsInBarangay.length === 1 ? 'schedule' : 'schedules'}
+                            {streetCount} {streetCount === 1 ? 'Route / Sector' : 'Routes / Sectors'}
                           </Text>
                         </View>
                       </View>
@@ -1020,10 +1094,10 @@ export default function CollectionSchedulerTab() {
                         style={[
                           styles.td,
                           {
-                            flex: 2.2,
+                            flex: 3.5,
                             flexDirection: 'row',
                             alignItems: 'center',
-                            gap: 4,
+                            gap: 6,
                             flexWrap: 'wrap',
                           },
                         ]}
@@ -1031,36 +1105,12 @@ export default function CollectionSchedulerTab() {
                         {Array.from(
                           new Set(allSchedsInBarangay.flatMap((s) => s.days || []))
                         )
-                          .slice(0, 4)
+                          .slice(0, 5)
                           .map((d, dIdx) => (
                             <View key={dIdx} style={styles.dayBadge}>
                               <Text style={styles.dayText}>{d}</Text>
                             </View>
                           ))}
-                      </View>
-
-                      {/* Trucks summary preview */}
-                      <View
-                        style={[
-                          styles.td,
-                          {
-                            flex: 2,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 6,
-                          },
-                        ]}
-                      >
-                        <MaterialIcons name="local-shipping" size={16} color="#64748B" />
-                        <Text style={styles.truckName} numberOfLines={1}>
-                          {Array.from(
-                            new Set(allSchedsInBarangay.map((s) => s.truck).filter(Boolean))
-                          ).join(', ') || 'Unassigned'}
-                        </Text>
-                      </View>
-
-                      {/* Status indicator */}
-                      <View style={[styles.td, { flex: 1.5 }]}>
                         <View style={styles.activeStatusBadge}>
                           <View style={styles.activeStatusDot} />
                           <Text style={styles.activeStatusText}>Active Route</Text>
@@ -1068,7 +1118,7 @@ export default function CollectionSchedulerTab() {
                       </View>
 
                       {/* Expand / Collapse Icon */}
-                      <View style={[styles.td, { flex: 0.8, alignItems: 'center' }]}>
+                      <View style={[styles.td, { flex: 1.5, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 16 }]}>
                         <MaterialIcons
                           name={isExpanded ? 'expand-less' : 'expand-more'}
                           size={24}
@@ -1120,106 +1170,78 @@ export default function CollectionSchedulerTab() {
                                 <View style={styles.schedulesBody}>
                                   {routeSchedules.map((row) => (
                                     <View key={row.id} style={styles.scheduleItemRow}>
-                                      {/* Days Column */}
+                                      {/* Days & Time Column */}
                                       <View
-                                        style={[
-                                          styles.td,
-                                          {
-                                            flex: 2.2,
+                                        style={{
+                                          flex: 1,
+                                          flexDirection: 'column',
+                                          gap: 6,
+                                        }}
+                                      >
+                                        <View
+                                          style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            gap: 4,
+                                            gap: 6,
                                             flexWrap: 'wrap',
-                                          },
-                                        ]}
-                                      >
-                                        {(row.days || []).map((day: string, dIdx: number) => (
-                                          <View key={`d-${dIdx}`} style={styles.dayBadge}>
-                                            <Text style={styles.dayText}>{day}</Text>
-                                          </View>
-                                        ))}
-                                        {(row.specificSchedules || []).map((ss: any, idx: number) => (
+                                          }}
+                                        >
+                                          {(row.days || []).map((day: string, dIdx: number) => (
+                                            <View key={`d-${dIdx}`} style={styles.dayBadge}>
+                                              <Text style={styles.dayText}>{day}</Text>
+                                            </View>
+                                          ))}
                                           <View
-                                            key={`ss-${idx}`}
                                             style={[
                                               styles.dayBadge,
                                               {
-                                                backgroundColor: '#EEF2FF',
-                                                borderColor: '#C7D2FE',
+                                                backgroundColor: '#F0FDF4',
+                                                borderColor: '#BBF7D0',
                                                 borderWidth: 1,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 3,
                                               },
                                             ]}
                                           >
-                                            <Text style={[styles.dayText, { color: '#4338CA' }]}>
-                                              {ss.date} {ss.time}
+                                            <MaterialIcons name="access-time" size={11} color="#166534" />
+                                            <Text style={[styles.dayText, { color: '#166534', fontWeight: '800' }]}>
+                                              {row.time || row.timeText || row.collectionTime || '06:00 AM'}
                                             </Text>
                                           </View>
-                                        ))}
-                                      </View>
+                                        </View>
 
-                                      {/* Truck Column */}
-                                      <View
-                                        style={[
-                                          styles.td,
-                                          {
-                                            flex: 2,
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                          },
-                                        ]}
-                                      >
-                                        <MaterialIcons
-                                          name="local-shipping"
-                                          size={16}
-                                          color="#64748B"
-                                        />
-                                        <Text style={styles.truckName}>
-                                          {row.truck || 'Unassigned Unit'}
-                                        </Text>
-                                      </View>
-
-                                      {/* Waste Category Badge */}
-                                      <View style={[styles.td, { flex: 1.5 }]}>
-                                        {(() => {
-                                          const catName = row.wasteCategory || 'BIODEGRADABLE';
-                                          const catInfo = CATEGORIES.find(
-                                            (c) => c.name === catName
-                                          ) || {
-                                            name: catName,
-                                            color: '#059669',
-                                          };
-                                          return (
-                                            <View
-                                              style={[
-                                                styles.statusBadge,
-                                                { backgroundColor: catInfo.color + '18' },
-                                              ]}
-                                            >
-                                              <Text
+                                        {/* Specific Pickups */}
+                                        {(row.specificSchedules || []).length > 0 && (
+                                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                                            {(row.specificSchedules || []).map((ss: any, idx: number) => (
+                                              <View
+                                                key={`ss-${idx}`}
                                                 style={[
-                                                  styles.statusText,
-                                                  { color: catInfo.color },
+                                                  styles.dayBadge,
+                                                  {
+                                                    backgroundColor: '#EEF2FF',
+                                                    borderColor: '#C7D2FE',
+                                                    borderWidth: 1,
+                                                  },
                                                 ]}
                                               >
-                                                {catName}
-                                              </Text>
-                                            </View>
-                                          );
-                                        })()}
+                                                <Text style={[styles.dayText, { color: '#4338CA', fontWeight: '700' }]}>
+                                                  {ss.date} {ss.time}
+                                                </Text>
+                                              </View>
+                                            ))}
+                                          </View>
+                                        )}
                                       </View>
 
                                       {/* Action Buttons */}
                                       <View
-                                        style={[
-                                          styles.td,
-                                          {
-                                            flex: 0.8,
-                                            flexDirection: 'row',
-                                            justifyContent: 'center',
-                                            gap: 8,
-                                          },
-                                        ]}
+                                        style={{
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                        }}
                                       >
                                         {/* Specific Pickups */}
                                         <TouchableOpacity
@@ -1401,29 +1423,62 @@ export default function CollectionSchedulerTab() {
                     <Text style={styles.fieldError}>{formErrors.barangayName}</Text>
                   ) : null}
 
-                  {/* Suggestions from existing dynamic barangays */}
-                  {barangaySuggestionsOpen && dynamicBarangays.length > 0 && (
+                  {/* Suggestions from unadded Danao City Barangays */}
+                  {barangaySuggestionsOpen && (
                     <View style={styles.suggestionsContainer}>
-                      <Text style={styles.suggestionsLabel}>Existing Dynamic Barangays:</Text>
-                      <ScrollView style={{ maxHeight: 110 }} nestedScrollEnabled>
-                        {dynamicBarangays
-                          .filter((b) =>
-                            b.toLowerCase().includes(barangayName.toLowerCase().trim())
-                          )
-                          .map((b) => (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={styles.suggestionsLabel}>
+                          Available Danao City Barangays ({availableUnregisteredDanaoBarangays.length} unassigned):
+                        </Text>
+                        <TouchableOpacity onPress={() => setBarangaySuggestionsOpen(false)}>
+                          <MaterialIcons name="close" size={14} color="#64748B" />
+                        </TouchableOpacity>
+                      </View>
+                      {suggestedUnregisteredBarangays.length > 0 ? (
+                        <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                          {suggestedUnregisteredBarangays.map((b) => (
                             <TouchableOpacity
                               key={b}
                               style={styles.suggestionItem}
                               onPress={() => {
                                 setBarangayName(b);
                                 setBarangaySuggestionsOpen(false);
+                                if (formErrors.barangayName) {
+                                  setFormErrors((prev) => {
+                                    const next = { ...prev };
+                                    delete next.barangayName;
+                                    return next;
+                                  });
+                                }
                               }}
                             >
-                              <MaterialIcons name="subdirectory-arrow-right" size={14} color="#059669" />
+                              <MaterialIcons name="add-location-alt" size={14} color="#059669" />
                               <Text style={styles.suggestionItemText}>{b}</Text>
+                              <Text style={{ fontSize: 10, color: '#059669', fontWeight: '800', marginLeft: 'auto' }}>
+                                Select
+                              </Text>
                             </TouchableOpacity>
                           ))}
-                      </ScrollView>
+                        </ScrollView>
+                      ) : (
+                        <View style={{ paddingVertical: 6 }}>
+                          <Text style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>
+                            {isAlreadyRegistered
+                              ? `Barangay '${barangayName.trim()}' already exists in collection schedules.`
+                              : 'No matching unassigned Danao City barangays.'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Warning if typed barangay is already registered */}
+                  {isAlreadyRegistered && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                      <MaterialIcons name="error-outline" size={14} color="#EF4444" />
+                      <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700' }}>
+                        Barangay '{barangayName.trim()}' already has a collection schedule registered.
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -1441,14 +1496,70 @@ export default function CollectionSchedulerTab() {
                     />
                   </View>
                   <View style={{ flex: 1.2 }}>
-                    <Text style={styles.inputLabel}>STREET / ROUTE SECTOR</Text>
+                    <Text style={styles.inputLabel}>
+                      STREET / ROUTE SECTOR <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
                     <TextInput
-                      style={styles.textInput}
+                      style={[
+                        styles.textInput,
+                        formErrors.streetName && styles.inputErrorBorder,
+                      ]}
                       placeholder="e.g. Rizal St. or Whole Barangay"
                       placeholderTextColor="#94A3B8"
                       value={streetName}
-                      onChangeText={setStreetName}
+                      onFocus={() => setStreetSuggestionsOpen(true)}
+                      onChangeText={(t) => {
+                        setStreetName(t);
+                        setStreetSuggestionsOpen(true);
+                        if (formErrors.streetName) {
+                          setFormErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.streetName;
+                            return next;
+                          });
+                        }
+                      }}
                     />
+                    {formErrors.streetName ? (
+                      <Text style={styles.fieldError}>{formErrors.streetName}</Text>
+                    ) : null}
+
+                    {/* Street suggestions dropdown */}
+                    {streetSuggestionsOpen && suggestedStreetsForBarangay.length > 0 && (
+                      <View style={styles.suggestionsContainer}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={styles.suggestionsLabel}>Suggested Routes / Sectors:</Text>
+                          <TouchableOpacity onPress={() => setStreetSuggestionsOpen(false)}>
+                            <MaterialIcons name="close" size={14} color="#64748B" />
+                          </TouchableOpacity>
+                        </View>
+                        <ScrollView style={{ maxHeight: 110 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                          {suggestedStreetsForBarangay.map((s) => (
+                            <TouchableOpacity
+                              key={s}
+                              style={styles.suggestionItem}
+                              onPress={() => {
+                                setStreetName(s);
+                                setStreetSuggestionsOpen(false);
+                                if (formErrors.streetName) {
+                                  setFormErrors((prev) => {
+                                    const next = { ...prev };
+                                    delete next.streetName;
+                                    return next;
+                                  });
+                                }
+                              }}
+                            >
+                              <MaterialIcons name="alt-route" size={14} color="#059669" />
+                              <Text style={styles.suggestionItemText}>{s}</Text>
+                              <Text style={{ fontSize: 10, color: '#059669', fontWeight: '800', marginLeft: 'auto' }}>
+                                Select
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
@@ -1508,6 +1619,110 @@ export default function CollectionSchedulerTab() {
                   ) : null}
                 </View>
 
+                {/* Regular Collection Time */}
+                <View style={{ marginBottom: 16 }}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.inputLabel}>
+                      REGULAR COLLECTION TIME <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setShowModalAnalogTimePicker(true)}
+                      style={styles.quickDayBtn}
+                    >
+                      <MaterialIcons name="schedule" size={14} color="#059669" />
+                      <Text style={[styles.quickDayBtnText, { marginLeft: 4 }]}>Open Clock Picker</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Current Selected Time Banner */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: '#F0FDF4',
+                      borderColor: '#BBF7D0',
+                      borderWidth: 1.5,
+                      borderRadius: 10,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: '#DCFCE7',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="alarm" size={20} color="#166534" />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 11, color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>
+                          Standard Daily Pickup Time
+                        </Text>
+                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#14532D' }}>
+                          {modalTimeStr}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => setShowModalAnalogTimePicker(true)}
+                      style={{
+                        backgroundColor: '#059669',
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 12 }}>Change Time</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Quick Preset Time Chips */}
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    {['05:00 AM', '06:00 AM', '07:00 AM', '08:00 AM', '01:00 PM', '05:00 PM'].map((t) => {
+                      const isSel = modalTimeStr === t;
+                      return (
+                        <TouchableOpacity
+                          key={t}
+                          style={[
+                            styles.dayBadge,
+                            {
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              backgroundColor: isSel ? '#059669' : '#FFFFFF',
+                              borderColor: isSel ? '#059669' : '#CBD5E1',
+                              borderWidth: 1,
+                            },
+                          ]}
+                          onPress={() => setModalTimeStr(t)}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              styles.dayText,
+                              {
+                                color: isSel ? '#FFFFFF' : '#334155',
+                                fontWeight: isSel ? '800' : '600',
+                              },
+                            ]}
+                          >
+                            {t}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
                 {/* Waste Category Selection */}
                 <View style={{ marginBottom: 16 }}>
                   <Text style={styles.inputLabel}>
@@ -1551,7 +1766,7 @@ export default function CollectionSchedulerTab() {
                 {/* Assigned Truck / Driver */}
                 <View style={{ marginBottom: 8 }}>
                   <View style={styles.labelRow}>
-                    <Text style={styles.inputLabel}>ASSIGNED TRUCK / UNIT</Text>
+                    <Text style={styles.inputLabel}>ASSIGNED TRUCK / UNIT (OPTIONAL)</Text>
                     {trucksList.length > 0 && (
                       <TouchableOpacity
                         onPress={() => setTruckPickerOpen(!truckPickerOpen)}
@@ -1567,7 +1782,7 @@ export default function CollectionSchedulerTab() {
                     style={styles.textInput}
                     value={truckName}
                     onChangeText={setTruckName}
-                    placeholder="e.g. Compactor #101, Truck 04, CENRO-TRK-01"
+                    placeholder="e.g. Compactor #101, Truck 04 (Optional)"
                     placeholderTextColor="#94A3B8"
                   />
 
@@ -1637,6 +1852,34 @@ export default function CollectionSchedulerTab() {
             </View>
           </View>
         </View>
+
+        {/* Regular Schedule Analog Clock Modal */}
+        <AnalogTimePicker
+          visible={showModalAnalogTimePicker}
+          onClose={() => setShowModalAnalogTimePicker(false)}
+          initialHours24={(() => {
+            const [timePart, ampm] = modalTimeStr.split(' ');
+            if (!timePart) return 6;
+            let [h] = timePart.split(':').map(Number);
+            if (ampm === 'PM' && h !== 12) h += 12;
+            if (ampm === 'AM' && h === 12) h = 0;
+            return h || 6;
+          })()}
+          initialMinutes={(() => {
+            const [timePart] = modalTimeStr.split(' ');
+            if (!timePart) return 0;
+            const [, m] = timePart.split(':').map(Number);
+            return m || 0;
+          })()}
+          onSelect={(hours24, minutes) => {
+            const ampm = hours24 >= 12 ? 'PM' : 'AM';
+            let h12 = hours24 % 12;
+            if (h12 === 0) h12 = 12;
+            const mStr = minutes.toString().padStart(2, '0');
+            const formatted = `${h12.toString().padStart(2, '0')}:${mStr} ${ampm}`;
+            setModalTimeStr(formatted);
+          }}
+        />
       </Modal>
 
       {/* ========================================================================= */}
@@ -1731,7 +1974,9 @@ export default function CollectionSchedulerTab() {
 
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.inputLabel}>PICKUP DATE</Text>
+                    <Text style={styles.inputLabel}>
+                      PICKUP DATE <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
                     {Platform.OS === 'web' ? (
                       <WebDatePicker value={webDateStr} onChange={setWebDateStr} />
                     ) : (
@@ -1744,7 +1989,9 @@ export default function CollectionSchedulerTab() {
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.inputLabel}>PICKUP TIME</Text>
+                    <Text style={styles.inputLabel}>
+                      PICKUP TIME <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
                     {Platform.OS === 'web' ? (
                       <TouchableOpacity
                         style={[
@@ -1801,7 +2048,9 @@ export default function CollectionSchedulerTab() {
                   />
                 )}
 
-                <Text style={styles.inputLabel}>WASTE CATEGORY</Text>
+                <Text style={styles.inputLabel}>
+                  WASTE CATEGORY <Text style={styles.requiredAsterisk}>*</Text>
+                </Text>
                 <View style={styles.categoryGrid}>
                   {CATEGORIES.map((cat) => {
                     const isSelected = specificCategory === cat.name;

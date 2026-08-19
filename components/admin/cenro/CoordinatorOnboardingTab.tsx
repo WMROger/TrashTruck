@@ -21,7 +21,7 @@ import {
   View,
 } from "react-native";
 import { db } from "@/config/firebase";
-import { DANAO_CITY_BARANGAYS } from "@/constants/danaoBarangays";
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from "@/constants/danaoBarangays";
 import { provisionCoordinatorOnSpark } from "@/services/coordinatorProvisioningService";
 
 export default function CoordinatorOnboardingTab({
@@ -61,6 +61,8 @@ export default function CoordinatorOnboardingTab({
   const [assignedBarangay, setAssignedBarangay] = useState("");
   const [isBarangayDropdownOpen, setIsBarangayDropdownOpen] = useState(false);
   const [barangaySearchQuery, setBarangaySearchQuery] = useState("");
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [scheduleBarangaySet, setScheduleBarangaySet] = useState<Set<string>>(new Set());
   const [existingCoordinators, setExistingCoordinators] = useState<any[]>([]);
 
   // Submission State
@@ -72,11 +74,11 @@ export default function CoordinatorOnboardingTab({
   } | null>(null);
   const [successModalData, setSuccessModalData] = useState<any>(null);
 
-  // Map of taken barangays -> coordinator name
+  // Compute map of taken barangays -> coordinator name
   const takenBarangaysMap = useMemo(() => {
     const map: { [barangay: string]: string } = {};
     existingCoordinators.forEach((c) => {
-      const b = (c.assignedBarangay || c.barangay || "").trim();
+      const b = c.assignedBarangay || c.barangay;
       if (b) {
         map[b] = c.displayName || c.email || "Active Coordinator";
       }
@@ -86,15 +88,15 @@ export default function CoordinatorOnboardingTab({
 
   // Available barangays count
   const availableBarangaysCount = useMemo(() => {
-    return DANAO_CITY_BARANGAYS.filter((b) => !takenBarangaysMap[b]).length;
-  }, [takenBarangaysMap]);
+    return availableBarangays.filter((b) => !takenBarangaysMap[b]).length;
+  }, [availableBarangays, takenBarangaysMap]);
 
   // Filtered barangays for dropdown search
   const filteredBarangays = useMemo(() => {
-    if (!barangaySearchQuery.trim()) return DANAO_CITY_BARANGAYS;
+    if (!barangaySearchQuery.trim()) return availableBarangays;
     const q = barangaySearchQuery.toLowerCase().trim();
-    return DANAO_CITY_BARANGAYS.filter((b) => b.toLowerCase().includes(q));
-  }, [barangaySearchQuery]);
+    return availableBarangays.filter((b) => b.toLowerCase().includes(q));
+  }, [availableBarangays, barangaySearchQuery]);
 
   // Auto-increment Coordinator Employee ID (e.g., CENRO-COORD-001)
   const fetchNextEmployeeId = async () => {
@@ -172,9 +174,23 @@ export default function CoordinatorOnboardingTab({
       setResidentsList(residents);
     });
 
+    // Listen for collection schedules
+    const unsubSchedules = onSnapshot(collection(db, "barangay_schedules"), (snap) => {
+      const scheduleNames = new Set<string>();
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.barangayName && typeof data.barangayName === 'string' && data.barangayName.trim()) {
+          scheduleNames.add(data.barangayName.trim());
+        }
+      });
+      setScheduleBarangaySet(scheduleNames);
+      setAvailableBarangays(resolveScheduleBarangays(Array.from(scheduleNames)));
+    });
+
     return () => {
       unsubCoord();
       unsubUsers();
+      unsubSchedules();
     };
   }, []);
 
@@ -390,7 +406,7 @@ export default function CoordinatorOnboardingTab({
               1 Coordinator per Barangay Policy
             </Text>
             <Text style={styles.policyCardText}>
-              Each of Danao City's {DANAO_CITY_BARANGAYS.length} barangays is
+              Each of Danao City's {availableBarangays.length} barangays is
               assigned exactly 1 official Environmental Coordinator. Currently,{" "}
               <Text style={{ fontWeight: "800", color: "#065F46" }}>
                 {existingCoordinators.length}

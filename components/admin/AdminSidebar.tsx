@@ -92,7 +92,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         },
         {
           id: "route-optimization",
-          label: "ROUTE OPTIMIZATION",
+          label: "ROUTE",
           icon: "route",
         },
         {
@@ -257,7 +257,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
             style={[
               styles.bottomNavText,
               activeTab === "operational-overrides" &&
-                styles.activeBottomNavText,
+              styles.activeBottomNavText,
             ]}
           >
             LOGS

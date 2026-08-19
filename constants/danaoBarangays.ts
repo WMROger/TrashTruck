@@ -46,3 +46,14 @@ export const mergeDanaoBarangays = (configured: string[]) => Array.from(new Set(
   ...DANAO_CITY_BARANGAYS,
   ...configured.map(item => String(item || '').trim()).filter(Boolean),
 ])).sort((a, b) => a.localeCompare(b));
+
+/**
+ * Returns strictly the barangays created in collection schedules if any exist;
+ * otherwise falls back to the standard Danao City barangays.
+ */
+export const resolveScheduleBarangays = (configured: string[]): string[] => {
+  const clean = Array.from(
+    new Set(configured.map((item) => String(item || '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
+  return clean.length > 0 ? clean : [...DANAO_CITY_BARANGAYS];
+};

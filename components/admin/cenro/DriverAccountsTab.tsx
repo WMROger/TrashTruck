@@ -1,10 +1,14 @@
 import { db } from "@/config/firebase";
+import { resolveScheduleBarangays } from "@/constants/danaoBarangays";
 import { MaterialIcons } from "@expo/vector-icons";
 import {
   collection,
+  doc,
   onSnapshot,
   orderBy,
-  query
+  query,
+  serverTimestamp,
+  updateDoc
 } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -76,8 +80,103 @@ export default function DriverAccountsTab({
   const [sortField, setSortField] = useState<SortField>("credentials");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
-  // Read-only Details Inspector Modal State
+  // Details Inspector & Editing Modal State
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [isEditingBarangay, setIsEditingBarangay] = useState(false);
+  const [editBarangayValue, setEditBarangayValue] = useState("");
+  const [isSavingBarangay, setIsSavingBarangay] = useState(false);
+  const [editBarangayDropdownOpen, setEditBarangayDropdownOpen] = useState(false);
+  const [editBarangaySearch, setEditBarangaySearch] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  // Compute map of taken barangays -> active coordinator info
+  const takenCoordinatorBarangaysMap = useMemo(() => {
+    const map: { [barangay: string]: { id: string; name: string } } = {};
+    users.forEach((u) => {
+      if (u.role === "coordinator") {
+        const b = (u.assignedBarangay || u.barangay || "").trim();
+        if (b) {
+          map[b] = { id: u.id, name: u.displayName || u.email };
+        }
+      }
+    });
+    return map;
+  }, [users]);
+
+  // Listen to collection schedules for dynamically configured barangays
+  useEffect(() => {
+    if (!db) return;
+    const unsubSchedules = onSnapshot(collection(db, "barangay_schedules"), (snap) => {
+      const scheduleNames = new Set<string>();
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.barangayName && typeof data.barangayName === "string" && data.barangayName.trim()) {
+          scheduleNames.add(data.barangayName.trim());
+        }
+      });
+      setAvailableBarangays(resolveScheduleBarangays(Array.from(scheduleNames)));
+    });
+    return () => unsubSchedules();
+  }, []);
+
+  // Reset editing state whenever selected user changes
+  useEffect(() => {
+    if (selectedUser) {
+      setIsEditingBarangay(false);
+      setEditBarangayValue(selectedUser.assignedBarangay || selectedUser.barangay || "");
+      setEditError(null);
+      setEditSuccess(null);
+      setEditBarangayDropdownOpen(false);
+      setEditBarangaySearch("");
+    }
+  }, [selectedUser]);
+
+  const handleSaveBarangay = async () => {
+    if (!selectedUser || !db) return;
+    setEditError(null);
+    setEditSuccess(null);
+
+    // If coordinator, check 1-coordinator-per-barangay policy
+    if (selectedUser.role === "coordinator" && editBarangayValue) {
+      const existing = takenCoordinatorBarangaysMap[editBarangayValue];
+      if (existing && existing.id !== selectedUser.id) {
+        setEditError(
+          `Brgy. ${editBarangayValue} already has an active coordinator (${existing.name}). 1 Coordinator per Barangay policy enforced.`
+        );
+        return;
+      }
+    }
+
+    setIsSavingBarangay(true);
+    try {
+      const userRef = doc(db, "users", selectedUser.id);
+      await updateDoc(userRef, {
+        assignedBarangay: editBarangayValue.trim(),
+        barangay: editBarangayValue.trim(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setSelectedUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              assignedBarangay: editBarangayValue.trim(),
+              barangay: editBarangayValue.trim(),
+            }
+          : null
+      );
+      setEditSuccess("Barangay assignment updated successfully!");
+      setIsEditingBarangay(false);
+      setEditBarangayDropdownOpen(false);
+    } catch (err: any) {
+      console.error("Error updating barangay assignment:", err);
+      setEditError(err?.message || "Failed to update barangay assignment.");
+    } finally {
+      setIsSavingBarangay(false);
+    }
+  };
 
   const handleHeaderSort = (field: SortField) => {
     if (sortField === field) {
@@ -884,26 +983,370 @@ export default function DriverAccountsTab({
 
                 {/* Details List */}
                 <View style={{ gap: 10 }}>
-                  {/* Jurisdiction / Barangay */}
-                  <View style={styles.detailInfoBox}>
-                    <View style={styles.detailInfoIcon}>
-                      <MaterialIcons
-                        name="location-on"
-                        size={18}
-                        color="#1B4D3E"
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.detailCardLabel}>
-                        ASSIGNED BARANGAY / JURISDICTION
-                      </Text>
-                      <Text style={styles.detailCardValue}>
-                        {selectedUser.assignedBarangay || selectedUser.barangay
-                          ? `Brgy. ${selectedUser.assignedBarangay || selectedUser.barangay}`
-                          : "No Barangay Assigned"}
-                      </Text>
-                    </View>
-                  </View>
+                  {/* Jurisdiction / Barangay (Editable for Driver & Coordinator only) */}
+                  {(() => {
+                    const canEditBarangay =
+                      selectedUser.role === "driver" ||
+                      selectedUser.role === "coordinator";
+
+                    if (!isEditingBarangay) {
+                      return (
+                        <View style={styles.detailInfoBox}>
+                          <View style={styles.detailInfoIcon}>
+                            <MaterialIcons
+                              name="location-on"
+                              size={18}
+                              color="#1B4D3E"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <Text style={styles.detailCardLabel}>
+                                ASSIGNED BARANGAY / JURISDICTION
+                              </Text>
+                              {canEditBarangay && (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setIsEditingBarangay(true);
+                                    setEditBarangayValue(
+                                      selectedUser.assignedBarangay ||
+                                        selectedUser.barangay ||
+                                        ""
+                                    );
+                                    setEditError(null);
+                                    setEditSuccess(null);
+                                  }}
+                                  style={styles.editBarangayPillBtn}
+                                  activeOpacity={0.7}
+                                >
+                                  <MaterialIcons
+                                    name="edit"
+                                    size={12}
+                                    color="#1B4D3E"
+                                  />
+                                  <Text style={styles.editBarangayPillText}>
+                                    Change
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                            <Text style={styles.detailCardValue}>
+                              {selectedUser.assignedBarangay ||
+                              selectedUser.barangay
+                                ? `Brgy. ${selectedUser.assignedBarangay || selectedUser.barangay}`
+                                : "No Barangay Assigned"}
+                            </Text>
+                            {editSuccess && (
+                              <View style={styles.editSuccessBanner}>
+                                <MaterialIcons
+                                  name="check-circle"
+                                  size={14}
+                                  color="#059669"
+                                />
+                                <Text style={styles.editSuccessText}>
+                                  {editSuccess}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View
+                        style={[
+                          styles.detailInfoBox,
+                          styles.detailInfoBoxEditing,
+                        ]}
+                      >
+                        <View style={styles.detailInfoIcon}>
+                          <MaterialIcons
+                            name="edit-location"
+                            size={18}
+                            color="#1B4D3E"
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              marginBottom: 8,
+                            }}
+                          >
+                            <Text style={styles.detailCardLabel}>
+                              EDIT BARANGAY ASSIGNMENT
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                setIsEditingBarangay(false);
+                                setEditBarangayDropdownOpen(false);
+                                setEditError(null);
+                              }}
+                              style={styles.editCancelPillBtn}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.editCancelPillText}>
+                                Cancel
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          {/* Dropdown trigger */}
+                          <TouchableOpacity
+                            style={styles.editDropdownTrigger}
+                            onPress={() =>
+                              setEditBarangayDropdownOpen(
+                                !editBarangayDropdownOpen
+                              )
+                            }
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.editDropdownTriggerText,
+                                !editBarangayValue && { color: "#9CA3AF" },
+                              ]}
+                            >
+                              {editBarangayValue
+                                ? `Brgy. ${editBarangayValue}`
+                                : "Select operational barangay..."}
+                            </Text>
+                            <MaterialIcons
+                              name={
+                                editBarangayDropdownOpen
+                                  ? "keyboard-arrow-up"
+                                  : "keyboard-arrow-down"
+                              }
+                              size={18}
+                              color="#6B7280"
+                            />
+                          </TouchableOpacity>
+
+                          {/* Dropdown menu */}
+                          {editBarangayDropdownOpen && (
+                            <View style={styles.editDropdownMenu}>
+                              <View style={styles.editDropdownSearchContainer}>
+                                <MaterialIcons
+                                  name="search"
+                                  size={14}
+                                  color="#6B7280"
+                                />
+                                <TextInput
+                                  value={editBarangaySearch}
+                                  onChangeText={setEditBarangaySearch}
+                                  placeholder="Filter barangays..."
+                                  placeholderTextColor="#9CA3AF"
+                                  style={styles.editDropdownSearchInput}
+                                />
+                                {editBarangaySearch.length > 0 && (
+                                  <TouchableOpacity
+                                    onPress={() => setEditBarangaySearch("")}
+                                  >
+                                    <MaterialIcons
+                                      name="close"
+                                      size={14}
+                                      color="#6B7280"
+                                    />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+
+                              <ScrollView
+                                nestedScrollEnabled
+                                style={{ maxHeight: 180 }}
+                                keyboardShouldPersistTaps="handled"
+                              >
+                                {/* Option to clear/unassign */}
+                                <TouchableOpacity
+                                  style={[
+                                    styles.editDropdownItem,
+                                    !editBarangayValue &&
+                                      styles.editDropdownItemSelected,
+                                  ]}
+                                  onPress={() => {
+                                    setEditBarangayValue("");
+                                    setEditBarangayDropdownOpen(false);
+                                    setEditError(null);
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.editDropdownItemText,
+                                      !editBarangayValue && {
+                                        fontWeight: "700",
+                                        color: "#1B4D3E",
+                                      },
+                                    ]}
+                                  >
+                                    (No Barangay Assigned / Clear)
+                                  </Text>
+                                </TouchableOpacity>
+
+                                {availableBarangays
+                                  .filter(
+                                    (b) =>
+                                      !editBarangaySearch.trim() ||
+                                      b
+                                        .toLowerCase()
+                                        .includes(
+                                          editBarangaySearch
+                                            .trim()
+                                            .toLowerCase()
+                                        )
+                                  )
+                                  .map((b) => {
+                                    const isSelected = editBarangayValue === b;
+                                    const coordinatorOccupant =
+                                      selectedUser.role === "coordinator"
+                                        ? takenCoordinatorBarangaysMap[b]
+                                        : null;
+                                    const isOccupiedByOther =
+                                      coordinatorOccupant &&
+                                      coordinatorOccupant.id !==
+                                        selectedUser.id;
+
+                                    return (
+                                      <TouchableOpacity
+                                        key={b}
+                                        style={[
+                                          styles.editDropdownItem,
+                                          isSelected &&
+                                            styles.editDropdownItemSelected,
+                                          isOccupiedByOther && { opacity: 0.6 },
+                                        ]}
+                                        onPress={() => {
+                                          if (isOccupiedByOther) {
+                                            setEditError(
+                                              `Brgy. ${b} is already assigned to coordinator ${coordinatorOccupant.name}.`
+                                            );
+                                            return;
+                                          }
+                                          setEditBarangayValue(b);
+                                          setEditBarangayDropdownOpen(false);
+                                          setEditError(null);
+                                        }}
+                                      >
+                                        <View
+                                          style={{
+                                            flex: 1,
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
+                                          }}
+                                        >
+                                          <Text
+                                            style={[
+                                              styles.editDropdownItemText,
+                                              isSelected && {
+                                                fontWeight: "700",
+                                                color: "#1B4D3E",
+                                              },
+                                            ]}
+                                          >
+                                            {b}
+                                          </Text>
+                                          {isOccupiedByOther ? (
+                                            <View style={styles.takenBadgeMini}>
+                                              <Text
+                                                style={styles.takenBadgeMiniText}
+                                              >
+                                                Assigned
+                                              </Text>
+                                            </View>
+                                          ) : (
+                                            <View
+                                              style={styles.scheduledBadgeMini}
+                                            >
+                                              <Text
+                                                style={
+                                                  styles.scheduledBadgeMiniText
+                                                }
+                                              >
+                                                Available
+                                              </Text>
+                                            </View>
+                                          )}
+                                        </View>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                              </ScrollView>
+                            </View>
+                          )}
+
+                          {editError && (
+                            <View style={styles.editErrorBanner}>
+                              <MaterialIcons
+                                name="error-outline"
+                                size={14}
+                                color="#B91C1C"
+                              />
+                              <Text style={styles.editErrorText}>
+                                {editError}
+                              </Text>
+                            </View>
+                          )}
+
+                          {/* Action Buttons */}
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              gap: 8,
+                              marginTop: 10,
+                            }}
+                          >
+                            <TouchableOpacity
+                              style={styles.editSaveBtn}
+                              onPress={handleSaveBarangay}
+                              disabled={isSavingBarangay}
+                              activeOpacity={0.8}
+                            >
+                              {isSavingBarangay ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color="#FFFFFF"
+                                />
+                              ) : (
+                                <>
+                                  <MaterialIcons
+                                    name="save"
+                                    size={14}
+                                    color="#FFFFFF"
+                                  />
+                                  <Text style={styles.editSaveBtnText}>
+                                    Save Assignment
+                                  </Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.editCancelBtn}
+                              onPress={() => {
+                                setIsEditingBarangay(false);
+                                setEditBarangayDropdownOpen(false);
+                                setEditError(null);
+                              }}
+                              disabled={isSavingBarangay}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.editCancelBtnText}>
+                                Cancel
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })()}
 
                   {/* Driver Specific Credentials */}
                   {selectedUser.role === "driver" && (
@@ -1531,5 +1974,170 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 20,
     elevation: 10,
+  },
+  editBarangayPillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#C8E6C9",
+  },
+  editBarangayPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1B4D3E",
+  },
+  editCancelPillBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  editCancelPillText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  detailInfoBoxEditing: {
+    backgroundColor: "#F0FDF4",
+    borderColor: "#86EFAC",
+    borderWidth: 1.5,
+  },
+  editDropdownTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  editDropdownTriggerText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  editDropdownMenu: {
+    marginTop: 6,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  editDropdownSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  editDropdownSearchInput: {
+    flex: 1,
+    fontSize: 12,
+    color: "#0F172A",
+    paddingVertical: 2,
+  },
+  editDropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  editDropdownItemSelected: {
+    backgroundColor: "#DCFCE7",
+  },
+  editDropdownItemText: {
+    fontSize: 12.5,
+    color: "#334155",
+  },
+  takenBadgeMini: {
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  takenBadgeMiniText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#991B1B",
+  },
+  scheduledBadgeMini: {
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  scheduledBadgeMiniText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  editErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 8,
+  },
+  editErrorText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#991B1B",
+  },
+  editSuccessBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+  },
+  editSuccessText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#059669",
+  },
+  editSaveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#1B4D3E",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 7,
+  },
+  editSaveBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  editCancelBtn: {
+    justifyContent: "center",
+    backgroundColor: "#E2E8F0",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 7,
+  },
+  editCancelBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#475569",
   },
 });

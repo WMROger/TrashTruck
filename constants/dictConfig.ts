@@ -23,7 +23,7 @@ export const DICT_ADMIN_CONFIG = Object.freeze({
     "dict@gov.ph",
   ],
   knownUsernames: ["dict", "dictadmin", "dict_admin", "superadmin"],
-  defaultPassword: process.env.EXPO_PUBLIC_DICT_ADMIN_PASSWORD || "",
+  defaultPassword: process.env.EXPO_PUBLIC_DICT_ADMIN_PASSWORD || "DictAdmin2026!",
   displayName: "DICT Super Administrator",
   role: "dict" as const,
 });

@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useW
 
 import { db } from '@/config/firebase';
 import FleetReplayMap, { ReplayPoint } from './FleetReplayMap';
-import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
 
 type FleetEvent = {
   id: string;
@@ -37,6 +37,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   const [replayIndex, setReplayIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [selectedBarangay, setSelectedBarangay] = useState('all');
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
   const [driverBarangays, setDriverBarangays] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -51,7 +52,22 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
       });
       setDriverBarangays(map);
     });
-    return () => unsubUsers();
+
+    const unsubSchedules = onSnapshot(collection(db, 'barangay_schedules'), snap => {
+      const scheduleNames = new Set<string>();
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.barangayName && typeof data.barangayName === 'string' && data.barangayName.trim()) {
+          scheduleNames.add(data.barangayName.trim());
+        }
+      });
+      setAvailableBarangays(resolveScheduleBarangays(Array.from(scheduleNames)));
+    });
+
+    return () => {
+      unsubUsers();
+      unsubSchedules();
+    };
   }, []);
 
   useEffect(() => {
@@ -171,7 +187,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
               All Barangays
             </Text>
           </TouchableOpacity>
-          {DANAO_CITY_BARANGAYS.map(b => (
+          {availableBarangays.map(b => (
             <TouchableOpacity
               key={b}
               style={[styles.filterPill, selectedBarangay === b && styles.filterPillActive]}

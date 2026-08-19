@@ -1,11 +1,3 @@
-/**
- * Waste AI Analysis Service
- * Uses Google Gemini Vision API to analyze waste images
- * and detect waste type + estimated weight.
- * 
- * OPTIMIZED: Single API call instead of two (guardrail + analysis merged).
- */
-
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
@@ -39,7 +31,6 @@ const NOT_TRASH_RESULT: WasteAnalysisResult = {
  */
 async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType: string }> {
   if (Platform.OS === 'web') {
-    // Web: fetch the blob and convert
     const response = await fetch(uri);
     const blob = await response.blob();
     const mimeType = blob.type || 'image/jpeg';
@@ -48,7 +39,6 @@ async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType
       const reader = new FileReader();
       reader.onloadend = () => {
         const dataUrl = reader.result as string;
-        // Strip the data:mime;base64, prefix
         const base64 = dataUrl.split(',')[1];
         resolve({ base64, mimeType });
       };
@@ -56,11 +46,9 @@ async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType
       reader.readAsDataURL(blob);
     });
   } else {
-    // Native: use expo-file-system
     const base64 = await FileSystem.readAsStringAsync(uri, {
       encoding: 'base64' as any,
     });
-    // Detect mime type from extension
     const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
     const mimeMap: Record<string, string> = {
       jpg: 'image/jpeg',
@@ -93,34 +81,53 @@ function isRateLimitError(error: any): boolean {
   );
 }
 
+const FAST_PROMPT = `You are an ultra-fast waste classification AI for a municipal waste management app in the Philippines.
+Analyze this photo quickly:
+
+STEP 1: Determine if this image contains waste, garbage, trash, litter, recyclables, dump piles, or discarded materials.
+If NOT waste (e.g. selfie, landscape, clean indoor room, live animal, plate of served food, document), return:
+{"wasteType": "Not waste", "estimatedWeight": "—", "confidence": "none", "details": "Brief reason why this is not waste."}
+
+STEP 2: If it IS waste, classify it accurately:
+1. "wasteType": Pick exactly ONE of:
+   - "Solid Waste"
+   - "Liquid Waste"
+   - "Organic Waste"
+   - "Recyclable Waste"
+   - "Hazardous Waste"
+   - "Cannot determine (enclosed in bag)"
+2. "estimatedWeight": Estimated weight in kilograms (e.g. "3.5 kg", "15.0 kg") or metric tons if >=1000kg (e.g. "1.2 t").
+3. "confidence": "high", "medium", or "low".
+4. "details": One concise sentence summarizing the waste.
+
+Return ONLY valid JSON matching this schema:
+{"wasteType": "...", "estimatedWeight": "...", "confidence": "high|medium|low|none", "details": "..."}`;
+
 /**
- * Analyze a waste image using Gemini Vision API.
- * Returns the detected waste type and estimated weight.
- * 
- * OPTIMIZED: Uses a single API call that combines the guardrail check
- * and full analysis into one prompt, cutting response time ~50%.
+ * Analyze a waste image using Gemini 2.0 Flash with structured JSON.
+ * Returns the detected waste type and estimated weight in sub-second to low-second latency.
  * 
  * @param imageUri The local URI of the image
- * @param precomputedBase64 Optional pre-computed base64 string (from ImagePicker) to avoid using FileSystem
+ * @param precomputedBase64 Optional pre-computed base64 string (from ImagePicker) to avoid re-reading
  */
-export async function analyzeWasteImage(imageUri: string, precomputedBase64?: string | null): Promise<WasteAnalysisResult> {
+export async function analyzeWasteImage(
+  imageUri: string,
+  precomputedBase64?: string | null
+): Promise<WasteAnalysisResult> {
   try {
-    console.log('🤖 Starting AI waste analysis...');
+    console.log('🤖 Starting fast AI waste analysis...');
 
-    // Check API key
     if (!GEMINI_API_KEY) {
       console.error('❌ Gemini API key is not set');
       return {
         ...FALLBACK_RESULT,
-        details: 'Gemini API key is not set. Please restart the Expo server (npx expo start -c) to load the .env file.',
+        details: 'Gemini API key is not set. Please restart the Expo server to load .env.',
       };
     }
 
-    // Use pre-computed base64 if available, otherwise fallback to reading the file
     let base64 = precomputedBase64;
     let mimeType = 'image/jpeg';
-    
-    // Detect mime type from extension
+
     const ext = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
     const mimeMap: Record<string, string> = {
       jpg: 'image/jpeg',
@@ -132,58 +139,47 @@ export async function analyzeWasteImage(imageUri: string, precomputedBase64?: st
     mimeType = mimeMap[ext] || 'image/jpeg';
 
     if (!base64) {
-      console.log('⚠️ No pre-computed base64 provided, attempting to convert URI...');
       const converted = await imageUriToBase64(imageUri);
       base64 = converted.base64;
       mimeType = converted.mimeType;
     }
 
-    console.log('📸 Image ready, mime:', mimeType, 'size:', Math.round(base64.length / 1024), 'KB');
+    console.log('📸 Fast image payload ready, mime:', mimeType, 'size:', Math.round(base64.length / 1024), 'KB');
 
-    // Initialize the Gemini SDK — single model, single call
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
 
-    // ── SINGLE COMBINED PROMPT: Guardrail + Full Analysis ──
-    const prompt = `You are a waste classification AI for a municipal waste management app.
-
-STEP 1: First, determine if this image actually contains waste, trash, garbage, litter, recycling, or discarded materials (including trash bags, bins, dumpsters, piles of waste, food waste, recyclables, broken items, etc).
-
-If this is NOT an image of waste (e.g., a selfie, a landscape, food on a plate, an animal, a document), respond with ONLY this JSON:
-{"wasteType": "Not waste", "estimatedWeight": "—", "confidence": "none", "details": "Brief reason why this is not waste."}
-
-STEP 2: If the image IS waste-related, classify it:
-
-1. **Waste Type**: Classify into ONE of these categories:
-   - "Solid Waste" (glass, plastics, metals, styrofoam, rubber, ceramics)
-   - "Liquid Waste" (wastewater, oils, grease, sludge, spilled liquids)
-   - "Organic Waste" (food scraps, yard waste, garden waste, plant matter, animal waste)
-   - "Recyclable Waste" (paper, cardboard, clean bottles, aluminum cans, scrap metal)
-   - "Hazardous Waste" (batteries, chemicals, electronics, paint, medical waste)
-   - "Cannot determine (enclosed in bag)" (if contents are hidden inside an opaque bag)
-
-2. **Estimated Weight**: Based on visual size, estimate in kilograms (e.g., "2.5 kg"). A single trash bag is usually 3-8 kg, while a small pile is roughly 10-30 kg. If the estimate reaches 1,000 kg, express it in metric tons instead (e.g., "1.2 t").
-
-3. **Confidence**: "high", "medium", or "low". Use "low" if the image is blurry or unclear.
-
-4. **Details**: One brief sentence about what you see.
-
-Respond ONLY with valid JSON, no markdown, no code fences:
-{"wasteType": "...", "estimatedWeight": "2.5 kg", "confidence": "high|medium|low|none", "details": "..."}`;
-
-    console.log('🌐 Sending analysis request to Gemini API...');
-    const startTime = Date.now();
-
-    // Single API call
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64,
+    // Primary model: gemini-2.0-flash with structured JSON output for lowest latency
+    const callGemini = async (modelName: string) => {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 150,
+          temperature: 0.1,
         },
-      },
-    ]);
+      });
+
+      return await model.generateContent([
+        FAST_PROMPT,
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64!,
+          },
+        },
+      ]);
+    };
+
+    const startTime = Date.now();
+    let result: any;
+
+    try {
+      result = await callGemini('gemini-2.0-flash');
+    } catch (primaryErr: any) {
+      console.warn('⚠️ gemini-2.0-flash request failed, trying gemini-1.5-flash fallback:', primaryErr?.message);
+      // Fallback model: gemini-1.5-flash
+      result = await callGemini('gemini-1.5-flash');
+    }
 
     const elapsed = Date.now() - startTime;
     console.log(`⚡ AI response received in ${elapsed}ms`);
@@ -196,15 +192,11 @@ Respond ONLY with valid JSON, no markdown, no code fences:
       return FALLBACK_RESULT;
     }
 
-    console.log('📝 Raw AI response:', textContent);
-
-    // Parse the JSON response (strip any markdown code fences if present)
     let cleanJson = textContent
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/gi, '')
       .trim();
-      
-    // If the AI includes conversational text, extract just the JSON object
+
     const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       cleanJson = jsonMatch[0];
@@ -214,15 +206,13 @@ Respond ONLY with valid JSON, no markdown, no code fences:
     try {
       parsed = JSON.parse(cleanJson);
     } catch (parseError) {
-      console.error('❌ Failed to parse JSON from AI:', parseError);
-      console.log('📝 Raw failed text:', cleanJson);
+      console.error('❌ Failed to parse JSON from AI:', parseError, cleanJson);
       return {
         ...FALLBACK_RESULT,
         details: 'AI returned an unreadable response format. Please try again.',
       };
     }
 
-    // Validate the result
     const validTypes = [
       'Solid Waste',
       'Liquid Waste',
@@ -233,7 +223,7 @@ Respond ONLY with valid JSON, no markdown, no code fences:
       'Not waste',
     ];
 
-    if (!validTypes.some((t) => parsed.wasteType.includes(t))) {
+    if (!validTypes.some((t) => parsed.wasteType?.includes(t))) {
       console.warn('⚠️ Unexpected waste type from AI:', parsed.wasteType);
     }
 
@@ -242,7 +232,6 @@ Respond ONLY with valid JSON, no markdown, no code fences:
   } catch (error: any) {
     console.error('❌ Waste AI analysis failed:', error);
 
-    // ── GRACEFUL HANDLING: Rate limit / high demand errors ──
     if (isRateLimitError(error)) {
       console.warn('⏳ Gemini API rate limited / high demand');
       return {
@@ -252,7 +241,6 @@ Respond ONLY with valid JSON, no markdown, no code fences:
       };
     }
 
-    // Generic network / timeout errors
     const msg = error?.message?.toLowerCase() || '';
     if (msg.includes('network') || msg.includes('timeout') || msg.includes('fetch')) {
       return {

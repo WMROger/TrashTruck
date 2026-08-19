@@ -77,10 +77,10 @@ export default function DriverRouteMap() {
     if (simulationState.isActive) {
       await locationService.stopSimulation(user.uid);
     } else {
-      // Build custom route from stops if available, or use Danao simulation route
+      const driverBarangay = (user as any)?.assignedBarangay || (user as any)?.barangay || 'Poblacion';
       const customRoute = locatedStops.length >= 2
-        ? locatedStops.map(s => ({ latitude: s.coordinate.latitude, longitude: s.coordinate.longitude, name: s.stop.street, speed: 35 }))
-        : DANAO_SIMULATION_ROUTE;
+        ? locatedStops.map(s => ({ latitude: s.coordinate.latitude, longitude: s.coordinate.longitude, name: s.stop.street, speed: 35, barangay: driverBarangay }))
+        : driverBarangay;
 
       await locationService.startSimulation(user.uid, 'TRUCK-DANAO-01', customRoute);
     }

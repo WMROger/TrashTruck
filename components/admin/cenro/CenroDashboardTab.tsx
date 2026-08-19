@@ -303,11 +303,27 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
     };
   }, []);
 
-  const todayStr = new Date().toLocaleDateString('en-US', {
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const todayStr = currentDateTime.toLocaleDateString('en-US', {
     weekday: 'long',
-    day: 'numeric',
     month: 'short',
+    day: 'numeric',
     year: 'numeric',
+  });
+
+  const timeStr = currentDateTime.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
   });
 
   const progressPercent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 75;
@@ -331,8 +347,11 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
           <Text style={styles.headerTitle}>CENRO Operations Dashboard</Text>
         </View>
         <View style={styles.dateBadge}>
-          <MaterialIcons name="calendar-today" size={14} color="#065F46" style={{ marginRight: 6 }} />
+          <MaterialIcons name="calendar-today" size={13} color="#065F46" style={{ marginRight: 5 }} />
           <Text style={styles.dateText}>{todayStr}</Text>
+          <View style={styles.dateBadgeDivider} />
+          <MaterialIcons name="access-time" size={13} color="#065F46" style={{ marginRight: 4 }} />
+          <Text style={[styles.dateText, styles.timeText]}>{timeStr}</Text>
         </View>
       </View>
 
@@ -698,10 +717,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
+  dateBadgeDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: '#A7F3D0',
+    marginHorizontal: 8,
+  },
   dateText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#065F46',
+  },
+  timeText: {
+    fontWeight: '800',
+    color: '#047857',
+    fontVariant: ['tabular-nums'],
   },
   kpiRow: {
     flexDirection: 'row',

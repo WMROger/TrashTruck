@@ -1,12 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, TextInput, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, serverTimestamp, onSnapshot, arrayUnion } from 'firebase/firestore';
-import { auth, db } from '../../../config/firebase';
-import { MapCoordinate } from '../../../services/roadRouteOptimizationService';
-import { buildConstraintAwareRoute } from '../../../services/routeConstraintService';
-import { writeAuditLog } from '../../../services/auditLogService';
-import { formatWasteAmount } from '../../../utils/wasteUnits';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
+import { auth, db } from '@/config/firebase';
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
+import { BARANGAY_COLLECTION_ROUTES } from '@/constants/barangaySimulationRoutes';
+import { locationService, SimulationState } from '@/services/locationService';
+import {
+  optimizeBarangayRouteWithTraffic,
+  RouteStop,
+  TrafficOptimizationResult,
+} from '@/services/trafficAwareOptimizerService';
+import RouteOptimizationMap from './RouteOptimizationMap';
+import { writeAuditLog } from '@/services/auditLogService';
 
 interface Report {
   id: string;
@@ -17,12 +47,10 @@ interface Report {
   status: string;
   imageURL?: string;
   createdAt: any;
-  userEmail: string;
-  userId: string;
+  userEmail?: string;
+  userId?: string;
   location?: { lat?: number; lng?: number; latitude?: number; longitude?: number } | null;
   priority?: 'low' | 'normal' | 'high' | 'urgent';
-  timeWindowStart?: string;
-  timeWindowEnd?: string;
   aiAnalysis?: {
     wasteType: string;
     estimatedWeight: string;
@@ -35,526 +63,1091 @@ interface Driver {
   id: string;
   displayName: string;
   email: string;
+  assignedBarangay?: string;
+  barangay?: string;
   currentTruckId?: string;
+  currentTruckPlate?: string;
+  status?: string;
 }
-
-const reportPriority = (report: Report) => {
-  if (report.priority) return report.priority;
-  return report.aiAnalysis?.wasteType?.toLowerCase().includes('hazard') ? 'high' : 'normal';
-};
 
 export default function RouteOptimizationTab() {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
-  const [reports, setReports] = useState<Report[]>([]);
+  const isNarrow = width < 980;
+
+  // Active Sub-Tab
+  const [activeSubView, setActiveSubView] = useState<'route-ai' | 'report-dispatch'>('route-ai');
+
+  // Core Data
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [selectedBarangay, setSelectedBarangay] = useState<string>('Poblacion');
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState<string>('');
+  const [trucksMap, setTrucksMap] = useState<Record<string, string>>({});
+  const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
-  const [selectedDriver, setSelectedDriver] = useState<string>('');
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizedRoute, setOptimizedRoute] = useState<Report[]>([]);
-  const [routeSummary, setRouteSummary] = useState<{
-    distanceKm: number;
-    durationMinutes: number | null;
-    geocodedStops: number;
-    unlocatedStops: number;
-    method: string;
-    provider: string;
-    roadPolyline: MapCoordinate[];
-    fallbackReason?: string;
-    estimatedLoadTons: number;
-    capacityTons: number | null;
-    utilizationPercent: number | null;
-    warnings: string[];
-    deferredStops: Report[];
-    trafficAware: boolean;
-    serviceWindow: { start: string; end: string };
-  } | null>(null);
-  const [showDispatchModal, setShowDispatchModal] = useState(false);
+
+  // Simulation & Live State
+  const [simState, setSimState] = useState<SimulationState>(locationService.getSimulationState());
+  const [isStartingSim, setIsStartingSim] = useState(false);
+
+  // AI Optimization State
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
+  const [isOptimizingAI, setIsOptimizingAI] = useState(false);
+  const [optResult, setOptResult] = useState<TrafficOptimizationResult | null>(null);
+
+  // Dispatch Modal State
+  const [showDispatchConfirmModal, setShowDispatchConfirmModal] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchSuccess, setDispatchSuccess] = useState(false);
+
+  // Report Preview Modal
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
-  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [locationFilter, setLocationFilter] = useState<'all' | 'gps' | 'missing'>('all');
   const [reportSearch, setReportSearch] = useState('');
-  const [serviceWindowStart, setServiceWindowStart] = useState('08:00');
-  const [serviceWindowEnd, setServiceWindowEnd] = useState('17:00');
-  const [trafficAware, setTrafficAware] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'acknowledged' | 'in_progress'>('all');
 
-  const visibleReports = reports.filter(report => {
-    const hasGps = Number.isFinite(report.location?.lat ?? report.location?.latitude) && Number.isFinite(report.location?.lng ?? report.location?.longitude);
-    if (locationFilter === 'gps' && !hasGps) return false;
-    if (locationFilter === 'missing' && hasGps) return false;
-    const search = reportSearch.trim().toLowerCase();
-    return !search || `${report.street} ${report.barangay} ${report.description}`.toLowerCase().includes(search);
-  });
-
+  // 1. Subscribe to Collection Schedules for Dynamic Barangays
   useEffect(() => {
     if (!db) return;
-
-    // Listen to acknowledged reports only
-    const reportsRef = collection(db, 'reports');
-    const reportsQuery = query(reportsRef, where('status', '==', 'acknowledged'));
-    
-    const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
-      const data: Report[] = [];
-      snapshot.forEach(doc => {
-        data.push({ id: doc.id, ...doc.data() } as Report);
+    const unsubSchedules = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
+      const scheduleNames = new Set<string>();
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.barangayName && typeof data.barangayName === 'string' && data.barangayName.trim()) {
+          scheduleNames.add(data.barangayName.trim());
+        }
       });
-      // Sort locally to ensure stable order
-      data.sort((a, b) => b.createdAt - a.createdAt);
-      setReports(data);
-    });
-
-    // Fetch drivers
-    const fetchDrivers = async () => {
-      try {
-        const usersRef = collection(db, 'users');
-        // Fetch all users to find drivers (if no role field, we'll just show all for demo, or hardcode role checks)
-        const snap = await getDocs(usersRef);
-        const driverList: Driver[] = [];
-        snap.forEach(d => {
-          const u = d.data();
-          if (u.role === 'driver' && u.disabled !== true && u.status !== 'disabled') {
-            driverList.push({ id: d.id, displayName: u.displayName || u.email || 'Unknown', email: u.email, currentTruckId: u.currentTruckId || undefined });
-          }
-        });
-        setDrivers(driverList);
-        setLoading(false);
-      } catch (e) {
-        console.error('Error fetching drivers', e);
-        setLoading(false);
+      const resolved = resolveScheduleBarangays(Array.from(scheduleNames));
+      setAvailableBarangays(resolved);
+      if (resolved.length > 0 && (!selectedBarangay || !resolved.includes(selectedBarangay))) {
+        setSelectedBarangay(resolved[0]);
       }
-    };
-    
-    fetchDrivers();
-
-    return () => unsubscribeReports();
+    });
+    return () => unsubSchedules();
   }, []);
 
-  const toggleReportSelection = (id: string) => {
-    const newSet = new Set(selectedReports);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedReports(newSet);
-  };
-
-  const selectAll = () => {
-    const newSet = new Set(visibleReports.map(r => r.id));
-    setSelectedReports(newSet);
-  };
-
-  const handleOptimizeRoute = async () => {
-    if (selectedReports.size === 0) {
-      Alert.alert('Selection Empty', 'Please select at least one report to route.');
-      return;
-    }
-    if (!selectedDriver) {
-      Alert.alert('No Driver', 'Please select a driver to assign this route to.');
-      return;
-    }
-
-    setIsOptimizing(true);
-    
-    try {
-      const selectedData = reports.filter(r => selectedReports.has(r.id));
-      const driverLocationSnapshot = await getDoc(doc(db, 'truck_locations', selectedDriver));
-      const locationData = driverLocationSnapshot.data();
-      const latitude = locationData?.lat ?? locationData?.location?.latitude;
-      const longitude = locationData?.lng ?? locationData?.location?.longitude;
-      const truckOrigin = Number.isFinite(latitude) && Number.isFinite(longitude)
-        ? { latitude: Number(latitude), longitude: Number(longitude) }
-        : null;
-      const driver = drivers.find(item => item.id === selectedDriver);
-      let capacityTons: number | null = null;
-      if (driver?.currentTruckId) {
-        const truckSnapshot = await getDoc(doc(db, 'trucks', driver.currentTruckId));
-        const rawCapacity = Number.parseFloat(String(truckSnapshot.data()?.capacity || '').replace(/[^\d.]/g, ''));
-        capacityTons = Number.isFinite(rawCapacity) && rawCapacity > 0 ? rawCapacity : null;
-      }
-      const result = await buildConstraintAwareRoute(selectedData, truckOrigin, {
-        truckCapacityTons: capacityTons,
-        serviceWindowStart,
-        serviceWindowEnd,
-        trafficAware,
+  // 2. Fetch Trucks Map
+  useEffect(() => {
+    if (!db) return;
+    const unsubTrucks = onSnapshot(collection(db, 'trucks'), (snap) => {
+      const map: Record<string, string> = {};
+      snap.forEach((d) => {
+        const data = d.data();
+        map[d.id] = data.plateNumber || data.truckNumber || `Truck ${d.id.slice(-4)}`;
       });
-      if (result.orderedStops.length === 0) {
-        Alert.alert('Capacity Exceeded', 'None of the selected reports fit within the assigned truck capacity. Select fewer stops or another truck.');
-        return;
+      setTrucksMap(map);
+    });
+    return () => unsubTrucks();
+  }, []);
+
+  // 3. Fetch Drivers
+  useEffect(() => {
+    if (!db) return;
+    const qUsers = query(collection(db, 'users'), where('role', '==', 'driver'));
+    const unsubUsers = onSnapshot(qUsers, (snap) => {
+      const driverList: Driver[] = [];
+      snap.forEach((d) => {
+        const u = d.data();
+        if (u.disabled !== true && u.status !== 'disabled') {
+          driverList.push({
+            id: d.id,
+            displayName: u.displayName || u.name || u.email || 'Assigned Driver',
+            email: u.email || '',
+            assignedBarangay: (u.assignedBarangay || u.barangay || '').trim(),
+            barangay: (u.barangay || '').trim(),
+            currentTruckId: u.currentTruckId || undefined,
+            currentTruckPlate: u.currentTruckPlate || undefined,
+            status: u.status || 'active',
+          });
+        }
+      });
+      setDrivers(driverList);
+      setLoading(false);
+    });
+    return () => unsubUsers();
+  }, []);
+
+  // 4. Fetch Verified Reports
+  useEffect(() => {
+    if (!db) return;
+    const reportsRef = collection(db, 'reports');
+    const qReports = query(reportsRef, where('status', 'in', ['acknowledged', 'in_progress', 'verified']));
+    const unsubReports = onSnapshot(qReports, (snapshot) => {
+      const data: Report[] = [];
+      snapshot.forEach((docSnap) => {
+        data.push({ id: docSnap.id, ...docSnap.data() } as Report);
+      });
+      data.sort((a, b) => (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0) - (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
+      setReports(data);
+    });
+    return () => unsubReports();
+  }, []);
+
+  // 5. Listen to Live Driver Movement Simulation State
+  useEffect(() => {
+    const unsubSim = locationService.onSimulationChange((state) => {
+      setSimState(state);
+    });
+    return () => unsubSim();
+  }, []);
+
+  // 6. Filter Drivers by Selected Barangay (Active / On-Duty First)
+  const activeBarangayDrivers = useMemo(() => {
+    return drivers.filter((d) => {
+      const b = (d.assignedBarangay || d.barangay || '').trim().toLowerCase();
+      const current = selectedBarangay.trim().toLowerCase();
+      return b === current || !b; // If unassigned or matches barangay
+    });
+  }, [drivers, selectedBarangay]);
+
+  // Auto-select first available driver when barangay changes
+  useEffect(() => {
+    if (activeBarangayDrivers.length > 0) {
+      if (!selectedDriverId || !activeBarangayDrivers.some((d) => d.id === selectedDriverId)) {
+        setSelectedDriverId(activeBarangayDrivers[0].id);
       }
-      setOptimizedRoute(result.orderedStops);
-      setRouteSummary(result);
-      setShowDispatchModal(true);
-    } catch (error) {
-      console.error('Route generation failed:', error);
-      Alert.alert('Route unavailable', 'The route could not be generated. Please check the selected reports and try again.');
-    } finally {
-      setIsOptimizing(false);
+    } else {
+      setSelectedDriverId('');
     }
+  }, [activeBarangayDrivers, selectedBarangay]);
+
+  // Selected driver object
+  const currentSelectedDriver = useMemo(() => {
+    return drivers.find((d) => d.id === selectedDriverId) || null;
+  }, [drivers, selectedDriverId]);
+
+  // 7. Filter Verified Reports for this Barangay
+  const barangayReports = useMemo(() => {
+    return reports.filter((r) => {
+      const b = (r.barangay || '').trim().toLowerCase();
+      const current = selectedBarangay.trim().toLowerCase();
+      if (b !== current && b !== `${current} city` && !current.includes(b)) {
+        return false;
+      }
+      if (statusFilter !== 'all' && r.status !== statusFilter) {
+        return false;
+      }
+      if (reportSearch.trim()) {
+        const q = reportSearch.toLowerCase().trim();
+        return (
+          r.title.toLowerCase().includes(q) ||
+          r.street.toLowerCase().includes(q) ||
+          r.description.toLowerCase().includes(q) ||
+          (r.aiAnalysis?.wasteType || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [reports, selectedBarangay, statusFilter, reportSearch]);
+
+  // Selected Report objects
+  const selectedReportObjects = useMemo(() => {
+    return reports.filter((r) => selectedReportIds.has(r.id));
+  }, [reports, selectedReportIds]);
+
+  // 8. Trigger AI Traffic & Fuel Optimization
+  const runOptimization = (extraReps: Report[] = selectedReportObjects) => {
+    setIsOptimizingAI(true);
+    setTimeout(() => {
+      try {
+        const result = optimizeBarangayRouteWithTraffic(selectedBarangay, extraReps);
+        setOptResult(result);
+      } catch (err) {
+        console.error('Error running traffic optimization:', err);
+      } finally {
+        setIsOptimizingAI(false);
+      }
+    }, 300);
   };
 
-  const handleDispatch = async () => {
+  // Run automatically when selected barangay or inserted reports change
+  useEffect(() => {
+    if (selectedBarangay) {
+      runOptimization(selectedReportObjects);
+    }
+  }, [selectedBarangay, selectedReportObjects.length]);
+
+  // Toggle report insertion
+  const toggleReportSelection = (id: string) => {
+    setSelectedReportIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Driver Live Phone GPS Location from Firestore (written by driver's mobile device or driver phone app)
+  const [driverLiveLocation, setDriverLiveLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    speed: number;
+    locationName?: string;
+    isBroadcasting: boolean;
+    isSimulation?: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!db || !selectedDriverId) {
+      setDriverLiveLocation(null);
+      return;
+    }
+    const unsubLocation = onSnapshot(doc(db, 'truck_locations', selectedDriverId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const lat = data.lat ?? data.location?.latitude;
+        const lng = data.lng ?? data.location?.longitude;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setDriverLiveLocation({
+            latitude: Number(lat),
+            longitude: Number(lng),
+            speed: Number(data.speed || 0),
+            locationName: data.locationName || data.barangay || 'Active Route',
+            isBroadcasting: true,
+            isSimulation: !!data.isSimulation,
+          });
+          return;
+        }
+      }
+      setDriverLiveLocation(null);
+    });
+    return () => unsubLocation();
+  }, [selectedDriverId]);
+
+  // 10. Dispatch Route to Driver Terminal
+  const handleDispatchToDriver = async () => {
+    if (!selectedDriverId || !currentSelectedDriver) {
+      Alert.alert('No Driver Selected', 'Please select an active driver for dispatch.');
+      return;
+    }
+    if (!optResult) {
+      Alert.alert('No Optimized Route', 'Please generate the optimized route first.');
+      return;
+    }
+
     setIsDispatching(true);
     try {
-      const driverObj = drivers.find(d => d.id === selectedDriver);
-      const driverName = driverObj?.displayName || 'Assigned Driver';
+      const driverName = currentSelectedDriver.displayName || 'Assigned Driver';
+      const truckId = currentSelectedDriver.currentTruckId || null;
       const today = new Date();
       const dateText = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-      const allowsNotification = async (userId: string) => {
-        if (!userId) return false;
-        const settings = await getDoc(doc(db, 'user_settings', userId));
-        const preferences = settings.data()?.notificationPreferences;
-        return preferences?.pushEnabled !== false && preferences?.reportUpdates !== false;
-      };
-      
-      for (let i = 0; i < optimizedRoute.length; i++) {
-        const report = optimizedRoute[i];
-        
-        // 1. Create a schedule/dispatch for the driver
-        await addDoc(collection(db, 'schedules'), {
-          street: report.street,
-          barangay: report.barangay,
-          wasteCategory: 'Citizen Report', // Special category
-          timeText: 'ASAP',
-          dateText: dateText,
-          status: 'pending',
-          driver: driverName,
-          assignedDriverId: selectedDriver,
-          truckId: driverObj?.currentTruckId || null,
-          reportId: report.id,
-          userId: report.userId,
-          location: report.location || null,
-          routeOrder: i + 1,
-          routeOptimization: routeSummary ? {
-            method: routeSummary.method,
-            estimatedDistanceKm: routeSummary.distanceKm,
-            estimatedDurationMinutes: routeSummary.durationMinutes,
-            geocodedStops: routeSummary.geocodedStops,
-            unlocatedStops: routeSummary.unlocatedStops,
-            provider: routeSummary.provider,
-            roadPolyline: routeSummary.roadPolyline,
-            fallbackReason: routeSummary.fallbackReason || null,
-            estimatedLoadTons: routeSummary.estimatedLoadTons,
-            capacityTons: routeSummary.capacityTons,
-            utilizationPercent: routeSummary.utilizationPercent,
-            trafficAware: routeSummary.trafficAware,
-            serviceWindow: routeSummary.serviceWindow,
-            warnings: routeSummary.warnings,
-          } : null,
-          isLiveDispatch: true,
-          createdByUid: auth.currentUser?.uid || null,
-          createdAt: serverTimestamp(),
-        });
 
-        const newHistoryItem = {
-          status: 'in-progress',
-          notes: `Dispatched to driver ${driverName}`,
-          timestamp: new Date().toISOString(),
-          adminEmail: 'System Dispatch'
-        };
+      // 1. Create a live master route schedule in Firestore
+      await addDoc(collection(db, 'schedules'), {
+        barangay: selectedBarangay,
+        street: `Master AI Collection Route (${optResult.optimizedStops.length} Stops)`,
+        wasteCategory: 'Scheduled & Citizen Reports',
+        timeText: 'Active Route Sequence',
+        dateText: dateText,
+        status: 'in_progress',
+        driver: driverName,
+        assignedDriverId: selectedDriverId,
+        truckId: truckId,
+        isLiveDispatch: true,
+        routeOptimization: {
+          method: 'traffic-aware-fuel-optimized',
+          baselineDistanceKm: optResult.baselineDistanceKm,
+          optimizedDistanceKm: optResult.optimizedDistanceKm,
+          fuelSavingsLiters: optResult.fuelSavingsLiters,
+          fuelCostSavedPhp: optResult.fuelCostSavedPhp,
+          timeSavingsMinutes: optResult.timeSavingsMinutes,
+          bottlenecksAvoided: optResult.bottlenecksAvoided,
+          stopCount: optResult.optimizedStops.length,
+          roadPolyline: optResult.roadPolyline,
+        },
+        stops: optResult.optimizedStops.map((s, idx) => ({
+          order: idx + 1,
+          name: s.name,
+          lat: s.latitude,
+          lng: s.longitude,
+          type: s.stopType,
+          reportId: s.reportId || null,
+          timeWindow: s.optimalTimeWindow || 'Routine',
+        })),
+        createdByUid: auth.currentUser?.uid || null,
+        createdAt: serverTimestamp(),
+      });
 
-        // 2. Update the original report status to in-progress
-        await updateDoc(doc(db, 'reports', report.id), {
-          status: 'in-progress',
-          assignedDriver: driverName,
-          updatedAt: serverTimestamp(),
-          statusHistory: arrayUnion(newHistoryItem)
-        });
-
-        // 3. Notify the resident
-        if (await allowsNotification(report.userId)) {
-          await addDoc(collection(db, 'userNotifications'), {
-            userId: report.userId,
-            title: 'Report Dispatched',
-            body: `Your report at ${report.street} has been dispatched to a collection truck.`,
-            type: 'report_update',
-            read: false,
-            createdAt: serverTimestamp(),
+      // 2. Mark inserted citizen reports as in_progress
+      for (const rep of selectedReportObjects) {
+        try {
+          const reportRef = doc(db, 'reports', rep.id);
+          await updateDoc(reportRef, {
+            status: 'in_progress',
+            assignedDriverId: selectedDriverId,
+            assignedDriverName: driverName,
+            dispatchedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
           });
+        } catch (repErr) {
+          console.warn('Error updating report status:', repErr);
         }
       }
 
-      if (await allowsNotification(selectedDriver)) {
-        await addDoc(collection(db, 'userNotifications'), {
-          userId: selectedDriver,
-          title: 'New Route Assigned',
-          body: `${optimizedRoute.length} collection stop${optimizedRoute.length === 1 ? '' : 's'} assigned for today.`,
-          type: 'route',
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      }
-
-      const { deferredStops: deferredForAnotherTrip = [], ...auditRouteSummary } = routeSummary || {};
-      await writeAuditLog('route.dispatched', 'driver', selectedDriver, {
-        stopCount: optimizedRoute.length,
-        reportIds: optimizedRoute.map(report => report.id),
-        deferredReportIds: deferredForAnotherTrip.map(report => report.id),
-        routeSummary: Object.keys(auditRouteSummary).length ? auditRouteSummary : null,
+      await writeAuditLog('route.dispatched', 'driver', selectedDriverId, {
+        barangay: selectedBarangay,
+        driverName,
+        stopsCount: optResult.optimizedStops.length,
+        reportsCount: selectedReportObjects.length,
+        fuelSavingsLiters: optResult.fuelSavingsLiters,
+        fuelCostSavedPhp: optResult.fuelCostSavedPhp,
       });
 
-      Alert.alert('Dispatch Successful', `Successfully dispatched ${optimizedRoute.length} locations to ${driverName}.`);
-      setShowDispatchModal(false);
-      setSelectedReports(new Set());
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to dispatch route.');
+      setDispatchSuccess(true);
+      setShowDispatchConfirmModal(false);
+      setSelectedReportIds(new Set());
+      Alert.alert(
+        'Route Dispatched Successfully! 🚛',
+        `The traffic-optimized collection route with ${optResult.optimizedStops.length} stopping points has been transmitted directly to ${driverName}'s terminal.`
+      );
+    } catch (err: any) {
+      console.error('Error dispatching route:', err);
+      Alert.alert('Dispatch Error', err?.message || 'Failed to dispatch route.');
     } finally {
       setIsDispatching(false);
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2E8B57" />
-        <Text style={styles.loadingText}>Loading reports & drivers...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
-      <View style={[styles.headerRow, isMobile && { marginBottom: 16 }]}>
+    <ScrollView style={[styles.container, isMobile && { padding: 12 }]} showsVerticalScrollIndicator={false}>
+      {/* Top Header Banner */}
+      <View style={styles.headerRow}>
         <View>
-          <Text style={styles.headerTitle}>Automatic Route Optimization</Text>
-          <Text style={styles.headerDesc}>Optimize GPS-tagged reports on drivable roads, then dispatch the route directly to the driver’s in-app map.</Text>
+          <Text style={styles.headerSubtitle}>MUNICIPAL SOLID WASTE LOGISTICS &bull; FEATURE 30</Text>
+          <Text style={styles.headerTitle}>AI Traffic & Fuel Route Optimization</Text>
+          <Text style={styles.headerDescription}>
+            Simulate baseline driver routes, avoid commercial traffic bottlenecks, and insert verified citizen reports.
+          </Text>
+        </View>
+
+        {/* Sub-View Switcher Tabs */}
+        <View style={styles.subViewSwitcher}>
+          <TouchableOpacity
+            style={[styles.subViewBtn, activeSubView === 'route-ai' && styles.subViewBtnActive]}
+            onPress={() => setActiveSubView('route-ai')}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons
+              name="alt-route"
+              size={16}
+              color={activeSubView === 'route-ai' ? '#FFFFFF' : '#64748B'}
+            />
+            <Text style={[styles.subViewBtnText, activeSubView === 'route-ai' && styles.subViewBtnTextActive]}>
+              1. Route & AI Optimization
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.subViewBtn, activeSubView === 'report-dispatch' && styles.subViewBtnActive]}
+            onPress={() => setActiveSubView('report-dispatch')}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons
+              name="add-location-alt"
+              size={16}
+              color={activeSubView === 'report-dispatch' ? '#FFFFFF' : '#64748B'}
+            />
+            <Text style={[styles.subViewBtnText, activeSubView === 'report-dispatch' && styles.subViewBtnTextActive]}>
+              2. Insert Verified Reports ({selectedReportIds.size})
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      <View style={[styles.mainGrid, isMobile && { flexDirection: 'column', gap: 16 }]}>
-        {/* Left Column - Report Selection */}
-        <View style={[styles.leftColumn, isMobile && { flex: undefined, width: '100%' }]}>
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>Verified Reports Queue</Text>
-              <TouchableOpacity style={styles.textBtn} onPress={selectAll}>
-                <Text style={styles.textBtnText}>Select All</Text>
-              </TouchableOpacity>
+      {/* Operational Selection Card: Barangay & Active Driver */}
+      <View style={styles.selectorCard}>
+        <View style={[styles.selectorGrid, isNarrow && { flexDirection: 'column', gap: 12 }]}>
+          {/* 1. Barangay Filter Carousel */}
+          <View style={{ flex: 1.2 }}>
+            <View style={styles.selectorLabelRow}>
+              <MaterialIcons name="location-city" size={16} color="#059669" />
+              <Text style={styles.selectorLabel}>SELECT OPERATIONAL BARANGAY</Text>
             </View>
-
-            <TextInput style={styles.searchInput} value={reportSearch} onChangeText={setReportSearch} placeholder="Search street, barangay, or description" autoCorrect={false} />
-            <View style={styles.filterRow}>
-              {(['all', 'gps', 'missing'] as const).map(filter => (
-                <TouchableOpacity key={filter} style={[styles.filterChip, locationFilter === filter && styles.filterChipActive]} onPress={() => setLocationFilter(filter)}>
-                  <Text style={[styles.filterChipText, locationFilter === filter && styles.filterChipTextActive]}>
-                    {filter === 'all' ? 'All reports' : filter === 'gps' ? 'With GPS' : 'Missing GPS'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {visibleReports.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <MaterialIcons name="search-off" size={32} color="#9CA3AF" />
-                <Text style={styles.emptyText}>{reports.length === 0 ? 'No acknowledged reports to route.' : 'No reports match the selected filters.'}</Text>
-              </View>
-            ) : (
-              visibleReports.map((report) => {
-                const isSelected = selectedReports.has(report.id);
-                const hasGps = Number.isFinite(report.location?.lat ?? report.location?.latitude) && Number.isFinite(report.location?.lng ?? report.location?.longitude);
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsContainer}>
+              {availableBarangays.map((b) => {
+                const isSelected = selectedBarangay === b;
                 return (
-                  <TouchableOpacity 
-                    key={report.id} 
-                    style={[styles.reportItem, isSelected && styles.reportItemSelected]}
-                    onPress={() => toggleReportSelection(report.id)}
+                  <TouchableOpacity
+                    key={b}
+                    style={[styles.barangayPill, isSelected && styles.barangayPillActive]}
+                    onPress={() => setSelectedBarangay(b)}
+                    activeOpacity={0.8}
                   >
-                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                      {isSelected && <MaterialIcons name="check" size={16} color="#FFF" />}
-                    </View>
-                    <View style={styles.reportImageBg}>
-                      {report.imageURL ? (
-                        <Image source={{ uri: report.imageURL }} style={styles.reportImg} />
-                      ) : (
-                        <MaterialIcons name="image" size={20} color="#9CA3AF" />
-                      )}
-                    </View>
-                    <View style={styles.reportContent}>
-                      <Text style={styles.reportStreet}>{report.street}, {report.barangay}</Text>
-                      <Text style={styles.reportDesc} numberOfLines={1}>{report.description}</Text>
-                      <Text style={styles.priorityText}>{reportPriority(report).toUpperCase()} PRIORITY</Text>
-                      {!hasGps && <Text style={styles.missingGpsText}>GPS missing — placed after geotagged stops</Text>}
-                    </View>
-                    <View style={[styles.badge, { backgroundColor: report.status === 'pending' ? '#FEF3C7' : '#DBEAFE' }]}>
-                      <Text style={[styles.badgeText, { color: report.status === 'pending' ? '#D97706' : '#2563EB' }]}>
-                        {report.status.toUpperCase()}
-                      </Text>
-                    </View>
-                    <TouchableOpacity 
-                      style={{ padding: 8, marginLeft: 4 }}
-                      onPress={(e) => {
-                        e.stopPropagation(); // prevent toggling the checkbox
-                        setViewingReport(report);
-                      }}
-                    >
-                      <MaterialIcons name="visibility" size={22} color="#6B7280" />
-                    </TouchableOpacity>
+                    <Text style={[styles.barangayPillText, isSelected && styles.barangayPillTextActive]}>
+                      Brgy. {b}
+                    </Text>
                   </TouchableOpacity>
                 );
-              })
+              })}
+            </ScrollView>
+          </View>
+
+          {/* 2. Active Driver Selector for this Barangay */}
+          <View style={{ flex: 1 }}>
+            <View style={styles.selectorLabelRow}>
+              <MaterialIcons name="badge" size={16} color="#0284C7" />
+              <Text style={styles.selectorLabel}>ASSIGNED / ACTIVE DRIVER IN {selectedBarangay.toUpperCase()}</Text>
+            </View>
+            {activeBarangayDrivers.length === 0 ? (
+              <View style={styles.noDriverNotice}>
+                <MaterialIcons name="info-outline" size={16} color="#D97706" />
+                <Text style={styles.noDriverNoticeText}>No drivers registered yet for Brgy. {selectedBarangay}.</Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.driverPillsContainer}>
+                {activeBarangayDrivers.map((d) => {
+                  const isSelected = selectedDriverId === d.id;
+                  const isSimulatingThisDriver = simState.isActive && simState.driverId === d.id;
+                  return (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={[
+                        styles.driverPill,
+                        isSelected && styles.driverPillActive,
+                        isSimulatingThisDriver && styles.driverPillSimulating,
+                      ]}
+                      onPress={() => setSelectedDriverId(d.id)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.driverPillName, isSelected && { color: '#0F172A', fontWeight: '800' }]}>
+                          {d.displayName}
+                        </Text>
+                        {isSimulatingThisDriver ? (
+                          <View style={styles.simBadgeLive}>
+                            <Text style={styles.simBadgeLiveText}>SIMULATING</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.activeBadgeSmall}>
+                            <Text style={styles.activeBadgeSmallText}>ON DUTY</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.driverPillTruck}>
+                        🚚 {d.currentTruckPlate || trucksMap[d.currentTruckId || ''] || 'CENRO Compactor'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
           </View>
         </View>
-
-        {/* Right Column - Routing Controls */}
-        <View style={[styles.rightColumn, isMobile && { flex: undefined, width: '100%' }]}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Routing Engine</Text>
-            
-            <Text style={styles.label}>1. SELECT ASSIGNED DRIVER</Text>
-            <View style={styles.pickerContainer}>
-              {drivers.length === 0 ? (
-                <Text style={styles.noDriverText}>No active drivers found</Text>
-              ) : (
-                drivers.map(d => (
-                  <TouchableOpacity 
-                    key={d.id} 
-                    style={[styles.driverPill, selectedDriver === d.id && styles.driverPillActive]}
-                    onPress={() => setSelectedDriver(d.id)}
-                  >
-                    <MaterialIcons name="person" size={16} color={selectedDriver === d.id ? '#FFF' : '#4B5563'} />
-                    <Text style={[styles.driverPillText, selectedDriver === d.id && styles.driverPillTextActive]}>
-                      {d.displayName}
-                    </Text>
-                  </TouchableOpacity>
-                ))
-              )}
-            </View>
-
-            <Text style={styles.label}>2. ROUTE CONSTRAINTS</Text>
-            <View style={styles.constraintRow}>
-              <View style={styles.constraintField}>
-                <Text style={styles.constraintLabel}>SERVICE START</Text>
-                <TextInput style={styles.constraintInput} value={serviceWindowStart} onChangeText={setServiceWindowStart} placeholder="08:00" maxLength={5} />
-              </View>
-              <View style={styles.constraintField}>
-                <Text style={styles.constraintLabel}>SERVICE END</Text>
-                <TextInput style={styles.constraintInput} value={serviceWindowEnd} onChangeText={setServiceWindowEnd} placeholder="17:00" maxLength={5} />
-              </View>
-            </View>
-            <TouchableOpacity style={[styles.trafficToggle, trafficAware && styles.trafficToggleActive]} onPress={() => setTrafficAware(value => !value)}>
-              <MaterialIcons name="traffic" size={18} color={trafficAware ? '#FFFFFF' : '#475569'} />
-              <Text style={[styles.trafficToggleText, trafficAware && styles.trafficToggleTextActive]}>
-                Traffic-aware ETA {trafficAware ? 'ON' : 'OFF'}
-              </Text>
-            </TouchableOpacity>
-
-            <Text style={styles.label}>3. OPTIMIZATION SUMMARY</Text>
-            <View style={styles.statsBox}>
-              <View style={styles.statItem}>
-                <Text style={styles.statVal}>{selectedReports.size}</Text>
-                <Text style={styles.statLabel}>Pickups</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statVal}>
-                  {selectedReports.size > 0 ? '~' + (selectedReports.size * 15) : '0'}
-                </Text>
-                <Text style={styles.statLabel}>Est. Mins</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity 
-              style={[styles.primaryBtn, (selectedReports.size === 0 || !selectedDriver) && styles.primaryBtnDisabled]} 
-              onPress={handleOptimizeRoute}
-              disabled={selectedReports.size === 0 || !selectedDriver || isOptimizing}
-            >
-              {isOptimizing ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <>
-                  <MaterialIcons name="route" size={20} color="#FFF" />
-                  <Text style={styles.primaryBtnText}>Generate Route</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.infoBox}>
-            <MaterialIcons name="auto-awesome" size={20} color="#2563EB" style={{ marginTop: 2 }} />
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.infoTitle}>Road-aware with offline fallback</Text>
-              <Text style={styles.infoDesc}>Google Routes optimizes travel time, distance, and turns. If it is unavailable, nearest-neighbor with 2-opt keeps dispatch functional.</Text>
-            </View>
-          </View>
-        </View>
       </View>
 
-      {/* Dispatch Modal */}
-      <Modal visible={showDispatchModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Generated Route Map</Text>
-              <TouchableOpacity onPress={() => !isDispatching && setShowDispatchModal(false)}>
-                <MaterialIcons name="close" size={24} color="#6B7280" />
-              </TouchableOpacity>
+      {/* SUB-VIEW 1: DRIVER LIVE ROUTE & AI OPTIMIZATION */}
+      {activeSubView === 'route-ai' && (
+        <View style={{ gap: 16 }}>
+          {/* Driver Mobile GPS Telemetry Monitor Bar */}
+          <View style={styles.simControlCard}>
+            <View style={styles.simControlLeft}>
+              <View
+                style={[
+                  styles.simStatusIcon,
+                  driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                    ? { backgroundColor: '#DCFCE7' }
+                    : { backgroundColor: '#F1F5F9' },
+                ]}
+              >
+                <MaterialIcons
+                  name={
+                    driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                      ? 'satellite-alt'
+                      : 'phone-android'
+                  }
+                  size={22}
+                  color={
+                    driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                      ? '#166534'
+                      : '#64748B'
+                  }
+                />
+              </View>
+              <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={styles.simCardTitle}>
+                    {driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                      ? `Driver Live Mobile GPS: ${currentSelectedDriver?.displayName || 'Active Driver'}`
+                      : `Driver Mobile Telemetry: Brgy. ${selectedBarangay}`}
+                  </Text>
+                  {driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId) ? (
+                    <View style={styles.simPulseBadge}>
+                      <View style={styles.simPulseDot} />
+                      <Text style={styles.simPulseText}>
+                        {driverLiveLocation?.isSimulation || simState.isActive ? 'Simulated Phone GPS' : 'Live Phone GPS'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.simPulseBadge, { backgroundColor: '#F1F5F9' }]}>
+                      <Text style={[styles.simPulseText, { color: '#64748B' }]}>Mobile Device Standby</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.simCardSubtitle}>
+                  {driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                    ? `Live movement stream received from driver mobile device (${driverLiveLocation?.speed || simState.currentSpeedKph || 0} km/h · ${driverLiveLocation?.locationName || simState.locationName || 'On Route'}).`
+                    : `Driver initiates collection & GPS movement on their mobile terminal for their assigned jurisdiction (Brgy. ${selectedBarangay}).`}
+                </Text>
+              </View>
             </View>
 
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.modalSubtitle}>Optimized Collection Sequence:</Text>
-              {routeSummary && (
-                <View style={styles.constraintSummary}>
-                  <Text style={styles.constraintSummaryTitle}>Constraint-aware plan</Text>
-                  <Text style={styles.constraintSummaryText}>
-                    {routeSummary.estimatedLoadTons.toFixed(3)} t planned
-                    {routeSummary.capacityTons ? ` / ${routeSummary.capacityTons} t capacity (${routeSummary.utilizationPercent}%)` : ' · capacity unavailable'}
-                    {` · ${routeSummary.serviceWindow.start}-${routeSummary.serviceWindow.end}`}
-                    {routeSummary.trafficAware ? ' · traffic aware' : ''}
+            <View style={styles.telemetryStatusBadge}>
+              <MaterialIcons
+                name={
+                  driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                    ? 'wifi-tethering'
+                    : 'phonelink-setup'
+                }
+                size={16}
+                color={
+                  driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                    ? '#059669'
+                    : '#64748B'
+                }
+              />
+              <Text
+                style={[
+                  styles.telemetryStatusBadgeText,
+                  (driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)) && {
+                    color: '#065F46',
+                    fontWeight: '800',
+                  },
+                ]}
+              >
+                {driverLiveLocation?.isBroadcasting || (simState.isActive && simState.driverId === selectedDriverId)
+                  ? 'Receiving Mobile Telemetry'
+                  : 'Awaiting Driver Phone Start'}
+              </Text>
+            </View>
+          </View>
+
+          {/* AI Fuel & Traffic Optimization Breakdown Hero Grid */}
+          {optResult && (
+            <View style={[styles.metricsGrid, isMobile && { flexDirection: 'column' }]}>
+              {/* Metric 1: Fuel Saved */}
+              <View style={[styles.metricCard, { borderLeftColor: '#059669' }]}>
+                <View style={styles.metricHeader}>
+                  <Text style={styles.metricLabel}>FUEL SAVINGS ESTIMATE</Text>
+                  <MaterialIcons name="local-gas-station" size={20} color="#059669" />
+                </View>
+                <Text style={styles.metricMainValue}>
+                  {optResult.fuelSavingsLiters}{' '}
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B' }}>Liters Saved</Text>
+                </Text>
+                <View style={styles.metricSubRow}>
+                  <Text style={styles.metricSubText}>
+                    Baseline: <Text style={{ fontWeight: '700' }}>{optResult.baselineFuelLiters} L</Text> &bull; AI Optimized:{' '}
+                    <Text style={{ fontWeight: '700', color: '#059669' }}>{optResult.optimizedFuelLiters} L</Text>
+                  </Text>
+                  <View style={styles.savingsChip}>
+                    <Text style={styles.savingsChipText}>₱{optResult.fuelCostSavedPhp} Diesel Saved</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Metric 2: Time Saved */}
+              <View style={[styles.metricCard, { borderLeftColor: '#0284C7' }]}>
+                <View style={styles.metricHeader}>
+                  <Text style={styles.metricLabel}>TRAVEL & IDLING TIME</Text>
+                  <MaterialIcons name="timer" size={20} color="#0284C7" />
+                </View>
+                <Text style={[styles.metricMainValue, { color: '#0369A1' }]}>
+                  {optResult.timeSavingsMinutes}{' '}
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B' }}>Minutes Shaved</Text>
+                </Text>
+                <View style={styles.metricSubRow}>
+                  <Text style={styles.metricSubText}>
+                    Baseline: {optResult.baselineDurationMins}m &bull; Optimized:{' '}
+                    <Text style={{ fontWeight: '700', color: '#0369A1' }}>{optResult.optimizedDurationMins}m</Text>
+                  </Text>
+                  <View style={[styles.savingsChip, { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
+                    <Text style={[styles.savingsChipText, { color: '#0369A1' }]}>
+                      +{optResult.efficiencyGainPercent}% Faster
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Metric 3: Bottleneck Traffic Avoidance */}
+              <View style={[styles.metricCard, { borderLeftColor: '#F59E0B' }]}>
+                <View style={styles.metricHeader}>
+                  <Text style={styles.metricLabel}>TRAFFIC BOTTLENECKS AVOIDED</Text>
+                  <MaterialIcons name="traffic" size={20} color="#D97706" />
+                </View>
+                <Text style={[styles.metricMainValue, { color: '#B45309' }]}>
+                  {optResult.bottlenecksAvoided}{' '}
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B' }}>Congestion Hotspots</Text>
+                </Text>
+                <View style={styles.metricSubRow}>
+                  <Text style={styles.metricSubText}>
+                    Commercial / market stops re-timed to off-peak slots.
+                  </Text>
+                  <View style={[styles.savingsChip, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                    <Text style={[styles.savingsChipText, { color: '#B45309' }]}>100% Stops Visited</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Interactive Route Map */}
+          {optResult && (
+            <View style={styles.mapCard}>
+              <View style={styles.mapCardHeader}>
+                <View>
+                  <Text style={styles.mapCardTitle}>Interactive GPS Collection Corridor</Text>
+                  <Text style={styles.mapCardSubtitle}>
+                    Blue dotted line: Driver baseline trajectory &bull; Green solid line: AI traffic-optimized order
                   </Text>
                 </View>
-              )}
-              {routeSummary && (
-                <Text style={[styles.infoDesc, { marginBottom: 12 }]}>
-                  {routeSummary.provider} · {routeSummary.distanceKm.toFixed(2)} km{routeSummary.durationMinutes ? ` · ${routeSummary.durationMinutes} min driving` : ''} · {routeSummary.unlocatedStops} without GPS
-                </Text>
-              )}
-              {routeSummary?.fallbackReason && (
-                <Text style={[styles.missingGpsText, { marginBottom: 12 }]}>Fallback active: {routeSummary.fallbackReason}</Text>
-              )}
-              {routeSummary?.warnings.map((warning, index) => (
-                <Text key={`route-warning-${index}`} style={[styles.missingGpsText, { marginBottom: 6 }]}>• {warning}</Text>
-              ))}
-              {optimizedRoute.map((report, idx) => (
-                <View key={report.id} style={styles.routeItem}>
-                  <View style={styles.routeNumberBg}>
-                    <Text style={styles.routeNumber}>{idx + 1}</Text>
-                  </View>
-                  <View style={styles.routeDetails}>
-                    <Text style={styles.routeStreet}>{report.street}</Text>
-                    <Text style={styles.routeBrgy}>{report.barangay}</Text>
-                  </View>
-                </View>
-              ))}
-              {!!routeSummary?.deferredStops.length && (
-                <View style={styles.deferredBox}>
-                  <Text style={styles.deferredTitle}>Deferred for another trip ({routeSummary.deferredStops.length})</Text>
-                  {routeSummary.deferredStops.map(report => <Text key={report.id} style={styles.deferredText}>• {report.street}, {report.barangay}</Text>)}
-                </View>
-              )}
-            </ScrollView>
+                <TouchableOpacity
+                  style={styles.reoptimizeBtn}
+                  onPress={() => runOptimization(selectedReportObjects)}
+                  disabled={isOptimizingAI}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name="refresh" size={16} color="#1B4D3E" />
+                  <Text style={styles.reoptimizeBtnText}>Recalculate AI Route</Text>
+                </TouchableOpacity>
+              </View>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity 
-                style={styles.cancelBtn} 
-                onPress={() => setShowDispatchModal(false)}
+              <RouteOptimizationMap
+                baselineStops={optResult.baselineStops}
+                optimizedStops={optResult.optimizedStops}
+                currentSimPosition={
+                  driverLiveLocation
+                    ? { latitude: driverLiveLocation.latitude, longitude: driverLiveLocation.longitude }
+                    : simState.isActive && simState.currentCoordinate && simState.driverId === selectedDriverId
+                    ? simState.currentCoordinate
+                    : null
+                }
+                activeDriverName={currentSelectedDriver?.displayName}
+                barangayName={selectedBarangay}
+              />
+            </View>
+          )}
+
+          {/* Turn-by-Turn Collection Stop Sequence Table */}
+          {optResult && (
+            <View style={styles.tableCard}>
+              <View style={styles.tableCardHeader}>
+                <View>
+                  <Text style={styles.tableCardTitle}>
+                    AI-Optimized Stop Sequence ({optResult.optimizedStops.length} Total Points)
+                  </Text>
+                  <Text style={styles.tableCardSubtitle}>
+                    Scheduled order preserves all collection stopping places while avoiding high-traffic peak windows.
+                  </Text>
+                </View>
+                {selectedReportObjects.length > 0 && (
+                  <View style={styles.insertedReportsBadge}>
+                    <MaterialIcons name="add-location" size={14} color="#B45309" />
+                    <Text style={styles.insertedReportsBadgeText}>
+                      +{selectedReportObjects.length} Verified Reports Included
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ minWidth: 700 }}>
+                  <View style={styles.tableHeaderRow}>
+                    <Text style={[styles.th, { width: 55 }]}>SEQ</Text>
+                    <Text style={[styles.th, { width: 220 }]}>STOP / COLLECTION POINT</Text>
+                    <Text style={[styles.th, { width: 130 }]}>STOP TYPE</Text>
+                    <Text style={[styles.th, { width: 140 }]}>TRAFFIC IMPACT</Text>
+                    <Text style={[styles.th, { width: 160 }]}>OPTIMAL WINDOW</Text>
+                  </View>
+
+                  {optResult.optimizedStops.map((stop, idx) => {
+                    const isStart = idx === 0;
+                    const isEnd = idx === optResult.optimizedStops.length - 1;
+                    const isReport = stop.stopType === 'verified_report';
+                    const isHotspot = stop.trafficCongestionLevel === 'high';
+
+                    return (
+                      <View
+                        key={stop.id}
+                        style={[
+                          styles.tableRow,
+                          idx % 2 === 1 && { backgroundColor: '#F8FAFC' },
+                          isReport && { backgroundColor: '#FEF9C3' },
+                        ]}
+                      >
+                        <View style={[styles.td, { width: 55 }]}>
+                          <View
+                            style={[
+                              styles.seqBadge,
+                              isStart && { backgroundColor: '#059669' },
+                              isEnd && { backgroundColor: '#DC2626' },
+                              isReport && { backgroundColor: '#D97706' },
+                            ]}
+                          >
+                            <Text style={styles.seqBadgeText}>{idx + 1}</Text>
+                          </View>
+                        </View>
+
+                        <View style={[styles.td, { width: 220 }]}>
+                          <Text style={styles.stopNameText}>{stop.name}</Text>
+                          <Text style={styles.stopLocationText}>
+                            {stop.street ? `${stop.street}, ` : ''}Brgy. {stop.barangay}
+                          </Text>
+                        </View>
+
+                        <View style={[styles.td, { width: 130 }]}>
+                          {isStart ? (
+                            <View style={styles.typeBadgeDepot}>
+                              <Text style={styles.typeBadgeDepotText}>Depot Start</Text>
+                            </View>
+                          ) : isEnd ? (
+                            <View style={styles.typeBadgeReturn}>
+                              <Text style={styles.typeBadgeReturnText}>Transfer Station</Text>
+                            </View>
+                          ) : isReport ? (
+                            <View style={styles.typeBadgeReport}>
+                              <Text style={styles.typeBadgeReportText}>Citizen Report</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.typeBadgeRegular}>
+                              <Text style={styles.typeBadgeRegularText}>Routine Stop</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        <View style={[styles.td, { width: 140 }]}>
+                          {isHotspot ? (
+                            <View style={styles.trafficHighBadge}>
+                              <MaterialIcons name="warning" size={12} color="#DC2626" />
+                              <Text style={styles.trafficHighText}>Peak Congestion</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.trafficLowBadge}>
+                              <MaterialIcons name="check" size={12} color="#059669" />
+                              <Text style={styles.trafficLowText}>Clear Transit</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        <View style={[styles.td, { width: 160 }]}>
+                          <Text style={styles.timeWindowText}>{stop.optimalTimeWindow || 'Routine Schedule'}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Bottom Dispatch CTA */}
+          <View style={styles.bottomDispatchBanner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bottomDispatchTitle}>Ready to Dispatch to Driver Terminal?</Text>
+              <Text style={styles.bottomDispatchSubtitle}>
+                Driver: <Text style={{ fontWeight: '700' }}>{currentSelectedDriver?.displayName || 'Unassigned'}</Text> &bull;{' '}
+                Stops: <Text style={{ fontWeight: '700' }}>{optResult?.optimizedStops.length || 0} Total</Text> &bull; Fuel
+                Savings: <Text style={{ fontWeight: '700', color: '#059669' }}>{optResult?.fuelSavingsLiters}L (₱{optResult?.fuelCostSavedPhp})</Text>
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.dispatchPrimaryBtn}
+              onPress={() => setShowDispatchConfirmModal(true)}
+              disabled={!selectedDriverId || !optResult}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="send" size={16} color="#FFFFFF" />
+              <Text style={styles.dispatchPrimaryBtnText}>Dispatch Route to Driver</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* SUB-VIEW 2: VERIFIED REPORTS ROUTE DISPATCH */}
+      {activeSubView === 'report-dispatch' && (
+        <View style={{ gap: 16 }}>
+          {/* Overview Info Card */}
+          <View style={styles.reportDispatchIntroCard}>
+            <View style={styles.reportDispatchIntroIcon}>
+              <MaterialIcons name="playlist-add-check" size={24} color="#059669" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.reportDispatchIntroTitle}>
+                Insert Verified Citizen Reports into Brgy. {selectedBarangay} Route
+              </Text>
+              <Text style={styles.reportDispatchIntroSubtitle}>
+                Select verified waste clusters reported by residents. The AI optimizer will slot them into the driver's
+                collection route at the lowest detour and traffic cost.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.switchBackBtn}
+              onPress={() => setActiveSubView('route-ai')}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="visibility" size={16} color="#1B4D3E" />
+              <Text style={styles.switchBackBtnText}>Preview on Map ({selectedReportIds.size})</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Search and Filters */}
+          <View style={styles.reportFilterBar}>
+            <View style={styles.reportSearchBox}>
+              <MaterialIcons name="search" size={18} color="#94A3B8" />
+              <TextInput
+                value={reportSearch}
+                onChangeText={setReportSearch}
+                placeholder="Search street, description, or waste type..."
+                placeholderTextColor="#94A3B8"
+                style={styles.reportSearchInput}
+              />
+              {reportSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setReportSearch('')}>
+                  <MaterialIcons name="close" size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.filterPillsRow}>
+              <TouchableOpacity
+                style={[styles.statusFilterPill, statusFilter === 'all' && styles.statusFilterPillActive]}
+                onPress={() => setStatusFilter('all')}
+              >
+                <Text style={[styles.statusFilterPillText, statusFilter === 'all' && styles.statusFilterPillTextActive]}>
+                  All Verified ({barangayReports.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.statusFilterPill, statusFilter === 'acknowledged' && styles.statusFilterPillActive]}
+                onPress={() => setStatusFilter('acknowledged')}
+              >
+                <Text style={[styles.statusFilterPillText, statusFilter === 'acknowledged' && styles.statusFilterPillTextActive]}>
+                  Acknowledged
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.statusFilterPill, statusFilter === 'in_progress' && styles.statusFilterPillActive]}
+                onPress={() => setStatusFilter('in_progress')}
+              >
+                <Text style={[styles.statusFilterPillText, statusFilter === 'in_progress' && styles.statusFilterPillTextActive]}>
+                  In Progress
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Reports Table / Card List */}
+          {barangayReports.length === 0 ? (
+            <View style={styles.noReportsCard}>
+              <MaterialIcons name="check-circle" size={36} color="#10B981" />
+              <Text style={styles.noReportsTitle}>No Pending Verified Reports</Text>
+              <Text style={styles.noReportsSubtitle}>
+                All acknowledged reports in Brgy. {selectedBarangay} have been addressed or none match your search.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.reportsTableCard}>
+              <View style={styles.reportsTableHeader}>
+                <TouchableOpacity
+                  style={styles.selectAllBtn}
+                  onPress={() => {
+                    if (selectedReportIds.size === barangayReports.length) {
+                      setSelectedReportIds(new Set());
+                    } else {
+                      setSelectedReportIds(new Set(barangayReports.map((r) => r.id)));
+                    }
+                  }}
+                >
+                  <MaterialIcons
+                    name={selectedReportIds.size === barangayReports.length ? 'check-box' : 'check-box-outline-blank'}
+                    size={20}
+                    color="#059669"
+                  />
+                  <Text style={styles.selectAllText}>
+                    {selectedReportIds.size === barangayReports.length ? 'Deselect All' : 'Select All Reports'}
+                  </Text>
+                </TouchableOpacity>
+
+                <Text style={styles.selectedCountBadge}>
+                  {selectedReportIds.size} of {barangayReports.length} Selected for Route Insertion
+                </Text>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                {barangayReports.map((rep) => {
+                  const isSelected = selectedReportIds.has(rep.id);
+                  const hasLocation = Number.isFinite(rep.location?.lat ?? rep.location?.latitude);
+
+                  return (
+                    <TouchableOpacity
+                      key={rep.id}
+                      style={[styles.reportItemCard, isSelected && styles.reportItemCardSelected]}
+                      onPress={() => toggleReportSelection(rep.id)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.reportItemCheckbox}>
+                        <MaterialIcons
+                          name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                          size={22}
+                          color={isSelected ? '#059669' : '#94A3B8'}
+                        />
+                      </View>
+
+                      {rep.imageURL ? (
+                        <Image source={{ uri: rep.imageURL }} style={styles.reportThumb} resizeMode="cover" />
+                      ) : (
+                        <View style={styles.reportThumbPlaceholder}>
+                          <MaterialIcons name="image-not-supported" size={18} color="#94A3B8" />
+                        </View>
+                      )}
+
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text style={styles.reportItemTitle} numberOfLines={1}>
+                            {rep.title || 'Citizen Waste Report'}
+                          </Text>
+                          <View style={styles.statusBadgeSmall}>
+                            <Text style={styles.statusBadgeSmallText}>{rep.status.toUpperCase()}</Text>
+                          </View>
+                        </View>
+
+                        <Text style={styles.reportItemLocation}>
+                          📍 {rep.street ? `${rep.street}, ` : ''}Brgy. {rep.barangay}
+                        </Text>
+
+                        <View style={styles.reportItemMetaRow}>
+                          <View style={styles.metaPill}>
+                            <Text style={styles.metaPillText}>{rep.aiAnalysis?.wasteType || 'Solid Waste'}</Text>
+                          </View>
+                          <View style={[styles.metaPill, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+                            <Text style={[styles.metaPillText, { color: '#1E40AF' }]}>
+                              ~{rep.aiAnalysis?.estimatedWeight || '25 kg'}
+                            </Text>
+                          </View>
+                          {hasLocation ? (
+                            <View style={[styles.metaPill, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+                              <Text style={[styles.metaPillText, { color: '#065F46' }]}>GPS Tagged</Text>
+                            </View>
+                          ) : (
+                            <View style={[styles.metaPill, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+                              <Text style={[styles.metaPillText, { color: '#991B1B' }]}>No GPS</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.viewDetailBtn}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setViewingReport(rep);
+                        }}
+                      >
+                        <MaterialIcons name="open-in-new" size={18} color="#64748B" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Action Bar for Sub-View 2 */}
+          <View style={styles.bottomDispatchBanner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bottomDispatchTitle}>
+                {selectedReportIds.size} Reports Selected for Insertion
+              </Text>
+              <Text style={styles.bottomDispatchSubtitle}>
+                Driver: <Text style={{ fontWeight: '700' }}>{currentSelectedDriver?.displayName || 'Unassigned'}</Text> in
+                Brgy. {selectedBarangay}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.dispatchPrimaryBtn, selectedReportIds.size === 0 && { opacity: 0.6 }]}
+              onPress={() => setShowDispatchConfirmModal(true)}
+              disabled={selectedReportIds.size === 0 || !selectedDriverId}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="send" size={16} color="#FFFFFF" />
+              <Text style={styles.dispatchPrimaryBtnText}>Dispatch Route with Reports</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* MODAL: DISPATCH CONFIRMATION */}
+      <Modal
+        visible={showDispatchConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDispatchConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalBox}>
+            <View style={styles.confirmModalIcon}>
+              <MaterialIcons name="local-shipping" size={32} color="#059669" />
+            </View>
+
+            <Text style={styles.confirmModalTitle}>Confirm Route Dispatch</Text>
+            <Text style={styles.confirmModalSubtitle}>
+              You are dispatching an AI traffic-optimized collection route directly to the driver's terminal.
+            </Text>
+
+            <View style={styles.confirmSummaryBox}>
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>OPERATIONAL BARANGAY:</Text>
+                <Text style={styles.confirmVal}>Brgy. {selectedBarangay}</Text>
+              </View>
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>ASSIGNED DRIVER:</Text>
+                <Text style={styles.confirmVal}>{currentSelectedDriver?.displayName || 'Driver'}</Text>
+              </View>
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>ASSIGNED TRUCK:</Text>
+                <Text style={styles.confirmVal}>
+                  {currentSelectedDriver?.currentTruckPlate || trucksMap[currentSelectedDriver?.currentTruckId || ''] || 'CENRO Unit'}
+                </Text>
+              </View>
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>TOTAL ROUTE STOPS:</Text>
+                <Text style={[styles.confirmVal, { color: '#059669', fontWeight: '800' }]}>
+                  {optResult?.optimizedStops.length || 0} Stopping Points
+                </Text>
+              </View>
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>INSERTED CITIZEN REPORTS:</Text>
+                <Text style={[styles.confirmVal, { color: '#D97706', fontWeight: '800' }]}>
+                  {selectedReportObjects.length} Verified Reports
+                </Text>
+              </View>
+              <View style={[styles.confirmRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.confirmLabel}>ESTIMATED FUEL SAVINGS:</Text>
+                <Text style={[styles.confirmVal, { color: '#059669', fontWeight: '800' }]}>
+                  {optResult?.fuelSavingsLiters}L (₱{optResult?.fuelCostSavedPhp})
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                onPress={() => setShowDispatchConfirmModal(false)}
                 disabled={isDispatching}
               >
-                <Text style={styles.cancelBtnText}>Discard</Text>
+                <Text style={styles.confirmCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.confirmBtn} 
-                onPress={handleDispatch}
+              <TouchableOpacity
+                style={styles.confirmSubmitBtn}
+                onPress={handleDispatchToDriver}
                 disabled={isDispatching}
               >
                 {isDispatching ? (
-                  <ActivityIndicator size="small" color="#FFF" />
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <MaterialIcons name="send" size={18} color="#FFF" />
-                    <Text style={styles.confirmBtnText}>Dispatch to Driver</Text>
+                    <MaterialIcons name="check" size={18} color="#FFFFFF" />
+                    <Text style={styles.confirmSubmitText}>Confirm & Transmit</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -563,212 +1156,1028 @@ export default function RouteOptimizationTab() {
         </View>
       </Modal>
 
-      {/* Report View Modal */}
-      <Modal visible={!!viewingReport} transparent animationType="fade">
+      {/* MODAL: REPORT DETAILS INSPECTOR */}
+      <Modal
+        visible={!!viewingReport}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingReport(null)}
+      >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Report Details</Text>
+          <View style={styles.reportModalBox}>
+            <View style={styles.reportModalHeader}>
+              <View>
+                <Text style={styles.reportModalTitle}>{viewingReport?.title || 'Citizen Report'}</Text>
+                <Text style={styles.reportModalSubtitle}>
+                  Brgy. {viewingReport?.barangay} &bull; {viewingReport?.street}
+                </Text>
+              </View>
               <TouchableOpacity onPress={() => setViewingReport(null)}>
-                <MaterialIcons name="close" size={24} color="#6B7280" />
+                <MaterialIcons name="close" size={22} color="#64748B" />
               </TouchableOpacity>
             </View>
 
-            {viewingReport && (
-              <ScrollView style={styles.modalBody}>
-                {viewingReport.imageURL ? (
-                  <TouchableOpacity activeOpacity={0.8} onPress={() => setFullScreenImage(viewingReport.imageURL!)}>
-                    <Image 
-                      source={{ uri: viewingReport.imageURL }} 
-                      style={{ width: '100%', height: 200, borderRadius: 8, marginBottom: 16 }} 
-                      resizeMode="cover"
-                    />
-                  </TouchableOpacity>
-                ) : (
-                  <View style={{ width: '100%', height: 100, borderRadius: 8, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                    <MaterialIcons name="image-not-supported" size={32} color="#9CA3AF" />
-                    <Text style={{ color: '#6B7280', marginTop: 8 }}>No image provided</Text>
-                  </View>
-                )}
-                
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
-                  {viewingReport.title}
+            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+              {viewingReport?.imageURL ? (
+                <Image source={{ uri: viewingReport.imageURL }} style={styles.reportModalImg} resizeMode="cover" />
+              ) : null}
+
+              <Text style={styles.reportModalDesc}>{viewingReport?.description || 'No description provided.'}</Text>
+
+              <View style={styles.aiBox}>
+                <Text style={styles.aiBoxTitle}>AI Vision Waste Classification</Text>
+                <Text style={styles.aiBoxText}>Type: {viewingReport?.aiAnalysis?.wasteType || 'Solid Waste'}</Text>
+                <Text style={styles.aiBoxText}>
+                  Estimated Weight: {viewingReport?.aiAnalysis?.estimatedWeight || 'Not specified'}
                 </Text>
-                <Text style={{ fontSize: 14, color: '#4B5563', marginBottom: 16 }}>
-                  {viewingReport.description}
-                </Text>
-                
-                <View style={{ backgroundColor: '#F9FAFB', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 4 }}>LOCATION</Text>
-                  <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>
-                    {viewingReport.street}, {viewingReport.barangay}
+                {viewingReport?.aiAnalysis?.details ? (
+                  <Text style={[styles.aiBoxText, { marginTop: 4, fontStyle: 'italic' }]}>
+                    {viewingReport.aiAnalysis.details}
                   </Text>
-                </View>
+                ) : null}
+              </View>
+            </ScrollView>
 
-                {viewingReport.aiAnalysis && (
-                  <View style={{ backgroundColor: '#E2EFE3', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#4A6741', marginBottom: 8 }}>AI ANALYSIS</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Text style={{ fontSize: 13, color: '#6B8C72' }}>Detected Type:</Text>
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{viewingReport.aiAnalysis.wasteType}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 13, color: '#6B8C72' }}>Est. Weight:</Text>
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#234033' }}>{formatWasteAmount(viewingReport.aiAnalysis.estimatedWeight)}</Text>
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#4A6741', fontStyle: 'italic' }}>
-                      {viewingReport.aiAnalysis.details}
-                    </Text>
-                  </View>
-                )}
-                <View style={{ height: 20 }} />
-              </ScrollView>
-            )}
-
-            <View style={styles.modalFooter}>
-              <TouchableOpacity 
-                style={[styles.cancelBtn, { borderColor: '#6B7280', borderWidth: 1 }]} 
-                onPress={() => setViewingReport(null)}
-              >
-                <Text style={[styles.cancelBtnText, { color: '#6B7280' }]}>Close</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.confirmBtn, { backgroundColor: '#2E8B57' }]} 
-                onPress={() => {
-                  if (!selectedReports.has(viewingReport!.id)) {
-                    toggleReportSelection(viewingReport!.id);
-                  }
-                  setViewingReport(null);
-                }}
-              >
-                <MaterialIcons name="check-circle" size={18} color="#FFF" />
-                <Text style={styles.confirmBtnText}>Select for Route</Text>
-              </TouchableOpacity>
-            </View>
-
+            <TouchableOpacity
+              style={styles.modalCloseDoneBtn}
+              onPress={() => setViewingReport(null)}
+            >
+              <Text style={styles.modalCloseDoneBtnText}>Close Details</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      {/* Full Screen Image Modal */}
-      <Modal visible={!!fullScreenImage} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' }}>
-          <TouchableOpacity 
-            style={{ position: 'absolute', top: 40, right: 20, zIndex: 10, padding: 10 }}
-            onPress={() => setFullScreenImage(null)}
-          >
-            <MaterialIcons name="close" size={30} color="#FFF" />
-          </TouchableOpacity>
-          {fullScreenImage && (
-            <Image 
-              source={{ uri: fullScreenImage }} 
-              style={{ width: '100%', height: '80%' }} 
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
-
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 24 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
-  loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
-  
-  headerRow: { marginBottom: 24 },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#111827', marginBottom: 4 },
-  headerDesc: { fontSize: 14, color: '#6B7280' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    padding: 24,
+  },
+  headerRow: {
+    marginBottom: 16,
+    gap: 12,
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 1,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.5,
+  },
+  headerDescription: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  subViewSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 3,
+    gap: 4,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  subViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  subViewBtnActive: {
+    backgroundColor: '#1B4D3E',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  subViewBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  subViewBtnTextActive: {
+    color: '#FFFFFF',
+  },
 
-  mainGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 24 },
-  leftColumn: { flex: 1, minWidth: 400 },
-  rightColumn: { width: 320 },
+  // Selector Card
+  selectorCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  selectorGrid: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  selectorLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  selectorLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
+  },
+  pillsContainer: {
+    gap: 6,
+  },
+  barangayPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  barangayPillActive: {
+    backgroundColor: '#1B4D3E',
+    borderColor: '#1B4D3E',
+  },
+  barangayPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  barangayPillTextActive: {
+    color: '#FFFFFF',
+  },
+  driverPillsContainer: {
+    gap: 8,
+  },
+  driverPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    minWidth: 140,
+  },
+  driverPillActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981',
+  },
+  driverPillSimulating: {
+    borderColor: '#059669',
+    backgroundColor: '#DCFCE7',
+  },
+  driverPillName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  driverPillTruck: {
+    fontSize: 10.5,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  activeBadgeSmall: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  activeBadgeSmallText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#0369A1',
+  },
+  simBadgeLive: {
+    backgroundColor: '#166534',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  simBadgeLiveText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  noDriverNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  noDriverNoticeText: {
+    fontSize: 11.5,
+    color: '#92400E',
+    fontWeight: '600',
+  },
 
-  card: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 20 },
-  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 16 },
-  searchInput: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, color: '#111827' },
-  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
-  filterChip: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#FFFFFF' },
-  filterChipActive: { borderColor: '#2E8B57', backgroundColor: '#E8F5E9' },
-  filterChipText: { color: '#6B7280', fontSize: 12, fontWeight: '600' },
-  filterChipTextActive: { color: '#166534' },
-  
-  textBtn: { padding: 4 },
-  textBtnText: { color: '#2E8B57', fontWeight: '600', fontSize: 13 },
+  // Sim Control Card
+  simControlCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  simControlLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    minWidth: 280,
+  },
+  simStatusIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  simCardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  simCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  simPulseBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  simPulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  simPulseText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  telemetryStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    gap: 6,
+  },
+  telemetryStatusBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
 
-  emptyBox: { padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', borderStyle: 'dashed' },
-  emptyText: { marginTop: 12, color: '#9CA3AF', fontSize: 14 },
+  // Metrics Grid
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderLeftWidth: 4,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  metricLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  metricMainValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: -0.5,
+  },
+  metricSubRow: {
+    marginTop: 8,
+    gap: 6,
+  },
+  metricSubText: {
+    fontSize: 11.5,
+    color: '#64748B',
+  },
+  savingsChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginTop: 4,
+  },
+  savingsChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#166534',
+  },
 
-  reportItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 8, backgroundColor: '#FFF' },
-  reportItemSelected: { borderColor: '#2E8B57', backgroundColor: '#F6FBF7' },
-  checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#D1D5DB', marginRight: 12, justifyContent: 'center', alignItems: 'center' },
-  checkboxSelected: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
-  reportImageBg: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginRight: 12, overflow: 'hidden' },
-  reportImg: { width: 40, height: 40 },
-  reportContent: { flex: 1 },
-  reportStreet: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  reportDesc: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  priorityText: { fontSize: 9, color: '#7C3AED', fontWeight: '800', marginTop: 3, letterSpacing: 0.4 },
-  missingGpsText: { color: '#B45309', fontSize: 11, fontWeight: '600', marginTop: 3 },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  badgeText: { fontSize: 10, fontWeight: '700' },
+  // Map Card
+  mapCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  mapCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  mapCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  mapCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  reoptimizeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+  },
+  reoptimizeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1B4D3E',
+  },
 
-  label: { fontSize: 12, fontWeight: '700', color: '#6B7280', marginBottom: 8, marginTop: 16, letterSpacing: 0.5 },
-  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  noDriverText: { color: '#9CA3AF', fontSize: 13, fontStyle: 'italic' },
-  driverPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  driverPillActive: { backgroundColor: '#2E8B57', borderColor: '#2E8B57' },
-  driverPillText: { fontSize: 13, fontWeight: '600', color: '#4B5563' },
-  driverPillTextActive: { color: '#FFF' },
-  constraintRow: { flexDirection: 'row', gap: 10 },
-  constraintField: { flex: 1 },
-  constraintLabel: { color: '#64748B', fontSize: 9, fontWeight: '800', marginBottom: 5 },
-  constraintInput: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, color: '#0F172A', backgroundColor: '#FFFFFF' },
-  trafficToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#CBD5E1' },
-  trafficToggleActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
-  trafficToggleText: { color: '#475569', fontSize: 12, fontWeight: '700' },
-  trafficToggleTextActive: { color: '#FFFFFF' },
+  // Table Card
+  tableCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tableCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tableCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  tableCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  insertedReportsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  insertedReportsBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  th: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  td: {
+    justifyContent: 'center',
+  },
+  seqBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seqBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  stopNameText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  stopLocationText: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  typeBadgeDepot: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeDepotText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  typeBadgeReturn: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeReturnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  typeBadgeReport: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeReportText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  typeBadgeRegular: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeRegularText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  trafficHighBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  trafficHighText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  trafficLowBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  trafficLowText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  timeWindowText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
 
-  statsBox: { flexDirection: 'row', backgroundColor: '#F9FAFB', borderRadius: 8, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 24 },
-  statItem: { flex: 1, alignItems: 'center' },
-  statDivider: { width: 1, backgroundColor: '#E5E7EB' },
-  statVal: { fontSize: 24, fontWeight: '800', color: '#111827' },
-  statLabel: { fontSize: 12, color: '#6B7280', fontWeight: '500', marginTop: 4 },
+  // Bottom Dispatch Banner
+  bottomDispatchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    padding: 16,
+    gap: 14,
+    flexWrap: 'wrap',
+  },
+  bottomDispatchTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  bottomDispatchSubtitle: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  dispatchPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#059669',
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  dispatchPrimaryBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
 
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#2E8B57', paddingVertical: 14, borderRadius: 8 },
-  primaryBtnDisabled: { opacity: 0.5 },
-  primaryBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  // Sub-View 2 (Verified Reports Dispatch)
+  reportDispatchIntroCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  reportDispatchIntroIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportDispatchIntroTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reportDispatchIntroSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  switchBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+  },
+  switchBackBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1B4D3E',
+  },
+  reportFilterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  reportSearchBox: {
+    flex: 1,
+    minWidth: 260,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  reportSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  filterPillsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  statusFilterPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  statusFilterPillActive: {
+    backgroundColor: '#1B4D3E',
+    borderColor: '#1B4D3E',
+  },
+  statusFilterPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  statusFilterPillTextActive: {
+    color: '#FFFFFF',
+  },
 
-  infoBox: { flexDirection: 'row', backgroundColor: '#EFF6FF', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE' },
-  infoTitle: { fontSize: 14, fontWeight: '700', color: '#1E3A8A', marginBottom: 4 },
-  infoDesc: { fontSize: 12, color: '#2563EB', lineHeight: 18 },
+  noReportsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  noReportsTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  noReportsSubtitle: {
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
+  },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#FFFFFF', borderRadius: 12, width: '90%', maxWidth: 480, maxHeight: '80%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  modalBody: { padding: 20 },
-  modalSubtitle: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 16 },
-  constraintSummary: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 10, padding: 12, marginBottom: 12 },
-  constraintSummaryTitle: { color: '#1E3A8A', fontSize: 12, fontWeight: '800', marginBottom: 4 },
-  constraintSummaryText: { color: '#1D4ED8', fontSize: 11, lineHeight: 17, fontWeight: '600' },
-  deferredBox: { marginTop: 14, padding: 12, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', borderRadius: 10 },
-  deferredTitle: { color: '#9A3412', fontSize: 12, fontWeight: '800', marginBottom: 6 },
-  deferredText: { color: '#C2410C', fontSize: 11, marginTop: 3 },
-  
-  routeItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  routeNumberBg: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#2E8B57', justifyContent: 'center', alignItems: 'center' },
-  routeNumber: { color: '#FFF', fontSize: 13, fontWeight: '700' },
-  routeDetails: { flex: 1 },
-  routeStreet: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  routeBrgy: { fontSize: 13, color: '#6B7280' },
+  reportsTableCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+  },
+  reportsTableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  selectAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  selectAllText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  selectedCountBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  reportItemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 10,
+    gap: 12,
+  },
+  reportItemCardSelected: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+  },
+  reportItemCheckbox: {
+    justifyContent: 'center',
+  },
+  reportThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+  reportThumbPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportItemTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reportItemLocation: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  reportItemMetaRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+    flexWrap: 'wrap',
+  },
+  metaPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  metaPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  statusBadgeSmall: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  statusBadgeSmallText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#0369A1',
+  },
+  viewDetailBtn: {
+    padding: 6,
+  },
 
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, padding: 20, borderTopWidth: 1, borderTopColor: '#E5E7EB' },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 },
-  cancelBtnText: { color: '#4B5563', fontSize: 14, fontWeight: '600' },
-  confirmBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#2E8B57', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6 },
-  confirmBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  confirmModalBox: {
+    width: 480,
+    maxWidth: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+  },
+  confirmModalIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  confirmModalSubtitle: {
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  confirmSummaryBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginVertical: 16,
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  confirmLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  confirmVal: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  confirmSubmitBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 6,
+  },
+  confirmSubmitText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  reportModalBox: {
+    width: 500,
+    maxWidth: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+  },
+  reportModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  reportModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  reportModalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  reportModalImg: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginBottom: 12,
+  },
+  reportModalDesc: {
+    fontSize: 13,
+    color: '#334155',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  aiBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 16,
+  },
+  aiBoxTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  aiBoxText: {
+    fontSize: 12,
+    color: '#475569',
+  },
+  modalCloseDoneBtn: {
+    backgroundColor: '#1B4D3E',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalCloseDoneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 });

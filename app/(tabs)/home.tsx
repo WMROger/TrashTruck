@@ -175,7 +175,7 @@ export default function HomePage() {
         for (const s of schedules) {
           let isMatch = s.days && s.days.includes(dowStr);
           let category = s.wasteCategory || 'BIODEGRADABLE';
-          let time = 'Regular Hours';
+          let time = s.time || s.timeText || s.collectionTime || '06:00 AM';
 
           const specificMatch = (s.specificSchedules || []).find((ss: any) => {
             if (!ss.date) return false;

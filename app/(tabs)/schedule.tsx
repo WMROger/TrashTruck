@@ -25,6 +25,8 @@ export default function ScheduleScreen() {
     specificSchedules?: { date?: string; dateText?: string; wasteCategory?: string; timeText?: string }[];
     streetName?: string;
     barangayName?: string;
+    time?: string;
+    collectionTime?: string;
   };
 
   const [currentMonth, setCurrentMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -270,7 +272,7 @@ export default function ScheduleScreen() {
         // 1. Check if recurring day matches
         let isMatch = s.days && s.days.includes(dowStr);
         let category = s.wasteCategory;
-        let time = 'Regular Hours';
+        let time = s.time || s.timeText || s.collectionTime || '06:00 AM';
 
         // 2. Check if a specific schedule was added for this date
         const specificMatches = (s.specificSchedules || []).filter((ss: any) => {

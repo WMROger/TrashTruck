@@ -9,16 +9,18 @@ import { analyzeWasteImage, WasteAnalysisResult } from "@/services/wasteAIServic
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { addDoc, collection, doc, getDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,7 +30,7 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker } from "@/components/MapView";
-import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
 import { formatWasteAmount } from '@/utils/wasteUnits';
 
 export default function ReportScreen() {
@@ -40,6 +42,9 @@ export default function ReportScreen() {
   const [description, setDescription] = useState("");
   const [showBarangay, setShowBarangay] = useState(false);
   const [showLandmark, setShowLandmark] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [barangaySearchText, setBarangaySearchText] = useState("");
+  const [scheduleBarangaySet, setScheduleBarangaySet] = useState<Set<string>>(new Set());
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
@@ -52,7 +57,29 @@ export default function ReportScreen() {
   const [userProfileBarangay, setUserProfileBarangay] = useState("");
   const MAX_FIRESTORE_FIELD_BYTES = 1000000; // ~1MB safe cap
 
-  React.useEffect(() => {
+  // 1. Fetch collection schedules from backend to dynamically detect barangays
+  useEffect(() => {
+    const fetchSchedulesAndBarangays = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'barangay_schedules'));
+        const scheduleNames = new Set<string>();
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.barangayName && typeof data.barangayName === 'string' && data.barangayName.trim()) {
+            scheduleNames.add(data.barangayName.trim());
+          }
+        });
+        setScheduleBarangaySet(scheduleNames);
+        setAvailableBarangays(resolveScheduleBarangays(Array.from(scheduleNames)));
+      } catch (err) {
+        console.error('Error fetching barangay schedules from backend:', err);
+      }
+    };
+    fetchSchedulesAndBarangays();
+  }, []);
+
+  // 2. Fetch User Profile
+  useEffect(() => {
     const fetchUserProfile = async () => {
       if (auth.currentUser) {
         try {
@@ -62,7 +89,7 @@ export default function ReportScreen() {
             const data = userSnap.data();
             if (data.barangay) {
               setUserProfileBarangay(data.barangay);
-              setBarangay(data.barangay); // Initialize input with profile barangay
+              setBarangay((prev) => (prev ? prev : data.barangay)); // Initialize input with profile barangay
             }
           }
         } catch (err) {
@@ -391,6 +418,52 @@ export default function ReportScreen() {
 
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Smart matcher against collection schedule / Danao barangays
+  const matchBarangayFromGeocode = (
+    geocodeResult: Location.LocationGeocodedAddress[],
+    availableList: string[]
+  ): string | null => {
+    if (!geocodeResult || geocodeResult.length === 0) return null;
+    const place = geocodeResult[0];
+
+    const cleanCandidate = (str?: string | null) =>
+      (str || '')
+        .toLowerCase()
+        .replace(/^brgy\.?\s*/i, '')
+        .replace(/^barangay\s*/i, '')
+        .replace(/\s*city$/i, '')
+        .trim();
+
+    const candidates = [
+      cleanCandidate(place.district),
+      cleanCandidate(place.subregion),
+      cleanCandidate(place.name),
+      cleanCandidate(place.street),
+      cleanCandidate(place.city),
+    ].filter(Boolean);
+
+    // 1. Exact match against available list
+    for (const cand of candidates) {
+      const match = availableList.find(
+        (b) => b.toLowerCase().trim() === cand
+      );
+      if (match) return match;
+    }
+
+    // 2. Substring match
+    for (const cand of candidates) {
+      if (cand.length < 3) continue;
+      const match = availableList.find(
+        (b) =>
+          b.toLowerCase().includes(cand) ||
+          cand.includes(b.toLowerCase())
+      );
+      if (match) return match;
+    }
+
+    return null;
+  };
+
   const handleTakePhoto = async () => {
     try {
       const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
@@ -411,9 +484,10 @@ export default function ReportScreen() {
         return;
       }
 
+      // Quality 0.5 cuts payload size by ~70%, dramatically accelerating AI scan and Cloudinary upload
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
-        quality: 0.7,
+        quality: 0.5,
         base64: true,
       });
 
@@ -429,6 +503,9 @@ export default function ReportScreen() {
           .then((analysis) => {
             setAiResult(analysis);
             console.log('🤖 AI analysis result:', analysis);
+            if (analysis?.wasteType && analysis.wasteType !== 'Not waste' && analysis.wasteType !== 'Unable to determine') {
+              setTitle((prev) => (prev ? prev : `Report: ${analysis.wasteType}`));
+            }
           })
           .catch((err) => {
             console.error('🤖 AI analysis error:', err);
@@ -440,6 +517,7 @@ export default function ReportScreen() {
             });
           })
           .finally(() => setIsAnalyzingAI(false));
+
         setIsFetchingLocation(true);
         
         try {
@@ -456,11 +534,24 @@ export default function ReportScreen() {
             const place = geocode[0];
             const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
             setLocationAddress(addressStr || "Unknown Location");
-            setBarangay(place.district || place.city || place.subregion || 'Unknown Area');
+
+            // Auto-detect barangay from backend collection schedules
+            const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
+            if (matchedBgry) {
+              setBarangay(matchedBgry);
+            } else if (userProfileBarangay) {
+              setBarangay(userProfileBarangay);
+            } else {
+              setBarangay(place.district || place.city || place.subregion || 'Unknown Area');
+            }
             setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           } else {
             setLocationAddress("Unknown Location");
-            setBarangay('Unknown Area');
+            if (userProfileBarangay) {
+              setBarangay(userProfileBarangay);
+            } else {
+              setBarangay('Unknown Area');
+            }
             setStreet(`${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           }
         } catch (locErr) {
@@ -480,8 +571,10 @@ export default function ReportScreen() {
                 const place = geocode[0];
                 const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
                 setLocationAddress(addressStr || "Unknown Location");
-                // If user has a barangay in their profile, use it. Otherwise try district first, then subregion, fallback to city
-                if (userProfileBarangay) {
+                const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
+                if (matchedBgry) {
+                  setBarangay(matchedBgry);
+                } else if (userProfileBarangay) {
                   setBarangay(userProfileBarangay);
                 } else {
                   setBarangay(place.district || place.subregion || place.city || '');
@@ -535,6 +628,12 @@ export default function ReportScreen() {
     if (wasteType.includes('Temporarily')) return '#6B7280';
     return '#4A6741';
   };
+
+  const filteredBarangays = useMemo(() => {
+    const q = barangaySearchText.trim().toLowerCase();
+    if (!q) return availableBarangays;
+    return availableBarangays.filter((b) => b.toLowerCase().includes(q));
+  }, [availableBarangays, barangaySearchText]);
 
   // Check if the current AI result allows submission
   const canSubmitReport = useMemo(() => {
@@ -719,22 +818,36 @@ export default function ReportScreen() {
             )}
           </View>
 
-          {/* Barangay & Street Inputs (Auto-filled but Editable) */}
+          {/* Barangay & Street Inputs (Auto-filled & Pickable from collection schedules) */}
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Barangay</Text>
-              <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
-                <TextInput
-                  value={barangay}
-                  onChangeText={setBarangay}
-                  placeholder="e.g. Poblacion"
-                  placeholderTextColor="#7C8E80"
-                  style={styles.inputText}
-                />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={styles.label}>Barangay</Text>
+                {barangay && scheduleBarangaySet.has(barangay) && (
+                  <View style={styles.inlineScheduleBadge}>
+                    <Text style={styles.inlineScheduleBadgeText}>Scheduled</Text>
+                  </View>
+                )}
               </View>
+              <TouchableOpacity
+                style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                onPress={() => {
+                  setBarangaySearchText('');
+                  setShowBarangay(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[styles.inputText, !barangay && { color: "#7C8E80" }]}
+                  numberOfLines={1}
+                >
+                  {barangay || "Select Barangay"}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#4A6741" />
+              </TouchableOpacity>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Street</Text>
+              <Text style={[styles.label, { marginBottom: 8 }]}>Street</Text>
               <View style={[styles.inputField, { paddingVertical: 12, paddingHorizontal: 12 }]}>
                 <TextInput
                   value={street}
@@ -814,6 +927,97 @@ export default function ReportScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Barangay Selection Modal */}
+      <Modal
+        visible={showBarangay}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBarangay(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Select Barangay</Text>
+                <Text style={styles.modalSubtitle}>From collection schedules &amp; Danao areas</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setShowBarangay(false)}
+              >
+                <Ionicons name="close" size={22} color="#4A6741" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View style={styles.modalSearchContainer}>
+              <Ionicons name="search" size={18} color="#7C8E80" />
+              <TextInput
+                value={barangaySearchText}
+                onChangeText={setBarangaySearchText}
+                placeholder="Search barangay..."
+                placeholderTextColor="#7C8E80"
+                style={styles.modalSearchInput}
+                autoFocus={false}
+              />
+              {barangaySearchText.length > 0 && (
+                <TouchableOpacity onPress={() => setBarangaySearchText("")}>
+                  <Ionicons name="close-circle" size={18} color="#7C8E80" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* List of Barangays */}
+            <FlatList
+              data={filteredBarangays}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: 360 }}
+              renderItem={({ item }) => {
+                const isSelected = barangay.toLowerCase().trim() === item.toLowerCase().trim();
+                const isScheduled = scheduleBarangaySet.has(item);
+                return (
+                  <TouchableOpacity
+                    style={[styles.barangayOption, isSelected && styles.barangayOptionSelected]}
+                    onPress={() => {
+                      setBarangay(item);
+                      setShowBarangay(false);
+                    }}
+                  >
+                    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Ionicons
+                        name={isSelected ? "checkmark-circle" : "location-outline"}
+                        size={18}
+                        color={isSelected ? "#2E7D32" : "#4A6741"}
+                      />
+                      <Text style={[styles.barangayOptionText, isSelected && styles.barangayOptionTextSelected]}>
+                        {item}
+                      </Text>
+                      {isScheduled && (
+                        <View style={styles.scheduledBadge}>
+                          <Text style={styles.scheduledBadgeText}>Scheduled Area</Text>
+                        </View>
+                      )}
+                    </View>
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={18} color="#2E7D32" />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={{ padding: 24, alignItems: "center" }}>
+                  <Text style={{ color: "#7C8E80", fontSize: 14 }}>No barangays matching &quot;{barangaySearchText}&quot;</Text>
+                </View>
+              }
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -1098,5 +1302,108 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+
+  // Barangay Schedule Badges & Modal Styles
+  inlineScheduleBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  inlineScheduleBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#234033',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#7C8E80',
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    padding: 4,
+    borderRadius: 20,
+    backgroundColor: '#F0F6F0',
+  },
+  modalSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F6F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    gap: 8,
+  },
+  modalSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#234033',
+    paddingVertical: 4,
+  },
+  barangayOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  barangayOptionSelected: {
+    backgroundColor: '#E8F5E9',
+  },
+  barangayOptionText: {
+    fontSize: 14,
+    color: '#234033',
+    fontWeight: '500',
+  },
+  barangayOptionTextSelected: {
+    color: '#2E7D32',
+    fontWeight: '700',
+  },
+  scheduledBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  scheduledBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#166534',
   },
 });

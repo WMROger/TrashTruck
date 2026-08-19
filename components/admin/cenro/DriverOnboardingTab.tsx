@@ -1,9 +1,9 @@
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Platform,
   ScrollView,
@@ -12,11 +12,10 @@ import {
   TextInput,
   TouchableOpacity,
   useWindowDimensions,
-  View,
+  View
 } from 'react-native';
 import { db } from '@/config/firebase';
 import { provisionDriverOnSpark } from '@/services/driverProvisioningService';
-import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 
 export default function DriverOnboardingTab({
   onClose,
@@ -54,6 +53,9 @@ export default function DriverOnboardingTab({
   // Vehicle & Area Assignment
   const [assignedBarangay, setAssignedBarangay] = useState('');
   const [isBarangayDropdownOpen, setIsBarangayDropdownOpen] = useState(false);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [scheduleBarangaySet, setScheduleBarangaySet] = useState<Set<string>>(new Set());
+  const [barangaySearchQuery, setBarangaySearchQuery] = useState('');
   const [selectedTruckId, setSelectedTruckId] = useState('');
   const [availableTrucks, setAvailableTrucks] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,7 +83,7 @@ export default function DriverOnboardingTab({
             existingNumbers.add(parseInt(match[1], 10));
           }
         });
-      } catch {}
+      } catch { }
 
       // 2. Also check users collection for drivers
       try {
@@ -96,7 +98,7 @@ export default function DriverOnboardingTab({
             }
           }
         });
-      } catch {}
+      } catch { }
 
       // 3. Find lowest unused number starting from 1
       let nextNum = 1;
@@ -149,9 +151,23 @@ export default function DriverOnboardingTab({
       setResidentsList(list);
     });
 
+    // Fetch collection schedules to dynamically detect configured barangays
+    const unsubSchedules = onSnapshot(collection(db, 'barangay_schedules'), snap => {
+      const scheduleNames = new Set<string>();
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.barangayName && typeof data.barangayName === 'string' && data.barangayName.trim()) {
+          scheduleNames.add(data.barangayName.trim());
+        }
+      });
+      setScheduleBarangaySet(scheduleNames);
+      setAvailableBarangays(resolveScheduleBarangays(Array.from(scheduleNames)));
+    });
+
     return () => {
       unsub();
       unsubUsers();
+      unsubSchedules();
     };
   }, []);
 
@@ -512,7 +528,7 @@ export default function DriverOnboardingTab({
 
         {/* Main Registration Card */}
         <View style={[styles.card, isMobile && { padding: 16 }]}>
-          
+
           {/* SECTION 1: TOP - Official Credentials (Employee ID & License Number) */}
           <View style={styles.sectionHeader}>
             <View style={styles.sectionIconBadge}>
@@ -745,8 +761,8 @@ export default function DriverOnboardingTab({
                         (r.barangay?.toLowerCase() || '').includes(searchEmail.toLowerCase()) ||
                         (r.assignedBarangay?.toLowerCase() || '').includes(searchEmail.toLowerCase())
                     ).length === 0 && (
-                      <Text style={styles.noResidentsText}>No matching accounts found.</Text>
-                    )}
+                        <Text style={styles.noResidentsText}>No matching accounts found.</Text>
+                      )}
                   </ScrollView>
                 </View>
               )}
@@ -786,10 +802,8 @@ export default function DriverOnboardingTab({
                       }
                     }}
                   />
-                  {formErrors.lastName ? (
+                  {formErrors.lastName && (
                     <Text style={styles.errorHelperText}>{formErrors.lastName}</Text>
-                  ) : (
-                    <Text style={styles.helperText}>Driver's surname</Text>
                   )}
                 </View>
 
@@ -815,10 +829,8 @@ export default function DriverOnboardingTab({
                       }
                     }}
                   />
-                  {formErrors.firstName ? (
+                  {formErrors.firstName && (
                     <Text style={styles.errorHelperText}>{formErrors.firstName}</Text>
-                  ) : (
-                    <Text style={styles.helperText}>Given name</Text>
                   )}
                 </View>
 
@@ -835,7 +847,6 @@ export default function DriverOnboardingTab({
                     onChangeText={setMiddleInitial}
                     autoCapitalize="characters"
                   />
-                  <Text style={[styles.helperText, { textAlign: 'center' }]}>Optional</Text>
                 </View>
               </View>
 
@@ -1066,29 +1077,67 @@ export default function DriverOnboardingTab({
                 </TouchableOpacity>
 
                 {isBarangayDropdownOpen && (
-                  <View style={[styles.dropdownMenu, { maxHeight: 220, zIndex: 9999, elevation: 20 }]}>
-                    <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
-                      {DANAO_CITY_BARANGAYS.map(b => (
-                        <TouchableOpacity
-                          key={b}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setAssignedBarangay(b);
-                            setIsBarangayDropdownOpen(false);
-                            if (formErrors.assignedBarangay) {
-                              setFormErrors(prev => {
-                                const next = { ...prev };
-                                delete next.assignedBarangay;
-                                return next;
-                              });
-                            }
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, assignedBarangay === b && { color: '#1B4D3E', fontWeight: '700' }]}>
-                            {b}
-                          </Text>
+                  <View style={[styles.dropdownMenu, { maxHeight: 260, zIndex: 9999, elevation: 20 }]}>
+                    {/* Search Input inside dropdown */}
+                    <View style={styles.dropdownSearchContainer}>
+                      <MaterialIcons name="search" size={16} color="#6B7280" />
+                      <TextInput
+                        value={barangaySearchQuery}
+                        onChangeText={setBarangaySearchQuery}
+                        placeholder="Search barangay..."
+                        placeholderTextColor="#9CA3AF"
+                        style={styles.dropdownSearchInput}
+                        autoFocus={false}
+                      />
+                      {barangaySearchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setBarangaySearchQuery('')}>
+                          <MaterialIcons name="close" size={14} color="#6B7280" />
                         </TouchableOpacity>
-                      ))}
+                      )}
+                    </View>
+                    <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
+                      {availableBarangays
+                        .filter(b => !barangaySearchQuery.trim() || b.toLowerCase().includes(barangaySearchQuery.trim().toLowerCase()))
+                        .map(b => {
+                          const isScheduled = scheduleBarangaySet.has(b);
+                          const isSelected = assignedBarangay === b;
+                          return (
+                            <TouchableOpacity
+                              key={b}
+                              style={[styles.dropdownItem, isSelected && { backgroundColor: '#E8F5E9' }]}
+                              onPress={() => {
+                                setAssignedBarangay(b);
+                                setIsBarangayDropdownOpen(false);
+                                setBarangaySearchQuery('');
+                                if (formErrors.assignedBarangay) {
+                                  setFormErrors(prev => {
+                                    const next = { ...prev };
+                                    delete next.assignedBarangay;
+                                    return next;
+                                  });
+                                }
+                              }}
+                            >
+                              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Text style={[styles.dropdownItemText, isSelected && { color: '#1B4D3E', fontWeight: '700' }]}>
+                                  {b}
+                                </Text>
+                                {isScheduled && (
+                                  <View style={styles.scheduledBadgeMini}>
+                                    <Text style={styles.scheduledBadgeMiniText}>Scheduled</Text>
+                                  </View>
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      {availableBarangays.filter(b => !barangaySearchQuery.trim() || b.toLowerCase().includes(barangaySearchQuery.trim().toLowerCase())).length === 0 && (
+                        <View style={{ padding: 16, alignItems: 'center' }}>
+                          <Text style={{ color: '#9CA3AF', fontSize: 13 }}>
+                            {barangaySearchQuery ? 'No matching barangay found' : 'No collection schedules created yet'}
+                          </Text>
+                        </View>
+                      )}
                     </ScrollView>
                   </View>
                 )}
@@ -1227,8 +1276,8 @@ export default function DriverOnboardingTab({
                 {successModalData.isDriverUpdate
                   ? 'Driver assignment, barangay, and truck details have been updated.'
                   : (successModalData.mode === 'create'
-                      ? 'The driver profile has been created and credentials have been dispatched.'
-                      : 'The resident account has been upgraded to official driver status.')}
+                    ? 'The driver profile has been created and credentials have been dispatched.'
+                    : 'The resident account has been upgraded to official driver status.')}
               </Text>
 
               <View style={styles.modalSummaryBox}>
@@ -1919,5 +1968,35 @@ const styles = StyleSheet.create({
   roleBadgeSmallText: {
     fontSize: 10,
     fontWeight: '700',
+  },
+  dropdownSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginHorizontal: 8,
+    marginVertical: 6,
+    gap: 6,
+  },
+  dropdownSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#111827',
+    paddingVertical: 2,
+  },
+  scheduledBadgeMini: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  scheduledBadgeMiniText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#166534',
   },
 });
