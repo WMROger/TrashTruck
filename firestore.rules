@@ -425,16 +425,16 @@ service cloud.firestore {
 
     match /interagency_messages/{messageId} {
       allow read: if isAdmin() || isDict();
-      allow create: if isDict()
+      allow create: if (isAdmin() || isDict())
         && request.resource.data.senderUid == request.auth.uid
-        && request.resource.data.senderRole == 'dict'
+        && request.resource.data.senderRole in ['dict', 'cenro', 'admin']
         && request.resource.data.status == 'sent'
         && request.resource.data.subject is string
-        && request.resource.data.subject.size() >= 3
+        && request.resource.data.subject.size() >= 1
         && request.resource.data.subject.size() <= 120
         && request.resource.data.message is string
-        && request.resource.data.message.size() >= 5
-        && request.resource.data.message.size() <= 2000
+        && request.resource.data.message.size() >= 1
+        && request.resource.data.message.size() <= 3000
         && request.resource.data.priority in ['normal', 'high', 'urgent'];
       allow update, delete: if false;
     }
@@ -473,6 +473,26 @@ service cloud.firestore {
     match /error_logs/{document=**} {
       allow read: if isAdmin() || isDict();
       allow write: if isAdmin();
+    }
+
+    match /dict_notifications/{notificationId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /dict_otp_verifications/{verificationId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isAdmin() || isDict();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    match /client_activity/{activityId} {
+      allow read: if isAdmin() || isDict();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     match /{document=**} {

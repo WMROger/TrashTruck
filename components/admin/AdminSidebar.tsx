@@ -234,21 +234,21 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         <TouchableOpacity
           style={[
             styles.bottomNavBtn,
-            activeTab === "operational-overrides" && styles.activeBottomNavBtn,
+            activeTab === "logs" && styles.activeBottomNavBtn,
           ]}
-          onPress={() => handleItemPress("operational-overrides")}
+          onPress={() => handleItemPress("logs")}
         >
           <MaterialIcons
             name="history"
             size={20}
             color={
-              activeTab === "operational-overrides" ? "#1B4D3E" : "#4B5563"
+              activeTab === "logs" ? "#1B4D3E" : "#4B5563"
             }
           />
           <Text
             style={[
               styles.bottomNavText,
-              activeTab === "operational-overrides" &&
+              activeTab === "logs" &&
               styles.activeBottomNavText,
             ]}
           >

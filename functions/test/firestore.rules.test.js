@@ -130,6 +130,10 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
       subject: 'Route review', message: 'Review the high-priority collection route.', priority: 'high',
       senderUid: 'dict-1', senderRole: 'dict', status: 'sent', deliveryMode: 'spark-firestore', createdAt: new Date(),
     }));
+    await assertSucceeds(addDoc(collection(admin, 'interagency_messages'), {
+      subject: 'Operational Dispatch', message: 'CENRO unit acknowledging directive.', priority: 'normal',
+      senderUid: 'admin-1', senderRole: 'cenro', status: 'sent', deliveryMode: 'spark-firestore', createdAt: new Date(),
+    }));
     await assertSucceeds(getDocs(collection(admin, 'interagency_messages')));
     await assertFails(addDoc(collection(resident, 'interagency_messages'), {
       subject: 'Fake command', message: 'This must not be accepted.', priority: 'urgent',

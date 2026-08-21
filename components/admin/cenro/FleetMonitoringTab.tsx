@@ -39,18 +39,48 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   const [selectedBarangay, setSelectedBarangay] = useState('all');
   const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
   const [driverBarangays, setDriverBarangays] = useState<Record<string, string>>({});
+  const [truckPlates, setTruckPlates] = useState<Record<string, string>>({});
+  const [driverTruckPlates, setDriverTruckPlates] = useState<Record<string, string>>({});
+
+  const getTruckPlate = (truckId?: string, driverId?: string) => {
+    if (truckId && truckPlates[truckId]) return truckPlates[truckId];
+    if (truckId && driverTruckPlates[truckId]) return driverTruckPlates[truckId];
+    if (driverId && driverTruckPlates[driverId]) return driverTruckPlates[driverId];
+    return truckId || 'Unknown Truck';
+  };
 
   useEffect(() => {
     if (!db) return;
     const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
       const map: Record<string, string> = {};
+      const plates: Record<string, string> = {};
       snap.forEach(d => {
         const data = d.data();
-        if (data.role === 'driver' && (data.assignedBarangay || data.barangay)) {
-          map[d.id] = data.assignedBarangay || data.barangay;
+        if (data.role === 'driver') {
+          if (data.assignedBarangay || data.barangay) {
+            map[d.id] = data.assignedBarangay || data.barangay;
+          }
+          if (data.currentTruckPlate) {
+            plates[d.id] = data.currentTruckPlate;
+            if (data.currentTruckId) {
+              plates[data.currentTruckId] = data.currentTruckPlate;
+            }
+          }
         }
       });
       setDriverBarangays(map);
+      setDriverTruckPlates(plates);
+    });
+
+    const unsubTrucks = onSnapshot(collection(db, 'trucks'), snap => {
+      const map: Record<string, string> = {};
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.plateNumber) {
+          map[d.id] = data.plateNumber;
+        }
+      });
+      setTruckPlates(map);
     });
 
     const unsubSchedules = onSnapshot(collection(db, 'barangay_schedules'), snap => {
@@ -66,6 +96,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
 
     return () => {
       unsubUsers();
+      unsubTrucks();
       unsubSchedules();
     };
   }, []);
@@ -105,10 +136,12 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
       .map(([id, points]) => {
         const driverId = points[0]?.driverId || 'Unknown driver';
         const truckId = points[0]?.truckId || 'Unknown truck';
+        const plateNumber = getTruckPlate(truckId, driverId);
         const barangay = points[0]?.metadata?.barangay || driverBarangays[driverId] || '';
         return {
           id,
           truckId,
+          plateNumber,
           driverId,
           barangay,
           points: points.sort((a, b) => eventTime(a) - eventTime(b)),
@@ -117,7 +150,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
       })
       .filter(item => selectedBarangay === 'all' || item.barangay.toLowerCase() === selectedBarangay.toLowerCase())
       .sort((a, b) => b.lastUpdate - a.lastUpdate);
-  }, [locations, selectedBarangay, driverBarangays]);
+  }, [locations, selectedBarangay, driverBarangays, truckPlates, driverTruckPlates]);
 
   useEffect(() => {
     if (!selectedTrip && trips.length) setSelectedTrip(trips[0].id);
@@ -214,7 +247,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
             <View>
               <Text style={styles.cardTitle}>Trip Replay</Text>
               <Text style={styles.cardSubtitle}>
-                {trip ? `${trip.truckId} ${trip.barangay ? `• Brgy. ${trip.barangay}` : ''} · ${trip.points.length} recorded points` : 'No trip selected'}
+                {trip ? `${trip.plateNumber} ${trip.barangay ? `• Brgy. ${trip.barangay}` : ''} · ${trip.points.length} recorded points` : 'No trip selected'}
               </Text>
             </View>
             <View style={styles.replayActions}>
@@ -239,7 +272,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
                 <TouchableOpacity key={item.id} style={[styles.tripRow, selectedTrip === item.id && styles.tripRowActive]} onPress={() => setSelectedTrip(item.id)}>
                   <View style={styles.truckIcon}><MaterialIcons name="local-shipping" size={18} color={selectedTrip === item.id ? '#FFFFFF' : '#2563EB'} /></View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.truckId}</Text>
+                    <Text style={[styles.tripTruck, selectedTrip === item.id && { color: '#FFFFFF' }]}>{item.plateNumber}</Text>
                     <Text style={[styles.tripMeta, selectedTrip === item.id && { color: '#DBEAFE' }]}>
                       {item.barangay ? `Brgy. ${item.barangay} • ` : ''}{item.points.length} points · {new Date(item.lastUpdate).toLocaleString()}
                     </Text>
@@ -262,7 +295,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
               <View style={[styles.alertIcon, { backgroundColor: alert.severity === 'high' ? '#FEE2E2' : '#FEF3C7' }]}><MaterialIcons name={alert.alertType === 'route-deviation' ? 'wrong-location' : 'speed'} size={18} color={alert.severity === 'high' ? '#DC2626' : '#D97706'} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.alertTitle}>{String(alert.alertType || 'fleet alert').replace('-', ' ').toUpperCase()}</Text>
-                <Text style={styles.alertMeta}>{alert.truckId} {driverBarangays[alert.driverId] ? `• Brgy. ${driverBarangays[alert.driverId]}` : ''} · {new Date(eventTime(alert)).toLocaleString()}</Text>
+                <Text style={styles.alertMeta}>{getTruckPlate(alert.truckId, alert.driverId)} {driverBarangays[alert.driverId] ? `• Brgy. ${driverBarangays[alert.driverId]}` : ''} · {new Date(eventTime(alert)).toLocaleString()}</Text>
               </View>
               <Text style={styles.alertDetail}>{alert.metadata?.speedKph ? `${alert.metadata.speedKph} km/h` : alert.metadata?.deviationMeters ? `${alert.metadata.deviationMeters} m` : ''}</Text>
             </View>

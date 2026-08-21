@@ -16,7 +16,19 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { auth, db } from '../../../config/firebase';
 import { provisionCenroOnSpark } from '../../../services/cenroProvisioningService';
-import { isDictEmail, ensureDictProfileInFirestore } from '../../../constants/dictConfig';
+import {
+  requestAccountDeletionOtp,
+  confirmAccountDeletion,
+  isUserInactive6Months,
+  getInactivityDurationString,
+  deactivateResidentAccount,
+  reactivateResidentAccount,
+  batchDeactivateStaleResidents,
+} from '../../../services/dictAccountService';
+import {
+  isDictEmail,
+  ensureDictProfileInFirestore,
+} from '../../../constants/dictConfig';
 
 interface UserData {
   id: string;
@@ -29,9 +41,22 @@ interface UserData {
   designation?: string;
   contactInfo?: string;
   createdAt: any;
+  lastLogin?: any;
+  disabled?: boolean;
+  status?: string;
+  deactivatedAt?: any;
+  deactivatedBy?: string;
+  deactivationReason?: string;
 }
 
-type RoleFilter = 'all' | 'admin' | 'coordinator' | 'driver' | 'user';
+type RoleFilter = 'all' | 'admin' | 'coordinator' | 'driver' | 'user' | 'inactive';
+
+/**
+ * Configurable maximum limit of CENRO Administrator accounts.
+ * Currently set to 10 for testing and capstone defense demonstration;
+ * can be changed to 1 in the future when only a single municipal admin is needed.
+ */
+export const MAX_CENRO_ADMINS = 10;
 
 export default function IdentityAccessTab() {
   const { width } = useWindowDimensions();
@@ -51,10 +76,38 @@ export default function IdentityAccessTab() {
   const [cenroPassword, setCenroPassword] = useState('');
   const [showPassword, setShowPassword] = useState(true);
   const [copiedPassword, setCopiedPassword] = useState(false);
+  const [cenroEmployeeId, setCenroEmployeeId] = useState('');
   const [cenroContact, setCenroContact] = useState('');
   const [cenroDepartment, setCenroDepartment] = useState('CENRO Danao City - Solid Waste Management Office');
   const [cenroDesignation, setCenroDesignation] = useState('CENRO Administrator');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Account Deletion Modal state
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<'confirm' | 'otp'>('confirm');
+  const [targetUserToDelete, setTargetUserToDelete] = useState<UserData | null>(null);
+  const [deleteRequestId, setDeleteRequestId] = useState('');
+  const [deleteOtpInput, setDeleteOtpInput] = useState('');
+  const [generatedPinPreview, setGeneratedPinPreview] = useState('');
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [otpCountdown, setOtpCountdown] = useState(60); // 1 minute
+
+  // Quick View User Details Modal state
+  const [viewUserModal, setViewUserModal] = useState<UserData | null>(null);
+
+  // Countdown timer effect for OTP expiry
+  useEffect(() => {
+    let timer: any;
+    if (deleteModalVisible && deleteStep === 'otp' && otpCountdown > 0) {
+      timer = setInterval(() => {
+        setOtpCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [deleteModalVisible, deleteStep, otpCountdown]);
 
   // Result & Feedback Modal state
   const [resultModal, setResultModal] = useState<{
@@ -98,6 +151,23 @@ export default function IdentityAccessTab() {
     return `${prefix}${randomNum}!${suffix}`;
   };
 
+  const getNextCenroEmployeeId = (userList: UserData[]) => {
+    const existingNumbers = new Set<number>();
+    userList.forEach((u) => {
+      if (u.employeeId && /CENRO/i.test(u.employeeId)) {
+        const match = String(u.employeeId).match(/(\d+)$/);
+        if (match) {
+          existingNumbers.add(parseInt(match[1], 10));
+        }
+      }
+    });
+    let nextNum = 1;
+    while (existingNumbers.has(nextNum)) {
+      nextNum++;
+    }
+    return `CENRO-ADMIN-${String(nextNum).padStart(2, '0')}`;
+  };
+
   const fetchUsers = () => {
     if (!db) {
       setLoading(false);
@@ -123,6 +193,12 @@ export default function IdentityAccessTab() {
             designation: data.designation || '',
             contactInfo: data.contactInfo || data.phone || '',
             createdAt: data.createdAt,
+            lastLogin: data.lastLogin,
+            disabled: Boolean(data.disabled),
+            status: data.status || 'active',
+            deactivatedAt: data.deactivatedAt,
+            deactivatedBy: data.deactivatedBy,
+            deactivationReason: data.deactivationReason,
           });
         });
 
@@ -172,6 +248,9 @@ export default function IdentityAccessTab() {
 
     if (!matchesSearch) return false;
     if (activeFilter === 'all') return true;
+    if (activeFilter === 'inactive') {
+      return user.role === 'user' && (user.disabled === true || user.status === 'inactive' || isUserInactive6Months(user));
+    }
     return user.role === activeFilter;
   });
 
@@ -181,13 +260,159 @@ export default function IdentityAccessTab() {
   const coordinatorCount = users.filter((u) => u.role === 'coordinator').length;
   const driverCount = users.filter((u) => u.role === 'driver').length;
   const residentCount = users.filter((u) => u.role === 'user').length;
+  const inactiveCount = users.filter((u) => u.role === 'user' && (u.disabled === true || u.status === 'inactive' || isUserInactive6Months(u))).length;
+  const staleUnprocessedCount = users.filter((u) => u.role === 'user' && !u.disabled && u.status !== 'inactive' && isUserInactive6Months(u)).length;
+
+  const [isScanningInactivity, setIsScanningInactivity] = useState(false);
+
+  const handleBatchDeactivateInactive = async () => {
+    if (staleUnprocessedCount === 0) {
+      Alert.alert('Directory Up to Date', 'All active resident accounts have recorded activity within the 6-month threshold.');
+      return;
+    }
+
+    Alert.alert(
+      '6-Month Inactivity Policy',
+      `Found ${staleUnprocessedCount} active citizen account(s) with no sign-in activity for over 6 months (180 days).\n\nDo you want to soft-deactivate these accounts? (Their waste history and tokens will be preserved).`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Deactivate ${staleUnprocessedCount} Account(s)`,
+          style: 'destructive',
+          onPress: async () => {
+            setIsScanningInactivity(true);
+            try {
+              const res = await batchDeactivateStaleResidents(users);
+              showFeedback(
+                'Inactive Accounts Deactivated',
+                `Successfully soft-deactivated ${res.count} resident account(s) under the 6-month inactivity policy.\n\nAffected users will be required to contact municipal administration to request reactivation.`,
+                'success'
+              );
+            } catch (err: any) {
+              Alert.alert('Deactivation Failed', err.message || 'Failed to batch-deactivate stale accounts.');
+            } finally {
+              setIsScanningInactivity(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleToggleDeactivate = async (targetUser: UserData) => {
+    const isCurrentlyInactive = targetUser.disabled === true || targetUser.status === 'inactive';
+    try {
+      if (isCurrentlyInactive) {
+        await reactivateResidentAccount(targetUser.id, targetUser.email);
+        setViewUserModal(null);
+        showFeedback('Account Reactivated', `Resident account ${targetUser.email} is now active and can sign in normally.`, 'success');
+      } else {
+        await deactivateResidentAccount(targetUser.id, targetUser.email, '6-Month Inactivity Policy');
+        setViewUserModal(null);
+        showFeedback('Account Deactivated', `Resident account ${targetUser.email} has been deactivated. Active sessions terminated.`, 'info');
+      }
+    } catch (err: any) {
+      Alert.alert('Action Failed', err.message || 'Could not update resident account status.');
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    setDeleteModalVisible(false);
+    setDeleteStep('confirm');
+    setTargetUserToDelete(null);
+    setDeleteOtpInput('');
+    setDeleteRequestId('');
+    setGeneratedPinPreview('');
+    setOtpCountdown(60);
+  };
+
+  const handleOpenDeleteModal = (user: UserData) => {
+    if (user.role === 'dict' || isDictEmail(user.email)) {
+      Alert.alert('Protected Account', 'DICT Super Administrator accounts cannot be deleted.');
+      return;
+    }
+
+    setTargetUserToDelete(user);
+    setDeleteStep('confirm');
+    setDeleteOtpInput('');
+    setDeleteRequestId('');
+    setGeneratedPinPreview('');
+    setOtpCountdown(60);
+    setDeleteModalVisible(true);
+  };
+
+  const handleRequestDeleteOtp = async () => {
+    if (!targetUserToDelete) return;
+    setIsRequestingOtp(true);
+    try {
+      const res = await requestAccountDeletionOtp({
+        id: targetUserToDelete.id,
+        email: targetUserToDelete.email,
+        displayName: targetUserToDelete.displayName,
+        role: targetUserToDelete.role,
+        employeeId: targetUserToDelete.employeeId,
+      });
+      setDeleteRequestId(res.requestId);
+      setGeneratedPinPreview(res.otpPin);
+      setDeleteStep('otp');
+      setOtpCountdown(60);
+    } catch (err: any) {
+      Alert.alert('Request Failed', err.message || 'Failed to generate deletion PIN.');
+    } finally {
+      setIsRequestingOtp(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!targetUserToDelete || !deleteRequestId) return;
+    if (!deleteOtpInput.trim() || deleteOtpInput.trim().length !== 6) {
+      Alert.alert('Invalid PIN', 'Please enter the 6-digit authorization PIN displayed above.');
+      return;
+    }
+    setIsConfirmingDelete(true);
+    try {
+      await confirmAccountDeletion({
+        requestId: deleteRequestId,
+        pin: deleteOtpInput.trim(),
+        targetUid: targetUserToDelete.id,
+        targetEmail: targetUserToDelete.email,
+      });
+      setDeleteModalVisible(false);
+      setTargetUserToDelete(null);
+      setDeleteRequestId('');
+      setDeleteOtpInput('');
+      setGeneratedPinPreview('');
+      setDeleteStep('confirm');
+      showFeedback(
+        'Account Deleted Successfully',
+        `User ${targetUserToDelete.displayName || targetUserToDelete.email} (${targetUserToDelete.email}) was permanently removed from Firebase Auth and Cloud Firestore.`,
+        'success'
+      );
+    } catch (err: any) {
+      Alert.alert('Deletion Failed', err.message || 'Verification PIN error or authorization failed.');
+    } finally {
+      setIsConfirmingDelete(false);
+    }
+  };
 
   const handleOpenCreateCenro = () => {
+    const currentCenroCount = users.filter((u) => u.role === 'admin').length;
+    if (currentCenroCount >= MAX_CENRO_ADMINS) {
+      showFeedback(
+        'CENRO Account Limit Reached',
+        `The maximum limit of ${MAX_CENRO_ADMINS} CENRO Administrator accounts has been reached (${currentCenroCount}/${MAX_CENRO_ADMINS}). Please remove or revoke an existing administrator before adding another.`,
+        'error'
+      );
+      return;
+    }
+
     const autoPassword = generateSecureCenroPassword();
+    const nextEmpId = getNextCenroEmployeeId(users);
     setCenroEmail('');
     setCenroPassword(autoPassword);
     setShowPassword(true);
     setCopiedPassword(false);
+    setCenroEmployeeId(nextEmpId);
     setCenroContact('');
     setCenroDepartment('CENRO Danao City - Solid Waste Management Office');
     setCenroDesignation('CENRO Administrator');
@@ -239,6 +464,16 @@ export default function IdentityAccessTab() {
   };
 
   const handleCreateCenroSubmit = async () => {
+    const currentCenroCount = users.filter((u) => u.role === 'admin').length;
+    if (currentCenroCount >= MAX_CENRO_ADMINS) {
+      showFeedback(
+        'CENRO Account Limit Reached',
+        `The maximum limit of ${MAX_CENRO_ADMINS} CENRO Administrator accounts has been reached (${currentCenroCount}/${MAX_CENRO_ADMINS}).`,
+        'error'
+      );
+      return;
+    }
+
     if (!cenroEmail.trim() || !cenroPassword.trim()) {
       showFeedback('Validation Error', 'Official Email Address and Password are required.', 'error');
       return;
@@ -266,6 +501,7 @@ export default function IdentityAccessTab() {
 
     const targetEmail = cenroEmail.trim();
     const targetPassword = cenroPassword;
+    const targetEmployeeId = cenroEmployeeId.trim().toUpperCase() || getNextCenroEmployeeId(users);
 
     try {
       setIsSubmittingCenro(true);
@@ -283,7 +519,7 @@ export default function IdentityAccessTab() {
         password: targetPassword,
         fullName: 'CENRO Administrator',
         contactInfo: formattedContact,
-        employeeId: 'CENRO-ADMIN',
+        employeeId: targetEmployeeId,
         department: cenroDepartment,
         designation: cenroDesignation,
       });
@@ -291,7 +527,7 @@ export default function IdentityAccessTab() {
       setIsCenroModalOpen(false);
       showFeedback(
         'Account Provisioned Successfully',
-        `CENRO Administrator account created for ${targetEmail}. An official welcome email with login credentials and portal access instructions has been dispatched.`,
+        `CENRO Administrator account created for ${targetEmail} (Employee ID: ${targetEmployeeId}). An official welcome email with credentials has been dispatched.\n\n⏱ Note: The temporary access code will expire in 5 minutes for security.`,
         'success',
         { email: targetEmail, password: targetPassword }
       );
@@ -371,6 +607,26 @@ export default function IdentityAccessTab() {
 
         <View style={[styles.headerActions, isMobile && { flexDirection: 'column', width: '100%' }]}>
           <TouchableOpacity
+            style={[styles.refreshActionBtn, staleUnprocessedCount > 0 && { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}
+            onPress={handleBatchDeactivateInactive}
+            disabled={isScanningInactivity}
+            activeOpacity={0.85}
+          >
+            {isScanningInactivity ? (
+              <ActivityIndicator size="small" color="#B45309" />
+            ) : (
+              <MaterialIcons
+                name="schedule"
+                size={18}
+                color={staleUnprocessedCount > 0 ? '#B45309' : '#374151'}
+              />
+            )}
+            <Text style={[styles.refreshActionBtnText, staleUnprocessedCount > 0 && { color: '#92400E', fontWeight: '700' }]}>
+              {staleUnprocessedCount > 0 ? `Deactivate Stale (${staleUnprocessedCount})` : 'Scan Inactivity (6 Mos)'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.refreshActionBtn}
             onPress={() => fetchUsers()}
             disabled={isRefreshing}
@@ -415,7 +671,7 @@ export default function IdentityAccessTab() {
           </View>
           <View>
             <Text style={[styles.statValue, { color: '#047857' }]}>{cenroCount}</Text>
-            <Text style={styles.statLabel}>CENRO ADMINS</Text>
+            <Text style={styles.statLabel}>CENRO ADMINS ({cenroCount}/{MAX_CENRO_ADMINS})</Text>
           </View>
         </View>
 
@@ -494,6 +750,7 @@ export default function IdentityAccessTab() {
               { id: 'coordinator', label: `Coordinators (${coordinatorCount})` },
               { id: 'driver', label: `Drivers (${driverCount})` },
               { id: 'user', label: `Citizens (${residentCount})` },
+              { id: 'inactive', label: `Inactive (6+ Mos) (${inactiveCount})` },
             ].map((pill) => {
               const isActive = activeFilter === pill.id;
               return (
@@ -521,10 +778,11 @@ export default function IdentityAccessTab() {
           >
             <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
               <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, { flex: 2.5 }]}>USER / OFFICER</Text>
+                <Text style={[styles.tableHeaderText, { flex: 2.4 }]}>USER / OFFICER</Text>
                 <Text style={[styles.tableHeaderText, { flex: 2.2 }]}>EMAIL</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1.8 }]}>SYSTEM ROLE</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1.2, textAlign: 'right' }]}>STATUS</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1.6 }]}>SYSTEM ROLE</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1.2 }]}>STATUS</Text>
+                <Text style={[styles.tableHeaderText, { flex: 0.8, textAlign: 'center' }]}>VIEW</Text>
               </View>
 
               {loading ? (
@@ -545,7 +803,7 @@ export default function IdentityAccessTab() {
                   return (
                     <View key={user.id} style={styles.tableRow}>
                       {/* Name & Avatar */}
-                      <View style={[styles.tableCell, { flex: 2.5, flexDirection: 'row', alignItems: 'center' }]}>
+                      <View style={[styles.tableCell, { flex: 2.4, flexDirection: 'row', alignItems: 'center' }]}>
                         <View style={[styles.avatar, { backgroundColor: `${badge.text}15` }]}>
                           <Text style={[styles.avatarText, { color: badge.text }]}>
                             {user.displayName.charAt(0).toUpperCase()}
@@ -569,7 +827,7 @@ export default function IdentityAccessTab() {
                       </View>
 
                       {/* Role Badge */}
-                      <View style={[styles.tableCell, { flex: 1.8 }]}>
+                      <View style={[styles.tableCell, { flex: 1.6 }]}>
                         <View
                           style={[
                             styles.roleBadge,
@@ -582,8 +840,18 @@ export default function IdentityAccessTab() {
                       </View>
 
                       {/* Status */}
-                      <View style={[styles.tableCell, { flex: 1.2, alignItems: 'flex-end' }]}>
-                        {user.verified ? (
+                      <View style={[styles.tableCell, { flex: 1.2 }]}>
+                        {user.disabled === true || user.status === 'inactive' ? (
+                          <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
+                            <MaterialIcons name="lock" size={13} color="#DC2626" />
+                            <Text style={[styles.statusTextPending, { color: '#B91C1C', fontWeight: '700' }]}>Deactivated</Text>
+                          </View>
+                        ) : isUserInactive6Months(user) ? (
+                          <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                            <MaterialIcons name="schedule" size={13} color="#D97706" />
+                            <Text style={[styles.statusTextPending, { color: '#B45309', fontWeight: '700' }]}>Inactive (6+ Mos)</Text>
+                          </View>
+                        ) : user.verified ? (
                           <View style={styles.statusBadge}>
                             <MaterialIcons name="check-circle" size={14} color="#10B981" />
                             <Text style={styles.statusTextVerified}>Verified</Text>
@@ -594,6 +862,17 @@ export default function IdentityAccessTab() {
                             <Text style={styles.statusTextPending}>Pending</Text>
                           </View>
                         )}
+                      </View>
+
+                      {/* Actions Column - Eye Icon Only */}
+                      <View style={[styles.tableCell, { flex: 0.8, alignItems: 'center', justifyContent: 'center' }]}>
+                        <TouchableOpacity
+                          style={styles.viewUserBtn}
+                          onPress={() => setViewUserModal(user)}
+                          activeOpacity={0.75}
+                        >
+                          <MaterialIcons name="visibility" size={16} color="#4F46E5" />
+                        </TouchableOpacity>
                       </View>
                     </View>
                   );
@@ -617,7 +896,7 @@ export default function IdentityAccessTab() {
                 <View>
                   <Text style={styles.modalTitle}>Create CENRO Admin Account</Text>
                   <Text style={styles.modalSubtitle}>
-                    Provision municipal administration account for Danao City waste operations.
+                    Provision municipal administration account for Danao City waste operations ({cenroCount}/{MAX_CENRO_ADMINS} active).
                   </Text>
                 </View>
               </View>
@@ -709,11 +988,25 @@ export default function IdentityAccessTab() {
                     </View>
                   </View>
                   <Text style={styles.pwdHintText}>
-                    {copiedPassword ? '✓ Copied to clipboard!' : '✉ This password & portal access will be emailed to the administrator.'}
+                    {copiedPassword ? '✓ Copied to clipboard!' : '✉ Emailed to admin · ⏱ Temporary code expires in 5 minutes'}
                   </Text>
                 </View>
 
-                <View style={styles.formGroupFull}>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.formLabel}>
+                    EMPLOYEE ID<Text style={styles.requiredAsterisk}> *</Text>
+                  </Text>
+                  <TextInput
+                    style={[styles.formInput, { textTransform: 'uppercase', fontWeight: '600' }]}
+                    placeholder="e.g. CENRO-ADMIN-01"
+                    placeholderTextColor="#9CA3AF"
+                    value={cenroEmployeeId}
+                    onChangeText={setCenroEmployeeId}
+                    autoCapitalize="characters"
+                  />
+                </View>
+
+                <View style={styles.formGroupHalf}>
                   <Text style={styles.formLabel}>
                     CONTACT NUMBER<Text style={styles.requiredAsterisk}> *</Text>
                   </Text>
@@ -795,6 +1088,362 @@ export default function IdentityAccessTab() {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 2-STEP ACCOUNT DELETION MODAL */}
+      <Modal visible={deleteModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.deleteModalContent, isMobile && { width: '95%', padding: 18 }]}>
+            {/* Modal Header */}
+            <View style={styles.deleteModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={styles.deleteModalHeaderIcon}>
+                  <MaterialIcons name="delete-forever" size={22} color="#DC2626" />
+                </View>
+                <View>
+                  <Text style={styles.deleteModalTitle}>Delete User Account</Text>
+                  <Text style={styles.deleteModalSubtitle}>
+                    DICT Oversight Security Authorization • 2-Step Verification
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={handleCloseDeleteModal}
+                disabled={isRequestingOtp || isConfirmingDelete}
+                style={styles.modalCloseBtn}
+              >
+                <MaterialIcons name="close" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {/* STEP 1: CONFIRM TARGET USER DETAILS */}
+            {deleteStep === 'confirm' && (
+              <View style={styles.deleteModalBody}>
+                <View style={styles.deleteWarningBox}>
+                  <MaterialIcons name="warning-amber" size={22} color="#DC2626" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deleteWarningTitle}>PERMANENT DELETION WARNING</Text>
+                    <Text style={styles.deleteWarningText}>
+                      This action is irreversible. The user will be completely purged from Firebase Authentication and Cloud Firestore.
+                    </Text>
+                  </View>
+                </View>
+
+                {Boolean(targetUserToDelete) && (
+                  <View style={styles.deleteTargetSummary}>
+                    <Text style={styles.deleteTargetSummaryTitle}>TARGET ACCOUNT DETAILS</Text>
+                    <View style={styles.deleteSummaryRow}>
+                      <Text style={styles.deleteSummaryLabel}>Full Name:</Text>
+                      <Text style={styles.deleteSummaryValue}>{targetUserToDelete?.displayName}</Text>
+                    </View>
+                    <View style={styles.deleteSummaryRow}>
+                      <Text style={styles.deleteSummaryLabel}>Email Address:</Text>
+                      <Text style={styles.deleteSummaryValue}>{targetUserToDelete?.email}</Text>
+                    </View>
+                    <View style={styles.deleteSummaryRow}>
+                      <Text style={styles.deleteSummaryLabel}>Assigned Role:</Text>
+                      <Text style={[styles.deleteSummaryValue, { fontWeight: '800', color: '#1E40AF' }]}>
+                        {targetUserToDelete?.role ? targetUserToDelete.role.toUpperCase() : ''}
+                      </Text>
+                    </View>
+                    {Boolean(targetUserToDelete?.employeeId) && (
+                      <View style={styles.deleteSummaryRow}>
+                        <Text style={styles.deleteSummaryLabel}>Employee ID:</Text>
+                        <Text style={styles.deleteSummaryValue}>{targetUserToDelete?.employeeId}</Text>
+                      </View>
+                    )}
+                    <View style={styles.deleteSummaryRow}>
+                      <Text style={styles.deleteSummaryLabel}>User UID:</Text>
+                      <Text style={[styles.deleteSummaryValue, { fontSize: 11, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}>
+                        {targetUserToDelete?.id}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.deleteInstructionBox}>
+                  <MaterialIcons name="info-outline" size={18} color="#4338CA" />
+                  <Text style={styles.deleteInstructionText}>
+                    Clicking below will generate a secure 1-Time Authorization PIN on screen. You must manually type the 6 digits to authorize permanent deletion.
+                  </Text>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={handleCloseDeleteModal}
+                    disabled={isRequestingOtp}
+                  >
+                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.deleteRequestOtpBtn}
+                    onPress={handleRequestDeleteOtp}
+                    disabled={isRequestingOtp}
+                    activeOpacity={0.8}
+                  >
+                    {isRequestingOtp ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="vpn-key" size={16} color="#FFFFFF" />
+                        <Text style={styles.deleteRequestOtpBtnText}>Request Authorization PIN</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* STEP 2: ENTER OTP PIN */}
+            {deleteStep === 'otp' && (
+              <View style={styles.deleteModalBody}>
+                {Boolean(generatedPinPreview) && (
+                  <View style={styles.inlinePinBox}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name="vpn-key" size={18} color="#059669" />
+                      <Text style={styles.inlinePinLabel}>AUTHORIZATION CODE:</Text>
+                    </View>
+                    <Text style={styles.inlinePinCode}>{generatedPinPreview}</Text>
+                  </View>
+                )}
+
+                <View style={styles.otpInputSection}>
+                  <Text style={styles.otpInputLabel}>MANUALLY ENTER 6-DIGIT AUTHORIZATION PIN</Text>
+                  <TextInput
+                    style={styles.otpLargeInput}
+                    placeholder="------"
+                    placeholderTextColor="#CBD5E1"
+                    value={deleteOtpInput}
+                    onChangeText={(val) => setDeleteOtpInput(val.replace(/[^0-9]/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus={true}
+                  />
+
+                  <View style={styles.otpTimerRow}>
+                    <View style={styles.otpTimerBadge}>
+                      <MaterialIcons name="timer" size={14} color="#DC2626" />
+                      <Text style={styles.otpTimerText}>
+                        Session active: {Math.floor(otpCountdown / 60).toString().padStart(2, '0')}:{(otpCountdown % 60).toString().padStart(2, '0')}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={handleCloseDeleteModal}
+                    disabled={isConfirmingDelete}
+                  >
+                    <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.deleteConfirmFinalBtn,
+                      deleteOtpInput.length !== 6 && { opacity: 0.5 },
+                    ]}
+                    onPress={handleConfirmDelete}
+                    disabled={isConfirmingDelete || deleteOtpInput.length !== 6}
+                    activeOpacity={0.8}
+                  >
+                    {isConfirmingDelete ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="delete-forever" size={18} color="#FFFFFF" />
+                        <Text style={styles.deleteConfirmFinalBtnText}>
+                          Confirm Permanent Deletion
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* QUICK VIEW USER DETAILS MODAL */}
+      <Modal visible={Boolean(viewUserModal)} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.viewModalContent, isMobile && { width: '92%', padding: 18 }]}>
+            <View style={styles.viewModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={styles.viewModalIconBox}>
+                  <MaterialIcons name="badge" size={22} color="#4F46E5" />
+                </View>
+                <View>
+                  <Text style={styles.viewModalTitle}>Account Profile</Text>
+                  <Text style={styles.viewModalSubtitle}>User Identity & Directory Registration</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setViewUserModal(null)} style={styles.modalCloseBtn}>
+                <MaterialIcons name="close" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {Boolean(viewUserModal) && viewUserModal && (
+              <View style={styles.viewModalBody}>
+                <View style={styles.viewProfileHeader}>
+                  <View style={[styles.avatarLarge, { backgroundColor: `${getRoleBadge(viewUserModal.role).text}20` }]}>
+                    <Text style={[styles.avatarLargeText, { color: getRoleBadge(viewUserModal.role).text }]}>
+                      {viewUserModal.displayName ? viewUserModal.displayName.charAt(0).toUpperCase() : 'U'}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.viewProfileName}>{viewUserModal.displayName}</Text>
+                    <Text style={styles.viewProfileEmail}>{viewUserModal.email}</Text>
+                  </View>
+                  <View style={[styles.roleBadge, { backgroundColor: getRoleBadge(viewUserModal.role).bg, borderColor: getRoleBadge(viewUserModal.role).border }]}>
+                    <MaterialIcons name={getRoleBadge(viewUserModal.role).icon as any} size={12} color={getRoleBadge(viewUserModal.role).text} />
+                    <Text style={[styles.roleText, { color: getRoleBadge(viewUserModal.role).text }]}>
+                      {getRoleBadge(viewUserModal.role).label}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.viewDetailsGrid}>
+                  <View style={styles.viewDetailRow}>
+                    <Text style={styles.viewDetailLabel}>ACCOUNT STATUS:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      {viewUserModal.disabled === true || viewUserModal.status === 'inactive' ? (
+                        <>
+                          <MaterialIcons name="lock" size={14} color="#DC2626" />
+                          <Text style={[styles.viewDetailValue, { color: '#B91C1C', fontWeight: '700' }]}>
+                            Deactivated (6-Month Inactivity)
+                          </Text>
+                        </>
+                      ) : isUserInactive6Months(viewUserModal) ? (
+                        <>
+                          <MaterialIcons name="schedule" size={14} color="#D97706" />
+                          <Text style={[styles.viewDetailValue, { color: '#B45309', fontWeight: '700' }]}>
+                            Inactive (6+ Months Stale)
+                          </Text>
+                        </>
+                      ) : viewUserModal.verified ? (
+                        <>
+                          <MaterialIcons name="check-circle" size={14} color="#10B981" />
+                          <Text style={[styles.viewDetailValue, { color: '#065F46', fontWeight: '700' }]}>
+                            Verified & Active
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <MaterialIcons name="pending" size={14} color="#F59E0B" />
+                          <Text style={[styles.viewDetailValue, { color: '#92400E', fontWeight: '700' }]}>
+                            Pending Verification
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={styles.viewDetailRow}>
+                    <Text style={styles.viewDetailLabel}>LAST SIGN-IN / ACTIVITY:</Text>
+                    <Text style={[styles.viewDetailValue, { fontWeight: '600', color: isUserInactive6Months(viewUserModal) ? '#B45309' : '#334155' }]}>
+                      {getInactivityDurationString(viewUserModal)}
+                    </Text>
+                  </View>
+
+                  {Boolean(viewUserModal.employeeId) && (
+                    <View style={styles.viewDetailRow}>
+                      <Text style={styles.viewDetailLabel}>EMPLOYEE ID:</Text>
+                      <Text style={styles.viewDetailValue}>{viewUserModal.employeeId}</Text>
+                    </View>
+                  )}
+
+                  {Boolean(viewUserModal.department) && (
+                    <View style={styles.viewDetailRow}>
+                      <Text style={styles.viewDetailLabel}>DEPARTMENT:</Text>
+                      <Text style={styles.viewDetailValue}>{viewUserModal.department}</Text>
+                    </View>
+                  )}
+
+                  {Boolean(viewUserModal.designation) && (
+                    <View style={styles.viewDetailRow}>
+                      <Text style={styles.viewDetailLabel}>DESIGNATION:</Text>
+                      <Text style={styles.viewDetailValue}>{viewUserModal.designation}</Text>
+                    </View>
+                  )}
+
+                  {Boolean(viewUserModal.contactInfo) && (
+                    <View style={styles.viewDetailRow}>
+                      <Text style={styles.viewDetailLabel}>CONTACT INFO:</Text>
+                      <Text style={styles.viewDetailValue}>{viewUserModal.contactInfo}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.viewDetailRow}>
+                    <Text style={styles.viewDetailLabel}>FIREBASE UID:</Text>
+                    <Text style={[styles.viewDetailValue, { fontSize: 11, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]}>
+                      {viewUserModal.id}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  {viewUserModal.role === 'user' && (
+                    <TouchableOpacity
+                      style={[
+                        styles.deleteFromViewBtn,
+                        viewUserModal.disabled || viewUserModal.status === 'inactive'
+                          ? { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
+                          : { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' },
+                      ]}
+                      onPress={() => handleToggleDeactivate(viewUserModal)}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialIcons
+                        name={viewUserModal.disabled || viewUserModal.status === 'inactive' ? 'lock-open' : 'lock'}
+                        size={16}
+                        color={viewUserModal.disabled || viewUserModal.status === 'inactive' ? '#047857' : '#B45309'}
+                      />
+                      <Text
+                        style={[
+                          styles.deleteFromViewBtnText,
+                          {
+                            color: viewUserModal.disabled || viewUserModal.status === 'inactive' ? '#047857' : '#B45309',
+                          },
+                        ]}
+                      >
+                        {viewUserModal.disabled || viewUserModal.status === 'inactive' ? 'Reactivate Account' : 'Deactivate (6-Mo Policy)'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {!(viewUserModal.role === 'dict' || isDictEmail(viewUserModal.email)) && (
+                    <TouchableOpacity
+                      style={styles.deleteFromViewBtn}
+                      onPress={() => {
+                        const target = viewUserModal;
+                        setViewUserModal(null);
+                        handleOpenDeleteModal(target);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialIcons name="delete-outline" size={16} color="#DC2626" />
+                      <Text style={styles.deleteFromViewBtnText}>Delete Permanently</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.viewDoneBtn}
+                    onPress={() => setViewUserModal(null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.viewDoneBtnText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1550,4 +2199,516 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+
+  // TABLE ACTIONS STYLES
+  viewUserBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteUserIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  protectedIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // QUICK VIEW MODAL STYLES
+  viewModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: 480,
+    maxWidth: '95%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 25,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  viewModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2FF',
+    backgroundColor: '#F8FAFC',
+  },
+  viewModalIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  viewModalSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  viewModalBody: {
+    padding: 20,
+    gap: 16,
+  },
+  viewProfileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  avatarLarge: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLargeText: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  viewProfileName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  viewProfileEmail: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  viewDetailsGrid: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+  },
+  viewDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  viewDetailLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  viewDetailValue: {
+    fontSize: 12,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  deleteFromViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  deleteFromViewBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  viewDoneBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#4F46E5',
+  },
+  viewDoneBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // DELETION MODAL STYLES
+  deleteModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: 500,
+    maxWidth: '95%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 25,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  deleteModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FEE2E2',
+    backgroundColor: '#FFF5F5',
+  },
+  deleteModalHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  deleteModalSubtitle: {
+    fontSize: 11,
+    color: '#B91C1C',
+    marginTop: 2,
+  },
+  deleteModalBody: {
+    padding: 20,
+    gap: 16,
+  },
+  deleteWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 10,
+    padding: 12,
+  },
+  deleteWarningTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#991B1B',
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  deleteWarningText: {
+    fontSize: 11,
+    color: '#7F1D1D',
+    lineHeight: 16,
+  },
+  deleteTargetSummary: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 14,
+    gap: 8,
+  },
+  deleteTargetSummaryTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  deleteSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  deleteSummaryLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  deleteSummaryValue: {
+    fontSize: 12,
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  deleteInstructionBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 8,
+    padding: 10,
+  },
+  deleteInstructionText: {
+    fontSize: 11,
+    color: '#3730A3',
+    lineHeight: 16,
+    flex: 1,
+  },
+  deleteRequestOtpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#DC2626',
+  },
+  deleteRequestOtpBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // OTP STEP STYLES
+  otpNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    borderRadius: 10,
+    padding: 12,
+  },
+  otpNoticeTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#065F46',
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  otpNoticeText: {
+    fontSize: 11,
+    color: '#047857',
+    lineHeight: 16,
+  },
+  autoFillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#D1FAE5',
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  autoFillBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  inlinePinBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  inlinePinLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#065F46',
+    letterSpacing: 0.6,
+  },
+  inlinePinCode: {
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 4,
+    color: '#047857',
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+  },
+  // IN-MODAL NOTIFICATION BELL & CARD STYLES
+  modalNotifBellBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  modalNotifBellBtnActive: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#F87171',
+  },
+  modalNotifBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#DC2626',
+    borderRadius: 10,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  modalNotifBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  inModalNotifCard: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 10,
+    padding: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    gap: 8,
+  },
+  inModalNotifHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  inModalNotifTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#991B1B',
+    letterSpacing: 0.5,
+  },
+  inModalNotifDesc: {
+    fontSize: 11,
+    color: '#7F1D1D',
+    lineHeight: 15,
+  },
+  inModalPinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F87171',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  inModalPinCode: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 6,
+    color: '#991B1B',
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+  },
+  inModalPasteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  inModalPasteBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  otpInputSection: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 10,
+  },
+  otpInputLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#334155',
+    letterSpacing: 0.8,
+  },
+  otpLargeInput: {
+    width: '100%',
+    height: 56,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 2,
+    borderColor: '#DC2626',
+    borderRadius: 12,
+    textAlign: 'center',
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 8,
+    color: '#991B1B',
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+  },
+  otpTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  otpTimerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  otpTimerText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  resendPinBtn: {
+    padding: 4,
+  },
+  resendPinText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  deleteConfirmFinalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#DC2626',
+  },
+  deleteConfirmFinalBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });
+

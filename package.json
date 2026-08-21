@@ -11,6 +11,7 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web --output-dir output/web --clear",
     "clean:auth": "node ./scripts/delete-all-auth-users.js",
+    "delete:user": "node ./scripts/delete-user.js",
     "lint": "expo lint"
   },
   "dependencies": {

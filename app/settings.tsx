@@ -1253,6 +1253,7 @@ export default function SettingsPage() {
                     setValue={setEditBarangay}
                     placeholder="Select a barangay"
                     placeholderStyle={{ color: colors.icon }}
+                    maxHeight={200}
                     style={{
                       backgroundColor: colors.background,
                       borderWidth: 1,
@@ -1264,6 +1265,7 @@ export default function SettingsPage() {
                       backgroundColor: colors.background,
                       borderColor: colors.border,
                       borderRadius: 8,
+                      maxHeight: 200,
                     }}
                     textStyle={{
                       fontSize: 15,

@@ -23,6 +23,7 @@ import {
   FleetMonitoringTab,
   DictCommandsTab,
   CenroProfileSettingsModal,
+  OperationalLogsTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
@@ -510,7 +511,9 @@ export default function AdminDashboard() {
       case 'collection-scheduler':
         return <CollectionSchedulerTab />;
       case 'operational-overrides':
-        return <OperationalOverridesTab />;
+        return <OperationalOverridesTab onNavigateToLogs={() => handleTabPress('logs')} />;
+      case 'logs':
+        return <OperationalLogsTab />;
       case 'announcements':
         return <AnnouncementsTab />;
       case 'dict-commands':

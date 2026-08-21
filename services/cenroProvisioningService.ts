@@ -28,10 +28,14 @@ const normalize = (raw: CenroProvisionInput) => {
     fullName: String(raw.fullName || 'CENRO Administrator').trim(),
     contactInfo: String(raw.contactInfo || '').trim().slice(0, 100),
     existingUserId: String(raw.existingUserId || '').trim(),
-    employeeId: String(raw.employeeId || 'CENRO-ADMIN').trim().toUpperCase(),
+    employeeId: String(raw.employeeId || 'CENRO-ADMIN-01').trim().toUpperCase(),
     department: String(raw.department || 'CENRO Danao City - Solid Waste Management Office').trim().slice(0, 120),
     designation: String(raw.designation || 'CENRO Administrator').trim().slice(0, 120),
   };
+
+  if (!ID_PATTERN.test(input.employeeId)) {
+    throw new Error('Employee ID must be 3-40 characters consisting of letters, numbers, and hyphens.');
+  }
 
   if (input.mode === 'create') {
     if (!EMAIL_PATTERN.test(input.email)) {
@@ -68,6 +72,7 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
 
     const timestamp = serverTimestamp();
     const existingData = profile.exists() ? profile.data() : null;
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute temporary code expiration
 
     transaction.set(
       profileRef,
@@ -83,6 +88,9 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
         status: 'active',
         disabled: false,
         verified: true,
+        mustChangePassword: input.mode === 'create',
+        temporaryPasswordCreatedAt: timestamp,
+        temporaryPasswordExpiresAt: expiresAt,
         updatedAt: timestamp,
         ...(profile.exists() ? {} : { createdAt: timestamp, provider: 'password' }),
       },

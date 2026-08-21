@@ -161,8 +161,6 @@ function RootLayoutNav() {
             currentSegment === 'auth' ||
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login' ||
-            currentSegment === '(tabs)' ||
-            currentSegment === 'home' ||
             !currentSegment
           ) {
             router.replace('/(driver)' as any);

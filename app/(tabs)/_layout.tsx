@@ -41,10 +41,6 @@ export default function TabLayout() {
             router.replace('/admin/dashboard' as any);
             return;
           }
-          if (userData.role === 'driver') {
-            router.replace('/(driver)' as any);
-            return;
-          }
           if (userData.role === 'dict') {
             router.replace('/dict/dashboard' as any);
             return;

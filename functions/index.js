@@ -836,3 +836,227 @@ exports.addDocument = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Failed to add document');
   }
 });
+
+/**
+ * Callable Cloud Function for DICT Administrators to permanently delete accounts.
+ * Deletes the user from Firebase Auth and batched Firestore records with OTP validation.
+ */
+exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) => {
+  const actor = await requireDictOversight(context);
+  const { requestId, pin, targetUid } = data || {};
+
+  if (!requestId || !pin || !targetUid) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required parameters (requestId, pin, targetUid).');
+  }
+
+  // 1. Verify OTP
+  const otpRef = db.collection('dict_otp_verifications').doc(requestId);
+  const otpSnap = await otpRef.get();
+
+  if (!otpSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Verification request not found.');
+  }
+
+  const otpData = otpSnap.data();
+
+  if (otpData.status !== 'pending') {
+    throw new functions.https.HttpsError('failed-precondition', 'This verification PIN has already been used.');
+  }
+
+  if (Date.now() > Number(otpData.expiresAtTimestamp || 0)) {
+    throw new functions.https.HttpsError('deadline-exceeded', 'The One-Time PIN has expired.');
+  }
+
+  if (String(otpData.otpPin).trim() !== String(pin).trim()) {
+    throw new functions.https.HttpsError('permission-denied', 'Invalid One-Time PIN.');
+  }
+
+  if (otpData.targetUid !== targetUid) {
+    throw new functions.https.HttpsError('invalid-argument', 'Target user mismatch.');
+  }
+
+  // 2. Prevent deletion of DICT superadmins
+  const targetUserSnap = await db.collection('users').doc(targetUid).get();
+  if (targetUserSnap.exists && targetUserSnap.data()?.role === 'dict') {
+    throw new functions.https.HttpsError('permission-denied', 'DICT Super Administrator accounts cannot be deleted.');
+  }
+
+  const targetEmail = otpData.targetEmail || targetUserSnap.data()?.email || 'unknown';
+
+  // 3. Delete from Firebase Authentication
+  try {
+    await admin.auth().deleteUser(targetUid);
+    console.log(`✅ [DICT] User ${targetUid} (${targetEmail}) deleted from Firebase Auth.`);
+  } catch (authError) {
+    if (authError.code !== 'auth/user-not-found') {
+      console.warn('Firebase Auth deletion note:', authError.message);
+    }
+  }
+
+  // 4. Batch delete from Firestore
+  const batch = db.batch();
+  batch.delete(db.collection('users').doc(targetUid));
+
+  const empSnap = await db.collection('employee_ids').where('userId', '==', targetUid).get();
+  empSnap.forEach(doc => batch.delete(doc.ref));
+
+  // Mark OTP used
+  batch.update(otpRef, {
+    status: 'completed',
+    completedAt: admin.firestore.FieldValue.serverTimestamp(),
+    completedByUid: actor.uid,
+  });
+
+  // Mark linked notifications used
+  const notifSnap = await db.collection('dict_notifications').where('requestId', '==', requestId).get();
+  notifSnap.forEach(doc => batch.update(doc.ref, { status: 'used' }));
+
+  // Add audit log
+  const auditDocRef = db.collection('audit_logs').doc();
+  batch.set(auditDocRef, {
+    event: 'user.deleted',
+    actorUid: actor.uid,
+    targetType: 'user',
+    targetId: targetUid,
+    metadata: {
+      targetEmail,
+      deletedByRole: actor.role,
+      reason: 'DICT Oversight Security Deletion',
+    },
+    source: 'dict-portal-callable',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  await batch.commit();
+
+  return {
+    success: true,
+    message: `User ${targetEmail} has been permanently deleted from Firebase Auth and Firestore.`,
+  };
+});
+
+/**
+ * Background Trigger: Automatically cleans up Firestore whenever a user is deleted in Firebase Auth Console.
+ */
+exports.cleanupUserDataOnAuthDelete = functions.auth.user().onDelete(async (user) => {
+  const uid = user.uid;
+  console.log(`🧹 Background Trigger: Cleaning up Firestore data for deleted Auth user: ${uid}`);
+
+  const batch = db.batch();
+  batch.delete(db.collection('users').doc(uid));
+
+  const empSnap = await db.collection('employee_ids').where('userId', '==', uid).get();
+  empSnap.forEach(doc => batch.delete(doc.ref));
+
+  await batch.commit().catch(err => console.error('Firestore cleanup error on Auth delete:', err));
+  console.log(`✅ Firestore data successfully cleaned up for ${uid}`);
+});
+
+/**
+ * Scheduled Cron Job: Runs daily to automatically soft-deactivate residents inactive for >= 6 months (180 days).
+ */
+exports.deactivateInactiveResidents = functions.pubsub.schedule('every 24 hours').onRun(async (context) => {
+  const now = admin.firestore.Timestamp.now();
+  const sixMonthsAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 180 * 24 * 60 * 60 * 1000);
+
+  const residentsSnap = await db
+    .collection('users')
+    .where('role', '==', 'user')
+    .get();
+
+  const batch = db.batch();
+  let deactivatedCount = 0;
+
+  for (const docSnap of residentsSnap.docs) {
+    const data = docSnap.data();
+    if (data.disabled === true || data.status === 'inactive') continue;
+
+    const lastActive = data.lastLogin || data.createdAt;
+    if (!lastActive) continue;
+
+    const lastActiveMillis = lastActive.toMillis ? lastActive.toMillis() : (lastActive.toDate ? lastActive.toDate().getTime() : new Date(lastActive).getTime());
+    if (lastActiveMillis <= sixMonthsAgo.toMillis()) {
+      batch.update(docSnap.ref, {
+        disabled: true,
+        status: 'inactive',
+        deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deactivationReason: 'Scheduled 6-Month Inactivity Job',
+      });
+      deactivatedCount++;
+    }
+  }
+
+  if (deactivatedCount > 0) {
+    await batch.commit();
+    console.log(`✅ Deactivated ${deactivatedCount} inactive resident accounts.`);
+  }
+
+  return { deactivatedCount };
+});
+
+/**
+ * Callable: Enables DICT administrators to trigger an immediate batch deactivation of stale residents.
+ */
+exports.dictDeactivateInactiveResidents = functions.https.onCall(async (data, context) => {
+  const actor = await requireDictOversight(context);
+  const now = admin.firestore.Timestamp.now();
+  const sixMonthsAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 180 * 24 * 60 * 60 * 1000);
+
+  const residentsSnap = await db
+    .collection('users')
+    .where('role', '==', 'user')
+    .get();
+
+  const batch = db.batch();
+  let count = 0;
+  const deactivatedEmails = [];
+
+  for (const docSnap of residentsSnap.docs) {
+    const d = docSnap.data();
+    if (d.disabled === true || d.status === 'inactive') continue;
+
+    const lastActive = d.lastLogin || d.createdAt;
+    if (!lastActive) continue;
+
+    const lastActiveMillis = lastActive.toMillis ? lastActive.toMillis() : (lastActive.toDate ? lastActive.toDate().getTime() : new Date(lastActive).getTime());
+    if (lastActiveMillis <= sixMonthsAgo.toMillis()) {
+      batch.update(docSnap.ref, {
+        disabled: true,
+        status: 'inactive',
+        deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deactivatedBy: actor.email,
+        deactivationReason: 'DICT 6-Month Inactivity Policy',
+      });
+      count++;
+      deactivatedEmails.push(d.email);
+    }
+  }
+
+  if (count > 0) {
+    await batch.commit();
+  }
+
+  return { success: true, count, deactivatedEmails };
+});
+
+/**
+ * Callable: Allows DICT administrators to reactivate a citizen account.
+ */
+exports.dictReactivateUser = functions.https.onCall(async (data, context) => {
+  const actor = await requireDictOversight(context);
+  const { targetUid } = data || {};
+  if (!targetUid) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing targetUid.');
+  }
+
+  const userRef = db.collection('users').doc(targetUid);
+  await userRef.update({
+    disabled: false,
+    status: 'active',
+    reactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    reactivatedBy: actor.email,
+  });
+
+  return { success: true, message: 'Account has been successfully reactivated.' };
+});
+

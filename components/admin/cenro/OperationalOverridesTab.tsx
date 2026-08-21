@@ -5,45 +5,60 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Switch,
   Alert,
   ActivityIndicator,
-  Platform,
-  useWindowDimensions,
+  Modal,
   TextInput,
+  useWindowDimensions,
+  Platform,
 } from 'react-native';
-import { MaterialIcons, Feather } from '@expo/vector-icons';
-import { db } from '../../../config/firebase';
-import { doc, collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { MaterialIcons } from '@expo/vector-icons';
+import { db, auth } from '../../../config/firebase';
+import {
+  doc,
+  collection,
+  onSnapshot,
+  setDoc,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
 import LiveOperationsMap, { LiveMapReport, LiveMapTruck } from './LiveOperationsMap';
 
-interface LogItem {
-  id: string;
-  timestamp: any;
-  source: string;
-  action: string;
-  category: 'system' | 'driver' | 'dispatch' | 'report' | 'other';
-  confidence?: string;
-  details?: string;
+interface OperationalOverridesTabProps {
+  onNavigateToLogs?: () => void;
 }
 
-export default function OperationalOverridesTab() {
+export default function OperationalOverridesTab({ onNavigateToLogs }: OperationalOverridesTabProps) {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<{
+    forcePauseCollection: boolean;
+    activateBackupFleet: boolean;
+    severeWeatherProtocol?: boolean;
+    surgePriorityMode?: boolean;
+    updatedAt?: any;
+    updatedBy?: string;
+  }>({
     forcePauseCollection: false,
     activateBackupFleet: true,
+    severeWeatherProtocol: false,
+    surgePriorityMode: false,
   });
 
-  const [overrideLogs, setOverrideLogs] = useState<LogItem[]>([]);
-  const [clientLogs, setClientLogs] = useState<LogItem[]>([]);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [liveTrucks, setLiveTrucks] = useState<LiveMapTruck[]>([]);
   const [openReports, setOpenReports] = useState<(LiveMapReport & { barangay: string })[]>([]);
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Search and filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'system' | 'driver' | 'dispatch' | 'report'>('all');
+  // Emergency Broadcast Modal
+  const [broadcastModalVisible, setBroadcastModalVisible] = useState(false);
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastPriority, setBroadcastPriority] = useState<'high' | 'urgent'>('urgent');
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
 
   useEffect(() => {
     if (!db) {
@@ -51,85 +66,68 @@ export default function OperationalOverridesTab() {
       return;
     }
 
-    // 1. Listen to system settings (Read-only for CENRO)
+    // 1. Listen to system settings overrides in real-time
     const docRef = doc(db, 'system_settings', 'overrides');
     const unsubDoc = onSnapshot(
       docRef,
       (snap) => {
         if (snap.exists()) {
-          setSettings(snap.data() as any);
+          const data = snap.data();
+          setSettings({
+            forcePauseCollection: Boolean(data.forcePauseCollection),
+            activateBackupFleet: data.activateBackupFleet !== undefined ? Boolean(data.activateBackupFleet) : true,
+            severeWeatherProtocol: Boolean(data.severeWeatherProtocol),
+            surgePriorityMode: Boolean(data.surgePriorityMode),
+            updatedAt: data.updatedAt,
+            updatedBy: data.updatedBy,
+          });
         }
         setLoading(false);
       },
       (error) => {
-        console.error('Error fetching system_settings:', error);
+        console.error('Error listening to system_settings:', error);
         setLoading(false);
       }
     );
 
-    // 2. Listen to system override activity logs
+    // 2. Listen to recent override activity logs
     const logsRef = collection(db, 'system_settings', 'overrides', 'activity_logs');
-    const qLogs = query(logsRef, orderBy('timestamp', 'desc'), limit(40));
     const unsubLogs = onSnapshot(
-      qLogs,
+      logsRef,
       (snap) => {
-        const fetched = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: `override-${d.id}`,
-            timestamp: data.timestamp,
-            source: data.source || 'Admin',
-            action: data.action || 'System Override Event',
-            category: 'system' as const,
-            confidence: data.confidence || 'Manual',
-            details: data.details || '',
-          };
+        const fetched = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        fetched.sort((a: any, b: any) => {
+          const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp instanceof Date ? a.timestamp.getTime() : 0);
+          const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp instanceof Date ? b.timestamp.getTime() : 0);
+          return timeB - timeA;
         });
-        setOverrideLogs(fetched);
+        setRecentLogs(fetched.slice(0, 5));
       },
-      (error) => {
-        console.error('Error fetching activity_logs:', error);
-      }
+      (error) => console.error('Error fetching override activity logs:', error)
     );
 
-    // 3. Listen to client/driver operational activity logs
-    const clientRef = collection(db, 'client_activity');
-    const qClient = query(clientRef, orderBy('createdAt', 'desc'), limit(50));
-    const unsubClient = onSnapshot(
-      qClient,
-      (snap) => {
-        const fetched = snap.docs.map((d) => {
-          const data = d.data();
-          const evt = String(data.event || '');
-          let cat: LogItem['category'] = 'other';
-          if (evt.startsWith('pickup')) cat = 'driver';
-          else if (evt.startsWith('route')) cat = 'dispatch';
-          else if (evt.startsWith('report')) cat = 'report';
-          else cat = 'driver';
+    // 3. Listen to Trucks & Live Locations
+    let truckPlatesMap: Record<string, string> = {};
+    const unsubTrucks = onSnapshot(collection(db, 'trucks'), (snap) => {
+      const map: Record<string, string> = {};
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.plateNumber) {
+          map[d.id] = data.plateNumber;
+        }
+      });
+      truckPlatesMap = map;
+      setLiveTrucks((prev) =>
+        prev.map((t) => ({
+          ...t,
+          label: truckPlatesMap[t.id] || truckPlatesMap[t.label] || t.label,
+        }))
+      );
+    });
 
-          const actionLabel = evt
-            .replace(/\./g, ' ')
-            .replace(/_/g, ' ')
-            .replace(/\b\w/g, (c) => c.toUpperCase());
-
-          return {
-            id: `client-${d.id}`,
-            timestamp: data.createdAt,
-            source: data.actorEmail || data.actorUid || 'Driver Terminal',
-            action: actionLabel || 'Field Operation Event',
-            category: cat,
-            confidence: 'Verified',
-            details: data.targetId ? `Target: ${data.targetId}` : '',
-          };
-        });
-        setClientLogs(fetched);
-      },
-      (error) => {
-        console.error('Error fetching client_activity:', error);
-      }
-    );
-
-    // 4. Listen to Live Truck Locations
     const unsubLocations = onSnapshot(
       collection(db, 'truck_locations'),
       (snapshot) => {
@@ -137,11 +135,13 @@ export default function OperationalOverridesTab() {
           snapshot.docs
             .map((item) => {
               const data = item.data();
+              const rawTruckId = String(data.truckId || item.id);
+              const plate = truckPlatesMap[rawTruckId] || truckPlatesMap[item.id] || rawTruckId;
               return {
                 id: item.id,
                 latitude: Number(data.lat ?? data.latitude),
                 longitude: Number(data.lng ?? data.longitude),
-                label: String(data.truckId || item.id),
+                label: plate,
                 active: String(data.status || '').toLowerCase() === 'active',
               };
             })
@@ -151,7 +151,7 @@ export default function OperationalOverridesTab() {
       (error) => console.error('Error fetching live truck locations:', error)
     );
 
-    // 5. Listen to Reports
+    // 4. Listen to Reports
     const unsubReports = onSnapshot(
       collection(db, 'reports'),
       (snapshot) => {
@@ -183,38 +183,11 @@ export default function OperationalOverridesTab() {
     return () => {
       unsubDoc();
       unsubLogs();
-      unsubClient();
+      unsubTrucks();
       unsubLocations();
       unsubReports();
     };
   }, []);
-
-  // Combine and sort logs
-  const allLogs = useMemo(() => {
-    const combined = [...overrideLogs, ...clientLogs];
-    return combined.sort((a, b) => {
-      const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
-      const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
-      return timeB - timeA;
-    });
-  }, [overrideLogs, clientLogs]);
-
-  // Filter logs based on search query and category filter
-  const filteredLogs = useMemo(() => {
-    return allLogs.filter((log) => {
-      if (categoryFilter !== 'all' && log.category !== categoryFilter) {
-        return false;
-      }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesSource = log.source.toLowerCase().includes(q);
-        const matchesAction = log.action.toLowerCase().includes(q);
-        const matchesDetails = (log.details || '').toLowerCase().includes(q);
-        return matchesSource || matchesAction || matchesDetails;
-      }
-      return true;
-    });
-  }, [allLogs, categoryFilter, searchQuery]);
 
   const riskHotspots = useMemo(() => {
     const counts = openReports.reduce<Record<string, number>>((result, report) => {
@@ -226,57 +199,141 @@ export default function OperationalOverridesTab() {
       .slice(0, 3);
   }, [openReports]);
 
-  // Read-only Export of Activity Logs to CSV
-  const exportActivityLog = () => {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') {
-      Alert.alert('Web export only', 'Open the CENRO dashboard on web to download this report.');
-      return;
-    }
-    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [
-      ['Timestamp', 'Category', 'Source', 'Action', 'Details', 'Confidence'].join(','),
-      ...filteredLogs.map((row) =>
-        [
-          row.timestamp?.toDate ? row.timestamp.toDate().toISOString() : '',
-          row.category.toUpperCase(),
-          row.source,
-          row.action,
-          row.details || '',
-          row.confidence || 'Logged',
-        ]
-          .map(escape)
-          .join(',')
-      ),
-    ].join('\n');
+  // Handle Interactive System Override Switch Toggle
+  const handleToggleSetting = async (key: 'forcePauseCollection' | 'activateBackupFleet' | 'severeWeatherProtocol' | 'surgePriorityMode', newValue: boolean) => {
+    if (!db) return;
+    setIsUpdating(key);
+    const actorEmail = auth.currentUser?.email || 'CENRO Administrator';
+    const actorUid = auth.currentUser?.uid || 'cenro-admin';
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `trashtrack-cenro-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const labels: Record<string, string> = {
+      forcePauseCollection: newValue ? 'Collection Force-Paused' : 'Collection Resumed Normal Operation',
+      activateBackupFleet: newValue ? 'Backup Fleet Activated' : 'Backup Fleet Standby',
+      severeWeatherProtocol: newValue ? 'Severe Weather Protocol Enabled' : 'Severe Weather Protocol Deactivated',
+      surgePriorityMode: newValue ? 'Surge Dumpsite Priority Enabled' : 'Standard Routing Restored',
+    };
+
+    const newSettings = {
+      ...settings,
+      [key]: newValue,
+      updatedAt: serverTimestamp(),
+      updatedBy: actorEmail,
+      updatedByUid: actorUid,
+    };
+
+    try {
+      // 1. Update Firestore settings
+      const docRef = doc(db, 'system_settings', 'overrides');
+      await setDoc(docRef, newSettings, { merge: true });
+
+      // 2. Log in overrides activity_logs
+      await addDoc(collection(db, 'system_settings', 'overrides', 'activity_logs'), {
+        source: actorEmail,
+        action: labels[key] || `Override ${key} set to ${newValue}`,
+        timestamp: serverTimestamp(),
+        confidence: 'Manual Override',
+        details: `CENRO command updated protocol state for ${key}.`,
+      });
+
+      // 3. Log in client_activity
+      try {
+        await addDoc(collection(db, 'client_activity'), {
+          event: `override.${key}`,
+          targetType: 'system_settings',
+          targetId: 'overrides',
+          actorUid,
+          actorEmail,
+          metadata: {
+            setting: key,
+            value: newValue,
+            label: labels[key],
+          },
+          createdAt: serverTimestamp(),
+        });
+      } catch {}
+    } catch (err: any) {
+      console.error('Error updating system override:', err);
+      Alert.alert('Update Failed', err?.message || 'Could not update system override.');
+    } finally {
+      setIsUpdating(null);
+    }
   };
 
-  const getCategoryBadge = (category: LogItem['category']) => {
-    switch (category) {
-      case 'system':
-        return { label: 'SYSTEM', bg: '#FEF3C7', color: '#B45309', icon: 'settings' };
-      case 'driver':
-        return { label: 'DRIVER', bg: '#DCFCE7', color: '#15803D', icon: 'local-shipping' };
-      case 'dispatch':
-        return { label: 'DISPATCH', bg: '#E0E7FF', color: '#4338CA', icon: 'alt-route' };
-      case 'report':
-        return { label: 'REPORT', bg: '#FEE2E2', color: '#B91C1C', icon: 'report-problem' };
-      default:
-        return { label: 'LOG', bg: '#F1F5F9', color: '#475569', icon: 'info' };
+  // Handle Emergency Broadcast
+  const handleSendBroadcast = async () => {
+    const message = broadcastMessage.trim();
+    const subject = broadcastSubject.trim() || (broadcastPriority === 'urgent' ? '🚨 EMERGENCY DISPATCH DIRECTIVE' : '⚡ PRIORITY WEATHER ADVISORY');
+
+    if (!message) {
+      Alert.alert('Validation Error', 'Please enter an emergency broadcast message.');
+      return;
+    }
+
+    if (!db) return;
+    setIsBroadcasting(true);
+
+    try {
+      const actorEmail = auth.currentUser?.email || 'cenro@trashtrack.gov.ph';
+      const actorUid = auth.currentUser?.uid || 'cenro-admin';
+      const actorName = auth.currentUser?.displayName || 'CENRO Administrator';
+
+      // 1. Broadcast to interagency_messages
+      await addDoc(collection(db, 'interagency_messages'), {
+        subject,
+        message,
+        priority: broadcastPriority,
+        channelId: 'urgent-advisories',
+        senderUid: actorUid,
+        senderName: actorName,
+        senderEmail: actorEmail,
+        senderRole: 'cenro',
+        status: 'sent',
+        deliveryMode: 'spark-firestore',
+        createdAt: serverTimestamp(),
+      });
+
+      // 2. Broadcast to municipal announcements
+      try {
+        await addDoc(collection(db, 'announcements'), {
+          title: subject,
+          content: message,
+          priority: broadcastPriority,
+          author: actorName,
+          authorEmail: actorEmail,
+          authorRole: 'CENRO Administrator',
+          createdAt: serverTimestamp(),
+        });
+      } catch {}
+
+      // 3. Log in activity
+      try {
+        await addDoc(collection(db, 'client_activity'), {
+          event: 'emergency.broadcast',
+          targetType: 'fleet_broadcast',
+          actorUid,
+          actorEmail,
+          metadata: { subject, priority: broadcastPriority },
+          createdAt: serverTimestamp(),
+        });
+      } catch {}
+
+      setBroadcastModalVisible(false);
+      setBroadcastSubject('');
+      setBroadcastMessage('');
+      Alert.alert('Broadcast Dispatched', 'Emergency directive successfully transmitted to all active trucks and environmental coordinators.');
+    } catch (err: any) {
+      console.error('Error sending broadcast:', err);
+      Alert.alert('Broadcast Failed', err?.message || 'Could not dispatch emergency broadcast.');
+    } finally {
+      setIsBroadcasting(false);
     }
   };
 
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#2E8B57" />
+        <ActivityIndicator size="large" color="#1B4D3E" />
+        <Text style={{ marginTop: 12, color: '#6B7280', fontSize: 13, fontWeight: '600' }}>Synchronizing system controls...</Text>
       </View>
     );
   }
@@ -284,295 +341,263 @@ export default function OperationalOverridesTab() {
   return (
     <ScrollView style={[styles.container, isMobile && { padding: 16 }]} showsVerticalScrollIndicator={false}>
       {/* Header Row */}
-      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12, marginBottom: 16 }]}>
+      <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12, marginBottom: 20 }]}>
         <View style={[styles.headerTextContainer, isMobile && { paddingRight: 0 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Text style={styles.headerTitle}>System & Operational Logs</Text>
-            <View style={styles.readOnlyBadge}>
-              <MaterialIcons name="lock" size={12} color="#047857" />
-              <Text style={styles.readOnlyBadgeText}>READ-ONLY AUDIT</Text>
-            </View>
-          </View>
+          <Text style={styles.headerTitle}>Operational Overrides</Text>
           <Text style={styles.headerDesc}>
-            Real-time, immutable audit trail of collection telemetry, field operations, and system override states.
+            Configure emergency responses, pause fleet dispatches, and trigger operational contingency protocols based on real-time environmental hazards and logistical disruptions.
           </Text>
         </View>
 
-        <TouchableOpacity style={styles.exportTopBtn} onPress={exportActivityLog} activeOpacity={0.8}>
-          <MaterialIcons name="download" size={18} color="#FFFFFF" />
-          <Text style={styles.exportTopBtnText}>Export CSV Logs</Text>
+        <TouchableOpacity
+          style={styles.dangerBtn}
+          onPress={() => setBroadcastModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <MaterialIcons name="emergency" size={18} color="#FFFFFF" />
+          <Text style={styles.dangerBtnText}>Emergency Broadcast</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Read-Only Notice Banner */}
-      <View style={styles.readOnlyNoticeBanner}>
-        <MaterialIcons name="security" size={18} color="#1E40AF" />
-        <Text style={styles.readOnlyNoticeText}>
-          <Text style={{ fontWeight: '800' }}>CENRO Audit Mode:</Text> Logs and system protocol states are read-only. Policy overrides and system directives are administered by DICT.
-        </Text>
-      </View>
-
-      <View style={[styles.mainRow, isMobile && { flexDirection: 'column', gap: 20 }]}>
-        {/* Left Column: Overrides Status & Filterable Activity Logs */}
+      <View style={[styles.mainRow, isMobile && { flexDirection: 'column', gap: 24 }]}>
+        {/* Left Column - Active Scenarios & Interactive Controls */}
         <View style={[styles.leftColumn, isMobile && { flex: undefined, width: '100%' }]}>
-          {/* Active Override Protocol States (Read-Only) */}
+
+          {/* Section: Active Scenarios */}
           <View style={styles.sectionHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <MaterialIcons name="policy" size={16} color="#475569" />
-              <Text style={styles.sectionTitle}>Protocol Override Status</Text>
-            </View>
-            <View style={styles.dictManagedBadge}>
-              <MaterialIcons name="verified-user" size={12} color="#4338CA" />
-              <Text style={styles.dictManagedBadgeText}>MANAGED BY DICT</Text>
-            </View>
-          </View>
-
-          <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: 8 }}>
-            {/* Scenario 1: Collection Pause */}
-            <View
-              style={[
-                styles.scenarioCard,
-                { flex: 1 },
-                settings.forcePauseCollection && styles.scenarioCardActive,
-              ]}
-            >
-              <View
-                style={
-                  settings.forcePauseCollection
-                    ? styles.scenarioIconWrapperActive
-                    : styles.scenarioIconWrapper
-                }
-              >
-                <MaterialIcons
-                  name="pause-circle-outline"
-                  size={20}
-                  color={settings.forcePauseCollection ? '#FFFFFF' : '#6B7280'}
-                />
-              </View>
-              <View style={styles.scenarioContent}>
-                <Text style={styles.scenarioTitle}>Collection Pause</Text>
-                <View style={styles.scenarioDetailsRow}>
-                  <View style={styles.scenarioDetailCol}>
-                    <Text style={styles.scenarioLabel}>STATE</Text>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        {
-                          backgroundColor: settings.forcePauseCollection ? '#FEE2E2' : '#DCFCE7',
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusPillText,
-                          { color: settings.forcePauseCollection ? '#B91C1C' : '#15803D' },
-                        ]}
-                      >
-                        {settings.forcePauseCollection ? 'PAUSED' : 'NORMAL'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* Scenario 2: Backup Fleet */}
-            <View style={[styles.scenarioCard, { flex: 1 }]}>
-              <View
-                style={
-                  settings.activateBackupFleet
-                    ? styles.scenarioIconWrapperActive
-                    : styles.scenarioIconWrapper
-                }
-              >
-                <MaterialIcons
-                  name="local-shipping"
-                  size={20}
-                  color={settings.activateBackupFleet ? '#FFFFFF' : '#6B7280'}
-                />
-              </View>
-              <View style={styles.scenarioContent}>
-                <Text style={styles.scenarioTitle}>Backup Fleet</Text>
-                <View style={styles.scenarioDetailsRow}>
-                  <View style={styles.scenarioDetailCol}>
-                    <Text style={styles.scenarioLabel}>STATE</Text>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        {
-                          backgroundColor: settings.activateBackupFleet ? '#DCFCE7' : '#F1F5F9',
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusPillText,
-                          { color: settings.activateBackupFleet ? '#15803D' : '#475569' },
-                        ]}
-                      >
-                        {settings.activateBackupFleet ? 'READY / ACTIVE' : 'STANDBY'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Activity Log Section with Search & Filters */}
-          <View style={[styles.sectionHeader, { marginTop: 12 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <MaterialIcons name="history" size={18} color="#1B4D3E" />
-              <Text style={styles.sectionTitle}>Activity & Telemetry Log</Text>
-            </View>
+            <Text style={styles.sectionTitle}>Active Scenarios & Protocols</Text>
             <Text style={styles.sectionCount}>
-              {filteredLogs.length} OF {allLogs.length} LOGS
+              {openReports.length} GEOTAGGED REPORT{openReports.length === 1 ? '' : 'S'}
             </Text>
           </View>
 
-          {/* Search Box & Category Filter Chips */}
-          <View style={styles.searchFilterContainer}>
-            <View style={styles.searchInputRow}>
-              <Feather name="search" size={16} color="#94A3B8" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search logs by actor, action, or target..."
-                placeholderTextColor="#94A3B8"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              {searchQuery ? (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Feather name="x" size={16} color="#94A3B8" />
-                </TouchableOpacity>
-              ) : null}
+          {/* Scenario 1: Heavy Rainfall Protocol */}
+          <View style={[styles.scenarioCard, settings.severeWeatherProtocol && styles.scenarioCardActive]}>
+            <View style={settings.severeWeatherProtocol ? styles.scenarioIconWrapperActive : styles.scenarioIconWrapper}>
+              <MaterialIcons name="water-drop" size={22} color={settings.severeWeatherProtocol ? '#FFFFFF' : '#0284C7'} />
             </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
-              {[
-                { id: 'all', label: 'All Logs' },
-                { id: 'system', label: 'System & Overrides' },
-                { id: 'driver', label: 'Driver Operations' },
-                { id: 'dispatch', label: 'Route Dispatches' },
-                { id: 'report', label: 'Citizen Reports' },
-              ].map((chip) => {
-                const isActive = categoryFilter === chip.id;
-                return (
-                  <TouchableOpacity
-                    key={chip.id}
-                    style={[styles.filterChip, isActive && styles.filterChipActive]}
-                    onPress={() => setCategoryFilter(chip.id as any)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                      {chip.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            <View style={styles.scenarioContent}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.scenarioTitle}>Heavy Rainfall & Flood Protocol</Text>
+                {settings.severeWeatherProtocol && <View style={styles.activeDot} />}
+              </View>
+              <View style={styles.scenarioDetailsRow}>
+                <View style={styles.scenarioDetailCol}>
+                  <Text style={styles.scenarioLabel}>TRIGGER CAUSE</Text>
+                  <Text style={styles.scenarioValue}>PAGASA Weather Warning / Flood Watch</Text>
+                </View>
+                <View style={styles.scenarioDetailCol}>
+                  <Text style={styles.scenarioLabel}>OPERATIONAL IMPACT</Text>
+                  <Text style={styles.scenarioValue}>
+                    {settings.severeWeatherProtocol ? 'Bypass low-elevation flood corridors' : 'Standard route adherence active'}
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
 
-          {/* Logs Table Card */}
-          <View style={[styles.logCard, isMobile && { padding: 12 }]}>
-            <ScrollView
-              horizontal={isMobile}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ flexGrow: 1, minWidth: '100%' }}
-              style={{ width: '100%' }}
-            >
-              <View style={{ minWidth: isMobile ? 650 : '100%', width: '100%' }}>
-                <View style={styles.tableHead}>
-                  <Text style={[styles.th, { flex: 1.2 }]}>TIMESTAMP</Text>
-                  <Text style={[styles.th, { flex: 1 }]}>CATEGORY</Text>
-                  <Text style={[styles.th, { flex: 1.5 }]}>SOURCE / ACTOR</Text>
-                  <Text style={[styles.th, { flex: 2 }]}>EVENT ACTION</Text>
-                  <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>STATUS</Text>
-                </View>
-
-                {filteredLogs.length === 0 ? (
-                  <View style={{ padding: 32, alignItems: 'center' }}>
-                    <MaterialIcons name="search-off" size={32} color="#CBD5E1" />
-                    <Text style={{ marginTop: 8, color: '#64748B', fontWeight: '600' }}>
-                      No matching activity logs found.
-                    </Text>
-                  </View>
-                ) : (
-                  filteredLogs.map((log) => {
-                    const badge = getCategoryBadge(log.category);
-                    let formattedDate = 'Just now';
-                    if (log.timestamp?.toDate) {
-                      const d = log.timestamp.toDate();
-                      formattedDate = `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                    }
-
-                    return (
-                      <View key={log.id} style={styles.tableRow}>
-                        <Text style={[styles.td, { flex: 1.2, color: '#64748B', fontSize: 12 }]}>
-                          {formattedDate}
-                        </Text>
-                        <View style={[styles.td, { flex: 1 }]}>
-                          <View style={[styles.categoryBadge, { backgroundColor: badge.bg }]}>
-                            <Text style={[styles.categoryBadgeText, { color: badge.color }]}>
-                              {badge.label}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.td, { flex: 1.5, fontWeight: '700', color: '#1E293B', fontSize: 12.5 }]} numberOfLines={1}>
-                          {log.source}
-                        </Text>
-                        <View style={[styles.td, { flex: 2 }]}>
-                          <Text style={{ fontSize: 13, color: '#334151', fontWeight: '600' }}>
-                            {log.action}
-                          </Text>
-                          {log.details ? (
-                            <Text style={{ fontSize: 11, color: '#94A3B8' }}>{log.details}</Text>
-                          ) : null}
-                        </View>
-                        <View style={[styles.td, { flex: 1, alignItems: 'flex-end' }]}>
-                          <View style={styles.verifiedBadge}>
-                            <MaterialIcons name="check" size={10} color="#059669" />
-                            <Text style={styles.verifiedBadgeText}>Logged</Text>
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
+          {/* Scenario 2: Collection Pause State */}
+          <View style={[styles.scenarioCard, settings.forcePauseCollection && styles.scenarioCardAlert]}>
+            <View style={settings.forcePauseCollection ? styles.scenarioIconWrapperAlert : styles.scenarioIconWrapper}>
+              <MaterialIcons name="pause-circle-outline" size={22} color={settings.forcePauseCollection ? '#FFFFFF' : '#64748B'} />
+            </View>
+            <View style={styles.scenarioContent}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.scenarioTitle}>Fleet Collection Pause</Text>
+                {settings.forcePauseCollection && <View style={[styles.activeDot, { backgroundColor: '#EF4444' }]} />}
               </View>
-            </ScrollView>
+              <View style={styles.scenarioDetailsRow}>
+                <View style={styles.scenarioDetailCol}>
+                  <Text style={styles.scenarioLabel}>STATUS</Text>
+                  <Text style={[styles.scenarioValue, { fontWeight: '700', color: settings.forcePauseCollection ? '#DC2626' : '#059669' }]}>
+                    {settings.forcePauseCollection ? 'DISPATCH PAUSED' : 'NORMAL DISPATCH'}
+                  </Text>
+                </View>
+                <View style={styles.scenarioDetailCol}>
+                  <Text style={styles.scenarioLabel}>IMPLICATION</Text>
+                  <Text style={styles.scenarioValue}>
+                    {settings.forcePauseCollection ? 'Drivers standby at depot until resumed' : 'Trucks actively executing routes'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Section: Interactive System Controls */}
+          <View style={[styles.sectionHeader, { marginTop: 12 }]}>
+            <Text style={styles.sectionTitle}>System Override Controls</Text>
+            <Text style={styles.sectionCount}>INSTANT PERSISTENCE</Text>
+          </View>
+
+          <View style={styles.controlsCard}>
+            {/* Control 1: Force Pause Collection */}
+            <View style={styles.controlRow}>
+              <View style={styles.controlLeft}>
+                <View style={[styles.controlIconBox, { backgroundColor: settings.forcePauseCollection ? '#FEE2E2' : '#F1F5F9' }]}>
+                  <MaterialIcons name="pause-circle-filled" size={22} color={settings.forcePauseCollection ? '#DC2626' : '#475569'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.controlText}>Force Pause Collection</Text>
+                  <Text style={styles.controlSubtext}>Immediately pause all active municipal truck dispatches.</Text>
+                </View>
+              </View>
+              {isUpdating === 'forcePauseCollection' ? (
+                <ActivityIndicator size="small" color="#DC2626" />
+              ) : (
+                <Switch
+                  value={settings.forcePauseCollection}
+                  onValueChange={(val) => handleToggleSetting('forcePauseCollection', val)}
+                  trackColor={{ false: '#E2E8F0', true: '#DC2626' }}
+                  thumbColor={Platform.OS === 'web' ? '#FFFFFF' : (settings.forcePauseCollection ? '#FFFFFF' : '#F8FAFC')}
+                />
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Control 2: Activate Backup Fleet */}
+            <View style={styles.controlRow}>
+              <View style={styles.controlLeft}>
+                <View style={[styles.controlIconBox, { backgroundColor: settings.activateBackupFleet ? '#DCFCE7' : '#F1F5F9' }]}>
+                  <MaterialIcons name="local-shipping" size={22} color={settings.activateBackupFleet ? '#15803D' : '#475569'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.controlText}>Activate Backup Fleet</Text>
+                  <Text style={styles.controlSubtext}>Mobilize reserve compactor units and standby driver shifts.</Text>
+                </View>
+              </View>
+              {isUpdating === 'activateBackupFleet' ? (
+                <ActivityIndicator size="small" color="#15803D" />
+              ) : (
+                <Switch
+                  value={settings.activateBackupFleet}
+                  onValueChange={(val) => handleToggleSetting('activateBackupFleet', val)}
+                  trackColor={{ false: '#E2E8F0', true: '#1B4D3E' }}
+                  thumbColor={Platform.OS === 'web' ? '#FFFFFF' : (settings.activateBackupFleet ? '#FFFFFF' : '#F8FAFC')}
+                />
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Control 3: Severe Weather Protocol */}
+            <View style={styles.controlRow}>
+              <View style={styles.controlLeft}>
+                <View style={[styles.controlIconBox, { backgroundColor: settings.severeWeatherProtocol ? '#E0F2FE' : '#F1F5F9' }]}>
+                  <MaterialIcons name="thunderstorm" size={22} color={settings.severeWeatherProtocol ? '#0284C7' : '#475569'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.controlText}>Severe Weather Emergency Routing</Text>
+                  <Text style={styles.controlSubtext}>Allow trucks to bypass flooded lowlands and switch to elevated collector streets.</Text>
+                </View>
+              </View>
+              {isUpdating === 'severeWeatherProtocol' ? (
+                <ActivityIndicator size="small" color="#0284C7" />
+              ) : (
+                <Switch
+                  value={Boolean(settings.severeWeatherProtocol)}
+                  onValueChange={(val) => handleToggleSetting('severeWeatherProtocol', val)}
+                  trackColor={{ false: '#E2E8F0', true: '#0284C7' }}
+                  thumbColor={Platform.OS === 'web' ? '#FFFFFF' : '#FFFFFF'}
+                />
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Control 4: Surge Priority Mode */}
+            <View style={styles.controlRow}>
+              <View style={styles.controlLeft}>
+                <View style={[styles.controlIconBox, { backgroundColor: settings.surgePriorityMode ? '#FEF3C7' : '#F1F5F9' }]}>
+                  <MaterialIcons name="speed" size={22} color={settings.surgePriorityMode ? '#D97706' : '#475569'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.controlText}>Overload Surge Priority</Text>
+                  <Text style={styles.controlSubtext}>Prioritize high-tonnage barangay hubs and fast-track MRF unloading.</Text>
+                </View>
+              </View>
+              {isUpdating === 'surgePriorityMode' ? (
+                <ActivityIndicator size="small" color="#D97706" />
+              ) : (
+                <Switch
+                  value={Boolean(settings.surgePriorityMode)}
+                  onValueChange={(val) => handleToggleSetting('surgePriorityMode', val)}
+                  trackColor={{ false: '#E2E8F0', true: '#D97706' }}
+                  thumbColor={Platform.OS === 'web' ? '#FFFFFF' : '#FFFFFF'}
+                />
+              )}
+            </View>
+          </View>
+
+          {/* Recent Override Log Snippet */}
+          <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+            <Text style={styles.sectionTitle}>Recent Override Activity</Text>
+            {onNavigateToLogs && (
+              <TouchableOpacity onPress={onNavigateToLogs}>
+                <Text style={styles.viewAllText}>View All Logs →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.logCard}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 1.5 }]}>SOURCE</Text>
+              <Text style={[styles.th, { flex: 2 }]}>ACTION</Text>
+              <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>CONFIDENCE</Text>
+            </View>
+
+            {recentLogs.length === 0 ? (
+              <View style={{ padding: 18, alignItems: 'center' }}>
+                <Text style={{ color: '#94A3B8', fontSize: 12 }}>No override events logged recently.</Text>
+              </View>
+            ) : (
+              recentLogs.map((row) => (
+                <View key={row.id} style={styles.tableRow}>
+                  <Text style={[styles.td, { flex: 1.5, color: '#475569', fontWeight: '600' }]} numberOfLines={1}>
+                    {row.source}
+                  </Text>
+                  <Text style={[styles.td, { flex: 2, color: '#0F172A', fontWeight: '600' }]} numberOfLines={1}>
+                    {row.action}
+                  </Text>
+                  <Text style={[styles.td, { flex: 1, color: '#059669', fontWeight: '700', textAlign: 'right' }]}>
+                    {row.confidence || 'Manual'}
+                  </Text>
+                </View>
+              ))
+            )}
           </View>
         </View>
 
-        {/* Right Column: Live Operational Telemetry Map */}
+        {/* Right Column - Live Telemetry & Risk Map */}
         <View style={[styles.rightColumn, isMobile && { flex: undefined, width: '100%' }]}>
           <View style={styles.sectionHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <MaterialIcons name="map" size={16} color="#475569" />
-              <Text style={styles.sectionTitle}>Live Telemetry Map</Text>
-            </View>
-            <Text style={styles.sectionCount}>{openReports.length} OPEN REPORTS</Text>
+            <Text style={styles.sectionTitle}>Live Impact & Telemetry View</Text>
+            <Text style={styles.sectionCount}>
+              {liveTrucks.filter((t) => t.active).length} TRUCKS ONLINE
+            </Text>
           </View>
 
           <View style={styles.mapContainer}>
             <LiveOperationsMap trucks={liveTrucks} reports={openReports} />
+
             <View style={styles.mapBadge}>
               <View style={styles.pulsingDot} />
               <Text style={styles.mapBadgeText}>
-                {liveTrucks.filter((item) => item.active).length} ACTIVE TRUCK
-                {liveTrucks.filter((item) => item.active).length === 1 ? '' : 'S'}
+                {liveTrucks.filter((item) => item.active).length} ACTIVE TRUCK{liveTrucks.filter((item) => item.active).length === 1 ? '' : 'S'}
               </Text>
             </View>
+
+            {/* Risk Hotspots Overlay */}
             <View style={styles.riskCard}>
-              <Text style={styles.riskTitle}>RISK HOTSPOTS</Text>
+              <Text style={styles.riskTitle}>RISK HOTSPOTS & CITIZEN REPORTS</Text>
               {riskHotspots.length === 0 ? (
-                <Text style={styles.noRisk}>No unresolved geotagged reports.</Text>
+                <Text style={styles.noRisk}>No active high-risk report clusters.</Text>
               ) : (
                 riskHotspots.map(([barangay, count]) => (
                   <View style={styles.riskRow} key={barangay}>
                     <Text style={styles.riskBrgy}>{barangay}</Text>
                     <Text style={count >= 4 ? styles.riskHigh : styles.riskModerate}>
-                      {count} OPEN &bull; {count >= 4 ? 'HIGH' : 'MONITOR'}
+                      {count} OPEN · {count >= 4 ? 'HIGH RISK' : 'MONITOR'}
                     </Text>
                   </View>
                 ))
@@ -581,151 +606,190 @@ export default function OperationalOverridesTab() {
           </View>
         </View>
       </View>
+
+      {/* EMERGENCY BROADCAST MODAL */}
+      <Modal visible={broadcastModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, isMobile && { width: '95%', padding: 18 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={styles.modalIconBox}>
+                  <MaterialIcons name="emergency" size={24} color="#EF4444" />
+                </View>
+                <View>
+                  <Text style={styles.modalTitle}>Emergency Broadcast</Text>
+                  <Text style={styles.modalSubtitle}>Dispatch immediate priority alert to municipal units.</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setBroadcastModalVisible(false)} style={styles.modalCloseBtn}>
+                <MaterialIcons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>PRIORITY LEVEL</Text>
+                <View style={styles.prioritySelector}>
+                  <TouchableOpacity
+                    style={[styles.priorityPill, broadcastPriority === 'high' && styles.priorityPillHighActive]}
+                    onPress={() => setBroadcastPriority('high')}
+                  >
+                    <MaterialIcons name="bolt" size={14} color={broadcastPriority === 'high' ? '#B45309' : '#64748B'} />
+                    <Text style={[styles.priorityPillText, broadcastPriority === 'high' && { color: '#B45309', fontWeight: '800' }]}>HIGH PRIORITY</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.priorityPill, broadcastPriority === 'urgent' && styles.priorityPillUrgentActive]}
+                    onPress={() => setBroadcastPriority('urgent')}
+                  >
+                    <MaterialIcons name="warning" size={14} color={broadcastPriority === 'urgent' ? '#DC2626' : '#64748B'} />
+                    <Text style={[styles.priorityPillText, broadcastPriority === 'urgent' && { color: '#DC2626', fontWeight: '800' }]}>URGENT CALAMITY</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>DIRECTIVE SUBJECT</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="e.g. FLASH FLOOD: Reroute Trucks from Lowland Corridors"
+                  placeholderTextColor="#94A3B8"
+                  value={broadcastSubject}
+                  onChangeText={setBroadcastSubject}
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>DIRECTIVE MESSAGE</Text>
+                <TextInput
+                  style={[styles.formInput, { height: 100, textAlignVertical: 'top' }]}
+                  placeholder="Enter detailed directives for drivers and field coordinators..."
+                  placeholderTextColor="#94A3B8"
+                  multiline={true}
+                  numberOfLines={4}
+                  value={broadcastMessage}
+                  onChangeText={setBroadcastMessage}
+                />
+              </View>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setBroadcastModalVisible(false)}
+                disabled={isBroadcasting}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSendBtn}
+                onPress={handleSendBroadcast}
+                disabled={isBroadcasting}
+                activeOpacity={0.85}
+              >
+                {isBroadcasting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <MaterialIcons name="send" size={16} color="#FFFFFF" />
+                    <Text style={styles.modalSendBtnText}>Transmit Broadcast</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC', padding: 32 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  headerTextContainer: { flex: 1, paddingRight: 32 },
-  headerTitle: { fontSize: 24, fontWeight: '900', color: '#0F172A', letterSpacing: -0.5 },
-  headerDesc: { fontSize: 13.5, color: '#475569', lineHeight: 20, maxWidth: 640 },
-
-  readOnlyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    padding: 24,
   },
-  readOnlyBadgeText: { fontSize: 10, fontWeight: '800', color: '#047857', letterSpacing: 0.5 },
-
-  exportTopBtn: {
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  headerTextContainer: {
+    flex: 1,
+    paddingRight: 24,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.5,
+  },
+  headerDesc: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 20,
+    maxWidth: 700,
+    marginTop: 4,
+  },
+  dangerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#1B4D3E',
+    backgroundColor: '#EF4444',
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  exportTopBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
-
-  readOnlyNoticeBanner: {
+  dangerBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  mainRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 20,
+    gap: 24,
+    paddingBottom: 40,
   },
-  readOnlyNoticeText: { fontSize: 12.5, color: '#1E40AF', flex: 1, lineHeight: 18 },
-
-  mainRow: { flexDirection: 'row', gap: 24, paddingBottom: 40 },
-  leftColumn: { flex: 1.3, gap: 14 },
-  rightColumn: { flex: 1 },
-
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#0F172A', letterSpacing: 0.2 },
-  sectionCount: { fontSize: 11, fontWeight: '800', color: '#64748B', letterSpacing: 0.5 },
-
-  dictManagedBadge: {
+  leftColumn: {
+    flex: 1.25,
+    gap: 14,
+  },
+  rightColumn: {
+    flex: 1,
+    gap: 14,
+  },
+  sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    marginBottom: 4,
   },
-  dictManagedBadgeText: { fontSize: 10, fontWeight: '800', color: '#4338CA', letterSpacing: 0.5 },
-
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  sectionCount: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  viewAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1B4D3E',
+  },
   scenarioCard: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-  },
-  scenarioCardActive: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
-  scenarioIconWrapper: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  scenarioIconWrapperActive: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    backgroundColor: '#1B4D3E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  scenarioContent: { flex: 1 },
-  scenarioTitle: { fontSize: 13, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
-  scenarioDetailsRow: { flexDirection: 'row', gap: 16 },
-  scenarioDetailCol: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  scenarioLabel: { fontSize: 10, fontWeight: '700', color: '#64748B', letterSpacing: 0.5 },
-
-  statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
-  statusPillText: { fontSize: 10.5, fontWeight: '800' },
-
-  searchFilterContainer: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    padding: 12,
-    gap: 10,
-  },
-  searchInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  searchInput: { flex: 1, fontSize: 12.5, color: '#0F172A', padding: 0 },
-
-  filterChipsRow: { gap: 6 },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  filterChipActive: { backgroundColor: '#1B4D3E', borderColor: '#1B4D3E' },
-  filterChipText: { fontSize: 11.5, fontWeight: '700', color: '#475569' },
-  filterChipTextActive: { color: '#FFFFFF' },
-
-  logCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
@@ -733,54 +797,162 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowRadius: 3,
     elevation: 1,
   },
+  scenarioCardActive: {
+    borderColor: '#7DD3FC',
+    backgroundColor: '#F0F9FF',
+  },
+  scenarioCardAlert: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  scenarioIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  scenarioIconWrapperActive: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#0284C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  scenarioIconWrapperAlert: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  scenarioContent: {
+    flex: 1,
+  },
+  scenarioTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 8,
+  },
+  scenarioDetailsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  scenarioDetailCol: {
+    flex: 1,
+  },
+  scenarioLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  scenarioValue: {
+    fontSize: 12,
+    color: '#334155',
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#0284C7',
+  },
+  controlsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+  },
+  controlLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    paddingRight: 12,
+  },
+  controlIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  controlSubtext: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginHorizontal: 12,
+  },
+  logCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   tableHead: {
     flexDirection: 'row',
-    paddingBottom: 10,
+    paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-    marginBottom: 6,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 4,
   },
-  th: { fontSize: 10.5, fontWeight: '800', color: '#64748B', letterSpacing: 0.5 },
+  th: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: '#F8FAFC',
     alignItems: 'center',
   },
-  td: { justifyContent: 'center' },
-
-  categoryBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
+  td: {
+    fontSize: 12,
   },
-  categoryBadgeText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.5 },
-
-  verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  verifiedBadgeText: { fontSize: 10, fontWeight: '700', color: '#059669' },
-
   mapContainer: {
-    flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    minHeight: 560,
+    borderRadius: 12,
+    minHeight: 520,
     overflow: 'hidden',
     position: 'relative',
-    padding: 12,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -789,21 +961,30 @@ const styles = StyleSheet.create({
     top: 20,
     left: 20,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 4,
+    elevation: 3,
   },
-  pulsingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
-  mapBadgeText: { fontSize: 11, fontWeight: 'bold', color: '#0F172A', letterSpacing: 0.5 },
-
+  pulsingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10B981',
+  },
+  mapBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1E293B',
+    letterSpacing: 0.5,
+  },
   riskCard: {
     position: 'absolute',
     bottom: 20,
@@ -815,13 +996,172 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowRadius: 6,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  riskTitle: { fontSize: 11, fontWeight: '800', color: '#64748B', letterSpacing: 0.5, marginBottom: 10 },
-  riskRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  riskBrgy: { fontSize: 13, color: '#1E293B', fontWeight: '600' },
-  riskHigh: { fontSize: 11.5, fontWeight: '800', color: '#EF4444' },
-  riskModerate: { fontSize: 11.5, fontWeight: '800', color: '#059669' },
-  noRisk: { color: '#64748B', fontSize: 12 },
+  riskTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  riskRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  riskBrgy: {
+    fontSize: 13,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  riskHigh: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
+  riskModerate: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  noRisk: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    width: 520,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  modalIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  modalCloseBtn: {
+    padding: 6,
+  },
+  modalBody: {
+    gap: 14,
+  },
+  formGroup: {
+    gap: 6,
+  },
+  formLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.6,
+  },
+  formInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  prioritySelector: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  priorityPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  priorityPillHighActive: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  priorityPillUrgentActive: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  priorityPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 20,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  modalCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalCancelBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  modalSendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EF4444',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+  },
+  modalSendBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });

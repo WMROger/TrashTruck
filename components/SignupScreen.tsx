@@ -496,6 +496,7 @@ export default function SignupScreen() {
                       setValue={setSelectedBarangay}
                       placeholder="Select a barangay"
                       placeholderStyle={{ color: '#999' }}
+                      maxHeight={200}
                       style={{
                         backgroundColor: '#F9FAFB',
                         borderWidth: 1,
@@ -508,6 +509,7 @@ export default function SignupScreen() {
                         backgroundColor: '#F9FAFB',
                         borderColor: '#E5E7EB',
                         borderRadius: 12,
+                        maxHeight: 200,
                       }}
                       textStyle={{
                         fontSize: 15,

@@ -108,6 +108,20 @@ export default function DriverProfileSettings() {
             />
           </View>
 
+          <TouchableOpacity 
+            style={styles.menuItem} 
+            onPress={() => router.replace('/(tabs)/home' as any)}
+          >
+            <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
+              <Feather name="home" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Resident / User Portal</Text>
+              <Text style={styles.menuSubtitle}>Switch to resident view and schedules</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#9CA3AF" />
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
             <View style={[styles.menuIconContainer, isDarkMode && styles.menuIconContainerDark]}>
               <Feather name="log-out" size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />

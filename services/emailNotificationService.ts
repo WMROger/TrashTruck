@@ -91,7 +91,7 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
                   <td style="font-size: 13px; font-weight: 700; color: #0f172a;">${toEmail}</td>
                 </tr>
                 <tr>
-                  <td style="font-size: 13px; color: #64748b; font-weight: 600;">Temporary Password:</td>
+                  <td style="font-size: 13px; color: #64748b; font-weight: 600;">Temporary Access Code / Password:</td>
                   <td style="font-size: 14px; font-weight: 800; font-family: 'Courier New', Courier, monospace; color: #0369a1; background-color: #e0f2fe; padding: 4px 8px; border-radius: 6px; display: inline-block;">
                     ${temporaryPassword}
                   </td>
@@ -105,13 +105,30 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
           </tr>
         </table>
 
+        <!-- 5-Minute Expiration Security Alert -->
+        <div style="background-color: #fffbeb; border: 1.5px solid #fde68a; border-radius: 12px; padding: 14px 18px; margin-bottom: 24px;">
+          <table width="100%" border="0" cellspacing="0" cellpadding="0">
+            <tr>
+              <td width="30" valign="top" style="font-size: 18px;">⏱</td>
+              <td>
+                <strong style="color: #92400e; font-size: 13px; display: block; margin-bottom: 3px;">
+                  Temporary Access Code Expires in 5 Minutes
+                </strong>
+                <span style="color: #b45309; font-size: 12px; line-height: 1.4; display: block;">
+                  For municipal security compliance, this auto-generated temporary code will expire in <strong>5 minutes</strong>. Please sign in promptly and configure your permanent password.
+                </span>
+              </td>
+            </tr>
+          </table>
+        </div>
+
         <!-- Next Steps Protocol -->
         <div style="background-color: #f0fdf4; border-left: 4px solid #059669; padding: 16px 20px; border-radius: 0 10px 10px 0; margin-bottom: 24px;">
           <strong style="color: #065f46; font-size: 13px;">Security & Onboarding Protocol:</strong>
           <ol style="margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: #047857; line-height: 1.5;">
             <li>Click the <strong>Verify & Enter CENRO Portal</strong> button below to go directly to <strong>/cenro</strong>.</li>
-            <li>Sign in using your official email and temporary credentials above.</li>
-            <li>For security governance, update your password under Profile Settings upon first sign-in.</li>
+            <li>Sign in using your official email and temporary credentials above within <strong>5 minutes</strong>.</li>
+            <li>You will be prompted to establish your permanent password upon sign-in.</li>
           </ol>
         </div>
 

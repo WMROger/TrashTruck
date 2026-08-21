@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, Platform, useWindowDimensions, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,8 +8,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
 import DictSidebar from '../../components/admin/DictSidebar';
-import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, DictLogoutModal } from '../../components/admin/dict';
+import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, DictLogoutModal, DictNotificationDropdown } from '../../components/admin/dict';
 import { isDictEmail, ensureDictProfileInFirestore } from '../../constants/dictConfig';
+import { DictNotification, subscribeToDictNotifications } from '../../services/dictAccountService';
 
 export default function DictDashboard() {
   const { user, loading: authLoading } = useAuthContext();
@@ -17,6 +19,8 @@ export default function DictDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [notifications, setNotifications] = useState<DictNotification[]>([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const { width } = useWindowDimensions();
   const sidebarCollapsed = Platform.OS === 'web' && width < 980;
   
@@ -78,6 +82,16 @@ export default function DictDashboard() {
     checkDictAccess();
   }, [authLoading, router, user]);
 
+  useEffect(() => {
+    if (!isDictAdmin) return;
+    const unsubscribe = subscribeToDictNotifications((notifs) => {
+      setNotifications(notifs);
+    });
+    return () => unsubscribe();
+  }, [isDictAdmin]);
+
+  const activeLogCount = notifications.filter((n) => n.status === 'active').length;
+
   const handleLogout = () => {
     setShowLogoutModal(true);
   };
@@ -112,7 +126,7 @@ export default function DictDashboard() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#374151" />
@@ -140,6 +154,24 @@ export default function DictDashboard() {
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>TrashTrack DICT Oversight Portal</Text>
             <View style={styles.headerRight}>
+              {/* Notification Bell Button */}
+              <TouchableOpacity
+                style={[styles.bellBtn, activeLogCount > 0 && styles.bellBtnActive]}
+                onPress={() => setShowNotifDropdown(!showNotifDropdown)}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name={activeLogCount > 0 ? "notifications-active" : "notifications-none"}
+                  size={22}
+                  color={activeLogCount > 0 ? "#DC2626" : "#4B5563"}
+                />
+                {activeLogCount > 0 ? (
+                  <View style={styles.badgeContainer}>
+                    <Text style={styles.badgeText}>{activeLogCount}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+
               <TouchableOpacity 
                 style={styles.profileBtn} 
                 onPress={handleLogout}
@@ -155,6 +187,13 @@ export default function DictDashboard() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Notification Dropdown Panel */}
+          <DictNotificationDropdown
+            visible={showNotifDropdown}
+            notifications={notifications}
+            onClose={() => setShowNotifDropdown(false)}
+          />
 
           {/* Tab Content */}
           <View style={styles.tabContent}>
@@ -219,6 +258,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+  },
+  bellBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  bellBtnActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  badgeContainer: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#DC2626',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
   },
   profileBtn: {
     flexDirection: 'row',

@@ -18,15 +18,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
 
-  // Enforce account disabling during an active session, not only at the next login.
+  // Enforce account disabling/inactivity during an active session, not only at the next login.
   useEffect(() => {
     if (!auth.user?.uid || !db) return;
+    const userDocRef = doc(db, 'users', auth.user.uid);
+
     return onSnapshot(
-      doc(db, 'users', auth.user.uid),
+      userDocRef,
       snapshot => {
         const profile = snapshot.data();
-        if (profile?.disabled === true || profile?.status === 'disabled') {
-          signOut(firebaseAuth).catch(error => console.warn('Unable to end disabled account session:', error));
+        if (profile?.disabled === true || profile?.status === 'disabled' || profile?.status === 'inactive') {
+          signOut(firebaseAuth).catch(error => console.warn('Unable to end deactivated account session:', error));
+          return;
+        }
+
+        // Throttle lastLogin update to at most once every 2 hours
+        const lastLoginTime = profile?.lastLogin?.toMillis ? profile.lastLogin.toMillis() : (profile?.lastLogin ? new Date(profile.lastLogin).getTime() : 0);
+        const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+        if (Date.now() - lastLoginTime > TWO_HOURS_MS) {
+          setDoc(userDocRef, { lastLogin: serverTimestamp() }, { merge: true }).catch(() => {});
         }
       },
       error => {

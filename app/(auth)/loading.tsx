@@ -286,7 +286,25 @@ export default function LoadingPage() {
       const currentUser = auth?.currentUser;
       if (currentUser && db) {
         const snap = await getDoc(doc(db, 'users', currentUser.uid));
-        const role = snap.exists() ? (snap.data() as any)?.role : 'user';
+        const userData = snap.exists() ? (snap.data() as any) : {};
+        const role = userData?.role || 'user';
+
+        // Check if temporary access code/password has expired (5-minute limit)
+        const nowMillis = Date.now();
+        const expiresAtMillis = userData?.temporaryPasswordExpiresAt?.toMillis
+          ? userData.temporaryPasswordExpiresAt.toMillis()
+          : (userData?.temporaryPasswordExpiresAt ? new Date(userData.temporaryPasswordExpiresAt).getTime() : null);
+
+        if (userData?.mustChangePassword === true && expiresAtMillis && nowMillis > expiresAtMillis) {
+          try { await signOut(auth); } catch {}
+          showError(
+            'Your temporary access code/password has expired (valid for 5 minutes). Please contact your administrator to re-provision credentials.',
+            'Access Code Expired',
+            'error'
+          );
+          setTimeout(() => { router.replace('/(auth)/login' as any); }, 3500);
+          return;
+        }
         
         if (role === 'admin' || role === 'dict') {
           if (Platform.OS !== 'web') {

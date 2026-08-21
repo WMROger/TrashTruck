@@ -109,9 +109,9 @@ let storage: any = null;
           const AsyncStorage = require('@react-native-async-storage/async-storage').default;
           let rnPersistence: any = null;
           try {
-            const rnAuth = require('@firebase/auth/dist/rn/index.js');
-            if (typeof rnAuth?.getReactNativePersistence === 'function') {
-              rnPersistence = rnAuth.getReactNativePersistence(AsyncStorage);
+            const { getReactNativePersistence } = require('firebase/auth');
+            if (typeof getReactNativePersistence === 'function') {
+              rnPersistence = getReactNativePersistence(AsyncStorage);
             }
           } catch {}
 

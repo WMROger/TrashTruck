@@ -6,7 +6,7 @@ const { normalizeRewardConfig, findSouvenir } = require('../lib/rewards');
 
 test('reward configuration provides safe defaults', () => {
   const config = normalizeRewardConfig({});
-  assert.equal(config.completionTokens, 100);
+  assert.equal(config.completionTokens, 50);
   assert.equal(config.souvenirs.length, 3);
   assert.equal(findSouvenir(config, 'tote').cost, 500);
 });
@@ -31,6 +31,6 @@ test('reward configuration rejects invalid prices and duplicate identifiers', ()
       { id: 'valid', name: 'Duplicate Reward', cost: 75 },
     ],
   });
-  assert.equal(config.completionTokens, 100);
+  assert.equal(config.completionTokens, 50);
   assert.deepEqual(config.souvenirs, [{ id: 'valid', name: 'Valid Reward', type: '', cost: 50 }]);
 });

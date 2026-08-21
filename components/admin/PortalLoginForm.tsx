@@ -145,6 +145,22 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
             const userData = userSnap.data();
             const userRole = userData.role;
 
+            // Check if temporary access code/password has expired (5-minute limit)
+            const nowMillis = Date.now();
+            const expiresAtMillis = userData.temporaryPasswordExpiresAt?.toMillis
+              ? userData.temporaryPasswordExpiresAt.toMillis()
+              : (userData.temporaryPasswordExpiresAt ? new Date(userData.temporaryPasswordExpiresAt).getTime() : null);
+
+            if (userData.mustChangePassword === true && expiresAtMillis && nowMillis > expiresAtMillis) {
+              await signOut(auth);
+              showError(
+                'Your temporary access code/password has expired (valid for 5 minutes). Please contact your DICT administrator to re-provision credentials.',
+                'Access Code Expired',
+                'error'
+              );
+              return;
+            }
+
             if (userRole === 'admin') {
               router.replace('/admin/dashboard');
               return;
