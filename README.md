@@ -1,305 +1,309 @@
-# TrashTrack - RAG AI Chatbot App
+# TrashTrack
 
-A React Native + Expo app with a RAG (Retrieval-Augmented Generation) AI chatbot powered by Firebase, Groq API, and Firestore.
+**TrashTrack** is a smart waste collection information and tracking system developed as a Capstone project for **Danao City**. The system is designed to improve communication and coordination between residents, garbage truck drivers, and administrators involved in waste collection.
 
-## 🚀 Features
+TrashTrack provides residents with access to **garbage collection schedules, announcements, and other waste-management information**. It also includes a dedicated driver portal for garbage collection personnel and supports location-based tracking for collection operations.
 
-- **RAG AI Chatbot**: Intelligent responses using document retrieval and Groq's LLaMA 3 model
-- **Real-time Chat UI**: Beautiful, responsive chat interface
-- **Document Management**: Add and manage knowledge base documents
-- **Firebase Integration**: Secure backend with Firestore and Cloud Functions
-- **Social Authentication**: Google and Facebook login support
-- **Cross-platform**: Works on iOS, Android, and Web
+The project also integrates a **Retrieval-Augmented Generation (RAG) AI chatbot** that uses stored documents as a knowledge base and generates responses through the Groq API.
 
-## 🏗️ Architecture
+## Project Purpose
 
+TrashTrack aims to make waste collection information easier to access and manage.
+
+The system is intended for:
+
+* **Residents** – view garbage collection schedules, announcements, and relevant information.
+* **Garbage Truck Drivers** – access their dedicated portal and support collection tracking.
+* **Administrators** – manage schedules, announcements, users, and system information.
+* **CENRO personnel** – support and oversee waste collection operations.
+
+## Main Features
+
+* Garbage collection schedules
+* Announcements and notifications
+* Resident/user portal
+* Garbage driver portal
+* Administrator management
+* Location/GPS-based collection tracking
+* RAG AI chatbot
+* Firebase Authentication
+* Firestore database
+* Firebase Cloud Functions
+* Groq API integration
+* Google and Facebook authentication support
+* Android, iOS, and Web support through React Native and Expo
+
+## Technology Stack
+
+* **React Native**
+* **Expo**
+* **TypeScript / JavaScript**
+* **Firebase Authentication**
+* **Cloud Firestore**
+* **Firebase Cloud Functions**
+* **Groq API**
+* **LLaMA-based AI model**
+* **Expo Router**
+
+## Setup Instructions
+
+### 1. Prerequisites
+
+Before running the project, install:
+
+* Node.js 18 or later
+* npm
+* Firebase CLI
+* Expo development tools
+* Git
+
+You will also need access to:
+
+* A Firebase project
+* A Groq API key
+
+### 2. Clone the Repository
+
+```bash
+git clone https://github.com/WMROger/TrashTruck.git
+cd TrashTruck
 ```
-User Input → React Native Chat UI
-    ↓
-Firebase Cloud Function
-    ↓
-Document Retrieval (Firestore)
-    ↓
-Groq API (LLaMA 3)
-    ↓
-AI Response → Chat UI
-```
 
-## 📋 Prerequisites
+### 3. Install Project Dependencies
 
-- Node.js 18+
-- Expo CLI
-- Firebase CLI
-- Groq API Key
-
-## 🛠️ Setup Instructions
-
-### 1. Install Dependencies
+From the root directory:
 
 ```bash
 npm install
 ```
 
-### 2. Firebase Setup
+Install the Firebase CLI if it is not already installed:
 
-1. **Install Firebase CLI**:
-   ```bash
-   npm install -g firebase-tools
-   ```
+```bash
+npm install -g firebase-tools
+```
 
-2. **Login to Firebase**:
-   ```bash
-   firebase login
-   ```
+### 4. Configure Firebase
 
-3. **Initialize Firebase** (if not already done):
-   ```bash
-   firebase init
-   ```
+Log in to Firebase:
 
-4. **Update Firebase Config**:
-   - Go to [Firebase Console](https://console.firebase.google.com/)
-   - Create a new project or select existing one
-   - Get your project configuration
-   - Update `config/firebase.ts` with your config
+```bash
+firebase login
+```
 
-### 3. Configure Groq API
+Connect the local project to the appropriate Firebase project:
 
-1. **Get Groq API Key**:
-   - Sign up at [Groq Console](https://console.groq.com/)
-   - Generate an API key
+```bash
+firebase use --add
+```
 
-2. **Set Firebase Function Config**:
-   ```bash
-   firebase functions:config:set groq.key="your_groq_api_key"
-   ```
+The repository already contains:
 
-### 4. Deploy Firebase Functions
+```text
+firebase.json
+firestore.rules
+firestore.indexes.json
+```
+
+Firebase application configuration is handled through:
+
+```text
+config/firebase.ts
+```
+
+### 5. Configure Environment Variables
+
+Create a `.env` file in the root directory.
+
+Add the Firebase configuration values for the project:
+
+```env
+EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
+
+Get these values from:
+
+**Firebase Console → Project Settings → General → Your Apps**
+
+> **Important:** Never commit the `.env` file or private API keys to GitHub.
+
+### 6. Configure the Groq API
+
+Generate a Groq API key from the Groq Console.
+
+Configure the key for Firebase Cloud Functions:
+
+```bash
+firebase functions:config:set groq.key="your_groq_api_key"
+```
+
+The Groq API key should remain on the backend and should not be exposed directly in the React Native application.
+
+### 7. Install Cloud Function Dependencies
 
 ```bash
 cd functions
 npm install
 cd ..
+```
+
+### 8. Deploy Firebase Functions
+
+```bash
 firebase deploy --only functions
 ```
 
-### 5. Social Authentication Setup
-
-For Google and Facebook login functionality, follow the detailed setup guide in [`docs/social-login-setup.md`](docs/social-login-setup.md).
-
-**Quick Setup**:
-1. **Google Sign-In**:
-   - Create OAuth 2.0 credentials in Google Cloud Console
-   - Enable Google authentication in Firebase
-   - Add client IDs to environment variables
-
-2. **Facebook Sign-In**:
-   - Create a Facebook app in Facebook Developers Console
-   - Enable Facebook authentication in Firebase
-   - Add app ID and client token to environment variables
-
-### 6. Environment Variables Setup
-
-1. **Create Environment File**:
-   ```bash
-   # Option 1: Use the setup script (recommended)
-   npm run setup-env
-   
-   # Option 2: Manual setup
-   cp .env.example .env
-   ```
-
-2. **Update Firebase Configuration**:
-   - Go to [Firebase Console](https://console.firebase.google.com/)
-   - Select your project
-   - Go to Project Settings > General
-   - Scroll down to "Your apps" section
-
-### 6. Authentication Setup
-
-1. **Enable Authentication Methods**:
-   - In Firebase Console, go to "Authentication" > "Sign-in method"
-   - Enable Email/Password authentication
-   - Optionally enable Google and Facebook sign-in
-
-2. **Configure OAuth Providers** (Optional):
-   - For Google: Set up OAuth 2.0 client ID
-   - For Facebook: Configure Facebook App ID and Secret
-
-3. **Test Authentication**:
-   - Run the app: `npm start`
-   - Try creating an account and signing in
-   - Check console for any authentication errors
-
-For detailed authentication setup instructions, see [docs/firebase-setup.md](docs/firebase-setup.md).
-   - Copy the configuration values
-   - Update your `.env` file with the actual values:
-
-   ```env
-   EXPO_PUBLIC_FIREBASE_API_KEY=your-actual-api-key
-   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-   EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
-   EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-   EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-   EXPO_PUBLIC_FIREBASE_APP_ID=your-app-id
-   ```
-
-   ⚠️ **Important**: Never commit your `.env` file to version control. It's already added to `.gitignore`.
-
-### 6. Run the App
+If Firestore rules and indexes also need to be deployed:
 
 ```bash
-# Start Expo development server
-npm start
+firebase deploy --only firestore
+```
 
-# Run on specific platform
-npm run ios
+### 9. Configure Authentication
+
+In the Firebase Console:
+
+1. Open **Authentication**.
+2. Go to **Sign-in method**.
+3. Enable **Email/Password**.
+4. Configure **Google** or **Facebook** authentication if required.
+
+Additional setup documentation can be found inside the `docs/` folder.
+
+### 10. Run the Application
+
+Start the Expo development server:
+
+```bash
+npm start
+```
+
+Run a specific platform with:
+
+```bash
 npm run android
+npm run ios
 npm run web
 ```
 
-## 📱 App Structure
+The project can also be opened through the Expo development environment after starting the server.
 
-```
+## File Structure
+
+| Folder / File            | Purpose                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `.vscode/`               | Visual Studio Code workspace and editor configuration.                           |
+| `app/`                   | Main application screens, routes, layouts, authentication pages, and navigation. |
+| `assets/`                | Static application resources such as images, icons, and other media.             |
+| `components/`            | Reusable React Native UI components used throughout the application.             |
+| `config/`                | Application configuration, including Firebase configuration.                     |
+| `constants/`             | Shared constant values used by different parts of the application.               |
+| `docs/`                  | Additional project, Firebase, authentication, and setup documentation.           |
+| `functions/`             | Firebase Cloud Functions and backend logic, including AI/RAG functionality.      |
+| `hooks/`                 | Reusable React hooks and application-specific hooks.                             |
+| `scripts/`               | Utility and project setup scripts.                                               |
+| `styles/`                | Shared styling and design-related files.                                         |
+| `.gitignore`             | Defines files and folders that Git should not commit.                            |
+| `app.json`               | Expo application configuration.                                                  |
+| `eslint.config.js`       | ESLint configuration for code quality and consistency.                           |
+| `firebase.json`          | Firebase project and deployment configuration.                                   |
+| `firestore.indexes.json` | Firestore database index configuration.                                          |
+| `firestore.rules`        | Firestore security and access-control rules.                                     |
+| `package.json`           | Main project dependencies and npm scripts.                                       |
+| `package-lock.json`      | Locks installed npm dependency versions.                                         |
+| `test-docker-webhook.js` | Testing utility for Docker/webhook functionality.                                |
+| `test-webhook.js`        | Testing utility for webhook functionality.                                       |
+| `tsconfig.json`          | TypeScript compiler configuration.                                               |
+| `README.md`              | Main project documentation and setup guide.                                      |
+| `LICENSE`                | Proprietary license and usage restrictions for the project.                      |
+
+### Important Application Files
+
+```text
 TrashTruck/
 ├── app/
 │   ├── (tabs)/
-│   │   ├── index.tsx          # Authentication page
-│   │   ├── explore.tsx        # Chat screen
-│   │   └── _layout.tsx        # Tab navigation
-│   ├── SplashScreen.tsx       # Onboarding screen
-│   └── _layout.tsx            # Root layout
+│   │   ├── index.tsx
+│   │   ├── explore.tsx
+│   │   └── _layout.tsx
+│   ├── SplashScreen.tsx
+│   └── _layout.tsx
+│
 ├── components/
-│   ├── ChatMessage.tsx        # Chat message component
-│   └── ...
+│   └── ChatMessage.tsx
+│
 ├── config/
-│   └── firebase.ts            # Firebase configuration
+│   └── firebase.ts
+│
 ├── functions/
-│   ├── index.js               # Firebase Cloud Functions
-│   └── package.json           # Functions dependencies
-└── ...
+│   ├── index.js
+│   └── package.json
+│
+├── assets/
+├── constants/
+├── docs/
+├── hooks/
+├── scripts/
+└── styles/
 ```
 
-## 🔧 Configuration
+## AI Chatbot Architecture
 
-### Environment Variables
+The RAG chatbot follows this general flow:
 
-Create a `.env` file in the root directory:
-
-```env
-GROQ_API_KEY=your_groq_api_key
-FIREBASE_PROJECT_ID=your_project_id
+```text
+User Question
+     ↓
+React Native Application
+     ↓
+Firebase Cloud Function
+     ↓
+Retrieve Relevant Documents from Firestore
+     ↓
+Groq API / LLaMA Model
+     ↓
+Generated Response
+     ↓
+TrashTrack Chat Interface
 ```
 
-### Firebase Functions Configuration
+The retrieval process uses information stored in the TrashTrack knowledge base to provide responses relevant to the system and its users.
 
-The functions are configured to use:
-- **Groq API**: For AI responses using LLaMA 3
-- **Firestore**: For document storage and chat logs
-- **Keyword-based retrieval**: Simple document matching
+## Security
 
-## 📚 Knowledge Base
+Sensitive information such as API keys and private credentials must **never be committed to the repository**.
 
-The app comes with sample documents about TrashTrack. You can:
+Developers should:
 
-1. **Add Documents** via Firebase Console
-2. **Use the `addDocument` function** to programmatically add content
-3. **Customize the retrieval logic** in `functions/index.js`
+* Store environment-specific values in `.env`.
+* Keep private API keys on the backend.
+* Require Firebase Authentication for protected data.
+* Apply appropriate Firestore security rules.
+* Restrict administrator and driver functionality based on user roles.
 
-## 🔒 Security
+## Contact Information
 
-⚠️ **Important**: The current Firestore rules allow public read/write access for demo purposes. For production:
+For questions, technical concerns, or project-related issues:
 
-1. **Enable Authentication**:
-   ```bash
-   firebase init auth
-   ```
+**TrashTrack Capstone Team**
+GitHub Repository: https://github.com/WMROger/TrashTruck
+GitHub Owner/Technical Contact: **WMROger**
 
-2. **Update Firestore Rules**:
-   ```javascript
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /chat_logs/{document} {
-         allow read, write: if request.auth != null;
-       }
-       match /documents/{document} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
-   ```
+Project issues and technical concerns may also be submitted through the repository's **GitHub Issues** section.
 
-## 🚀 Deployment
+## License
 
-### Deploy to Expo
+**Proprietary License — All Rights Reserved**
 
-```bash
-# Build for production
-expo build:android
-expo build:ios
-expo build:web
-```
+Copyright © 2026 TrashTrack Capstone Team.
 
-### Deploy Firebase Functions
+This project and its source code are proprietary and were developed for academic and Capstone purposes. Unauthorized copying, modification, distribution, publication, sublicensing, or commercial use of this software, in whole or in part, is prohibited without prior written permission from the TrashTrack Capstone Team.
 
-```bash
-firebase deploy --only functions
-```
+Access to this repository does not grant permission to reproduce, redistribute, or use the project outside its authorized academic and development purposes.
 
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Firebase Functions Not Deployed**:
-   ```bash
-   firebase functions:log
-   ```
-
-2. **Groq API Key Issues**:
-   - Verify the key is set: `firebase functions:config:get`
-   - Check Groq console for usage limits
-
-3. **App Not Connecting to Firebase**:
-   - Verify Firebase config in `config/firebase.ts`
-   - Check network connectivity
-
-### Debug Mode
-
-Enable debug logging in the chat screen by adding:
-
-```typescript
-console.log('Firebase Functions Response:', result);
-```
-
-## 📈 Future Enhancements
-
-- [ ] Vector embeddings for better document retrieval
-- [ ] User authentication and chat history
-- [ ] File upload for document management
-- [ ] Real-time chat with multiple users
-- [ ] Analytics and usage tracking
-- [ ] Custom AI model fine-tuning
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support, please:
-1. Check the troubleshooting section
-2. Review Firebase and Groq documentation
-3. Open an issue on GitHub
-
----
-
-**Built with ❤️ using React Native, Expo, Firebase, and Groq**
+See the `LICENSE` file for additional information.
