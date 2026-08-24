@@ -734,7 +734,7 @@ export default function HomePage() {
                   <MaterialIcons name="local-shipping" size={28} color="#FFFFFF" />
                 </View>
                 <View style={styles.driverTextContainer}>
-                  <Text style={styles.driverTitle}>Driver UI</Text>
+                  <Text style={styles.driverTitle}>Driver Page</Text>
                   <Text style={styles.driverSubtitle}>Access active shifts, routes & navigation</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={28} color="rgba(255,255,255,0.7)" />

@@ -204,6 +204,11 @@ class LocationService {
   }
 
   async stopTracking(driverId: string) {
+    // If tracking is already stopped, avoid redundant writes and duplicate log messages
+    if (!this.isTracking && !this.locationSubscription && !this.retryTimeout) {
+      return;
+    }
+
     // Cancel any pending retry
     if (this.retryTimeout) {
       clearTimeout(this.retryTimeout);
@@ -225,7 +230,7 @@ class LocationService {
 
     // Mark as inactive in Firestore
     try {
-      if (db) {
+      if (db && driverId) {
         const truckRef = doc(db, 'truck_locations', driverId);
         await setDoc(truckRef, {
           status: 'inactive',
@@ -446,8 +451,10 @@ class LocationService {
     const coordinate = { latitude: coords.latitude, longitude: coords.longitude };
     const movedMeters = this.lastHistoryCoordinate ? distanceMeters(this.lastHistoryCoordinate, coordinate) : Number.POSITIVE_INFINITY;
     
-    // During normal GPS tracking, throttle if stationary (<50m in 30s). In simulation, always record each step.
-    if (!isSimulation && now - this.lastHistoryAt < 30_000 && movedMeters < 50) return;
+    // Throttle writing permanent trail points to client_activity to at most once every 25 seconds
+    if (now - this.lastHistoryAt < 25_000 && (!isSimulation && movedMeters < 50)) return;
+    this.lastHistoryAt = now;
+    this.lastHistoryCoordinate = coordinate;
 
     const speedKph = Math.max(0, Number(coords.speed || 0) * 3.6);
     const deviationMeters = distanceFromRouteMeters(coordinate, context.routePolyline);

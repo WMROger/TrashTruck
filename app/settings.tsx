@@ -232,7 +232,7 @@ export default function SettingsPage() {
             displayName: userData.displayName || user.displayName || 'User',
             photoURL: resolved,
             barangay: userData.barangay || '',
-            barangayUpdatedAt: userData.barangayUpdatedAt || userData.updatedAt || null,
+            barangayUpdatedAt: userData.barangayUpdatedAt || null,
           });
         } else {
           console.log('❌ No Firestore document found, checking auth data');

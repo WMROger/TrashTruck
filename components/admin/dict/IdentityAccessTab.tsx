@@ -223,19 +223,11 @@ export default function IdentityAccessTab() {
   };
 
   useEffect(() => {
-    // Initial fetch + real-time listener
+    // Initial fetch + real-time listener (automatically updates whenever any user document changes)
     const unsubscribe = fetchUsers();
-
-    // Periodic 1-hour background scan
-    const ONE_HOUR_MS = 60 * 60 * 1000;
-    const interval = setInterval(() => {
-      console.log('🔄 Executing 1-hour periodic directory re-scan...');
-      fetchUsers();
-    }, ONE_HOUR_MS);
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
-      clearInterval(interval);
     };
   }, []);
 

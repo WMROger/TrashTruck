@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { useAuthContext } from '@/components/AuthContext';
+import { CustomTabBar } from '@/components/CustomTabBar';
 import { db } from '@/config/firebase';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 
@@ -104,37 +105,43 @@ export default function DriverLayout() {
     return null; // Will redirect if needed
   }
 
-  const activeColor = isDark ? '#86EFAC' : '#4E6C50'; 
-  const inactiveColor = isDark ? '#4B5563' : '#9CA3AF';
+  const activeColor = isDark ? '#86EFAC' : '#2E7D32'; 
+  const inactiveColor = isDark ? '#9CA3AF' : '#757575';
 
   return (
     <Tabs
       initialRouteName="index"
-      screenOptions={{
+      screenOptions={({ route, navigation }) => ({
         lazy: true,
         headerShown: false,
         tabBarActiveTintColor: activeColor,
         tabBarInactiveTintColor: inactiveColor,
+        tabBarButton: (props) => {
+          const state = navigation.getState();
+          const currentRouteName = state.routes[state.index]?.name;
+          const isFocused = currentRouteName === route.name;
+          return <CustomTabBar {...props} isFocused={isFocused} />;
+        },
         tabBarStyle: {
           backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: isDark ? '#111827' : '#F3F4F6',
-          height: Platform.OS === 'ios' ? 85 : 65,
-          paddingBottom: Platform.OS === 'ios' ? 25 : 10,
-          paddingTop: 10,
+          borderTopColor: isDark ? '#111827' : '#E0E0E0',
+          height: 80,
+          paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
         },
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: '600',
           marginTop: 2,
         },
-      }}>
+      })}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={24} color={color} />
+            <MaterialIcons name="home" size={28} color={color} />
           ),
         }}
       />
@@ -143,7 +150,7 @@ export default function DriverLayout() {
         options={{
           title: 'Schedule',
           tabBarIcon: ({ color, size }) => (
-            <Feather name="calendar" size={24} color={color} />
+            <MaterialIcons name="event" size={28} color={color} />
           ),
         }}
       />
@@ -152,7 +159,7 @@ export default function DriverLayout() {
         options={{
           title: 'History',
           tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="history" size={26} color={color} />
+            <MaterialIcons name="history" size={28} color={color} />
           ),
         }}
       />
@@ -161,7 +168,7 @@ export default function DriverLayout() {
         options={{
           title: 'Inbox',
           tabBarIcon: ({ color, size }) => (
-            <Feather name="bell" size={24} color={color} />
+            <MaterialIcons name="notifications" size={28} color={color} />
           ),
         }}
       />
@@ -181,6 +188,7 @@ export default function DriverLayout() {
         name="select-truck"
         options={{
           href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen

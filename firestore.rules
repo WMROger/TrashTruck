@@ -158,7 +158,7 @@ service cloud.firestore {
   function driverTruckAssignmentOnly() {
     return hasRole('driver')
       && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'currentTruckId', 'currentTruckPlate', 'updatedAt'
+        'currentTruckId', 'currentTruckPlate', 'assignedTruck', 'status', 'dutyStatus', 'updatedAt'
       ])
       && (
         request.resource.data.get('currentTruckId', null) == null

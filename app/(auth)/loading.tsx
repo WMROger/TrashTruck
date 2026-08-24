@@ -156,31 +156,37 @@ export default function LoadingPage() {
       setProgress(50);
 
       let isDriverOrPreVerified = false;
-      // Check user role and prevent admin login on user/driver UI
+      // Check user role and route properly
       if (db) {
         const snap = await getDoc(doc(db, 'users', user.uid));
         if (snap.exists()) {
           const data = snap.data();
           const userRole = (data as any)?.role;
-          if (userRole === 'driver' || userRole === 'admin' || userRole === 'dict' || (data as any)?.verified === true) {
+          if (userRole === 'driver' || userRole === 'admin' || userRole === 'dict' || userRole === 'cenro' || userRole === 'coordinator' || (data as any)?.verified === true) {
             isDriverOrPreVerified = true;
           }
           
-          // Prevent admin and dict logins on the mobile app
-          if (userRole === 'admin' || userRole === 'dict') {
-            try { 
-              await signOut(auth);
-            } catch {}
-            
-            const message = Platform.OS === 'web' 
-              ? 'Admin accounts must use the admin login portal. Please go to the admin login page.'
-              : 'Admin access is restricted to the desktop website. Please log in on a computer.';
+          // Handle admin and dict logins
+          if (userRole === 'admin' || userRole === 'dict' || userRole === 'cenro') {
+            if (Platform.OS === 'web') {
+              if (userRole === 'dict') {
+                router.replace('/dict/dashboard' as any);
+              } else {
+                router.replace('/admin/dashboard' as any);
+              }
+              return;
+            } else {
+              try { 
+                await signOut(auth);
+              } catch {}
               
-            showError(message, 'Restricted Access', 'warning');
-            setTimeout(() => {
-              router.replace('/(auth)/login' as any);
-            }, 3000);
-            return;
+              const message = 'Admin access is restricted to the desktop website. Please log in on a computer.';
+              showError(message, 'Restricted Access', 'warning');
+              setTimeout(() => {
+                router.replace('/(auth)/login' as any);
+              }, 3000);
+              return;
+            }
           }
         }
       }
@@ -219,8 +225,14 @@ export default function LoadingPage() {
     } catch (error: any) {
       console.warn('Email/password authentication error:', error);
       let errorMessage = 'Login failed. Please try again.';
+      let errorTitle = 'Authentication Failed';
       
-      if (error.code === 'auth/user-not-found') {
+      const isQuota = error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded') || error?.message?.includes('resource-exhausted');
+
+      if (isQuota) {
+        errorTitle = 'Database Quota Exceeded';
+        errorMessage = 'Firebase free daily database quota has been reached for today. Operations will resume once the daily quota resets (~3:00 PM PHT) or when upgraded to the Blaze plan.';
+      } else if (error.code === 'auth/user-not-found') {
         errorMessage = 'No account found with this email address.';
       } else if (error.code === 'auth/wrong-password') {
         errorMessage = 'Incorrect password. Please try again.';
@@ -234,10 +246,10 @@ export default function LoadingPage() {
         errorMessage = 'This account has been disabled.';
       }
       
-      showError(errorMessage, 'Authentication Failed', 'error');
+      showError(errorMessage, errorTitle, isQuota ? 'warning' : 'error');
       setTimeout(() => {
         router.replace('/(auth)/login' as any);
-      }, 3000);
+      }, isQuota ? 5000 : 3000);
     }
   };
 

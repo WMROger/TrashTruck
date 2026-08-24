@@ -17,7 +17,43 @@ LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
   '`expo-notifications` functionality is not fully supported in Expo Go',
   'SafeAreaView has been deprecated',
+  'TouchableMixin is deprecated',
+  'Invalid DOM property `transform-origin`',
+  'Unknown event handler property `onStartShouldSetResponder`',
+  'Unknown event handler property `onResponderGrant`',
+  'Unknown event handler property `onResponderMove`',
+  'Unknown event handler property `onResponderRelease`',
+  'Unknown event handler property `onResponderTerminate`',
+  'Unknown event handler property `onResponderTerminationRequest`',
 ]);
+
+// Filter out benign React DOM web warnings caused by third-party react-native-chart-kit SVG elements
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  const isBenignWarning = (args: any[]) => {
+    const text = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
+    return (
+      text.includes('transform-origin') ||
+      text.includes('onResponder') ||
+      text.includes('onStartShouldSetResponder') ||
+      text.includes('onPressIn') ||
+      text.includes('TouchableMixin') ||
+      text.includes('pointerEvents is deprecated') ||
+      text.includes('useNativeDriver` is not supported')
+    );
+  };
+
+  const originalConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    if (isBenignWarning(args)) return;
+    originalConsoleError(...args);
+  };
+
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    if (isBenignWarning(args)) return;
+    originalConsoleWarn(...args);
+  };
+}
 
 function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();

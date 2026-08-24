@@ -2,6 +2,7 @@ import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useTheme } from '@/hooks/useTheme';
 
 interface CustomTabBarProps extends BottomTabBarButtonProps {
   isFocused?: boolean;
@@ -10,13 +11,15 @@ interface CustomTabBarProps extends BottomTabBarButtonProps {
 
 export function CustomTabBar(props: CustomTabBarProps) {
   const { isFocused, isProtruding, ...otherProps } = props;
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
 
   if (isProtruding) {
     return (
       <View style={styles.protrudingContainer}>
         <PlatformPressable
           {...otherProps}
-          style={styles.protrudingButton}
+          style={[styles.protrudingButton, isDark && styles.protrudingButtonDark]}
           onPressIn={(ev) => {
             props.onPressIn?.(ev);
           }}
@@ -28,7 +31,14 @@ export function CustomTabBar(props: CustomTabBarProps) {
   return (
     <View style={styles.container}>
       {/* Selected pill background */}
-      {isFocused && <View style={styles.selectedBackground} />}
+      {isFocused && (
+        <View
+          style={[
+            styles.selectedBackground,
+            isDark && styles.selectedBackgroundDark,
+          ]}
+        />
+      )}
       
       <PlatformPressable
         {...otherProps}
@@ -60,6 +70,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     zIndex: 1,
   },
+  selectedBackgroundDark: {
+    backgroundColor: 'rgba(74, 222, 128, 0.22)',
+  },
   tabButton: {
     flex: 1,
     width: '100%',
@@ -89,5 +102,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0', 
     zIndex: 10,
+  },
+  protrudingButtonDark: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
 });

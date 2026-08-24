@@ -102,31 +102,6 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
 
         const userIsDict = isDictEmail(user.email);
 
-        const usesPassword = user.providerData.some(provider => provider.providerId === 'password');
-        if (!userIsDict && usesPassword && !user.emailVerified) {
-          // Check if officially provisioned by DICT
-          if (db) {
-            const userRef = doc(db, 'users', user.uid);
-            const userSnap = await getDoc(userRef);
-            const data = userSnap.data();
-            if (userSnap.exists() && (data?.role === 'admin' || data?.verified === true)) {
-              router.replace('/admin/dashboard');
-              return;
-            }
-          }
-
-          try {
-            await sendEmailVerification(user);
-          } catch {}
-          await signOut(auth);
-          showError(
-            'A verification link was sent to this administrator email. Verify it before signing in.',
-            'Email Verification Required',
-            'warning',
-          );
-          return;
-        }
-
         if (db) {
           if (userIsDict) {
             await ensureDictProfileInFirestore(
@@ -161,10 +136,13 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
               return;
             }
 
-            if (userRole === 'admin') {
+            const isCenroAdmin = userRole === 'admin' || userRole === 'cenro' || userRole === 'coordinator' || userRole === 'cenro_officer';
+            const isDictAdmin = userRole === 'dict' || userRole === 'dict_admin';
+
+            if (isCenroAdmin) {
               router.replace('/admin/dashboard');
               return;
-            } else if (userRole === 'dict') {
+            } else if (isDictAdmin) {
               router.replace('/dict/dashboard');
               return;
             } else if (userRole === 'driver') {
@@ -173,7 +151,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
               return;
             } else if (userRole === 'user') {
               await signOut(auth);
-              showError('Resident accounts must use the main resident application.', 'Access Denied', 'warning');
+              showError('This account is registered as a Resident. To access CENRO, create or elevate the account in the DICT Identity & Access dashboard.', 'Resident Account', 'warning');
               return;
             } else {
               await signOut(auth);

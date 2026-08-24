@@ -36,6 +36,12 @@ export default function TruckInventoryTab() {
   const [truckHistory, setTruckHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Unassign Driver Modal & Feedback State
+  const [unassignModalVisible, setUnassignModalVisible] = useState(false);
+  const [truckToUnassign, setTruckToUnassign] = useState<Truck | null>(null);
+  const [isUnassigning, setIsUnassigning] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   useEffect(() => {
     if (!db) return;
     const q = query(collection(db, 'trucks'), orderBy('createdAt', 'desc'));
@@ -92,49 +98,97 @@ export default function TruckInventoryTab() {
     }
   };
 
-  const handleUnassignDriver = async (truckId: string) => {
-    const truck = trucks.find(t => t.id === truckId);
-    if (!truck) return;
+  const handleOpenUnassignModal = (truck: Truck) => {
+    setTruckToUnassign(truck);
+    setUnassignModalVisible(true);
+  };
 
-    Alert.alert(
-      'Unassign Driver',
-      `Remove ${truck.assignedDriverName || 'driver'} from ${truck.plateNumber}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unassign',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Clear driver assignment from truck
-              await updateDoc(doc(db, 'trucks', truckId), {
-                assignedDriverId: null,
-                assignedDriverName: null,
-                shiftStartedAt: null,
-                updatedAt: serverTimestamp(),
-              });
+  const executeUnassignDriver = async () => {
+    if (!truckToUnassign || !db) return;
+    setIsUnassigning(true);
 
-              // Clear truck from driver's user doc
-              if (truck.assignedDriverId) {
-                try {
-                  await updateDoc(doc(db, 'users', truck.assignedDriverId), {
-                    currentTruckId: null,
-                    currentTruckPlate: null,
-                    status: 'off_duty',
-                    dutyStatus: 'off_duty',
-                  });
-                } catch (userErr) {
-                  console.warn('Could not clear driver user doc:', userErr);
-                }
-              }
-            } catch (e) {
-              console.error(e);
-              Alert.alert('Error', 'Failed to unassign driver.');
-            }
-          },
-        },
-      ]
-    );
+    const truckId = truckToUnassign.id;
+    const driverId = truckToUnassign.assignedDriverId;
+    const driverName = truckToUnassign.assignedDriverName || 'Driver';
+    const plateNumber = truckToUnassign.plateNumber;
+
+    try {
+      // 1. Clear driver assignment from the truck
+      await updateDoc(doc(db, 'trucks', truckId), {
+        assignedDriverId: null,
+        assignedDriverName: null,
+        shiftStartedAt: null,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 2. Clear truck assignment from the driver's user document
+      if (driverId) {
+        try {
+          await updateDoc(doc(db, 'users', driverId), {
+            currentTruckId: null,
+            currentTruckPlate: null,
+            assignedTruck: null,
+            status: 'off_duty',
+            dutyStatus: 'off_duty',
+            updatedAt: serverTimestamp(),
+          });
+        } catch (userErr) {
+          console.warn('Could not clear driver user doc:', userErr);
+        }
+
+        // 3. Clear employee_ids record if present
+        try {
+          const empQ = query(collection(db, 'employee_ids'), where('userId', '==', driverId));
+          const empSnap = await getDocs(empQ);
+          empSnap.forEach(async (d) => {
+            await updateDoc(d.ref, {
+              assignedTruckId: null,
+              assignedTruckPlate: null,
+              updatedAt: serverTimestamp(),
+            });
+          });
+        } catch (empErr) {
+          console.warn('Could not update employee_ids doc:', empErr);
+        }
+
+        // 4. Log the unassignment event to client_activity for audit trail
+        try {
+          await addDoc(collection(db, 'client_activity'), {
+            event: 'truck.driver.unassigned',
+            targetType: 'truck',
+            targetId: truckId,
+            actorEmail: 'cenro@danao.gov.ph',
+            metadata: {
+              truckPlate: plateNumber,
+              removedDriverId: driverId,
+              removedDriverName: driverName,
+              action: 'Driver unassigned from truck',
+            },
+            createdAt: serverTimestamp(),
+          });
+        } catch (logErr) {
+          console.warn('Could not log client activity:', logErr);
+        }
+      }
+
+      setUnassignModalVisible(false);
+      setTruckToUnassign(null);
+      setFeedbackToast({
+        message: `Successfully removed ${driverName} from truck ${plateNumber}.`,
+        type: 'success',
+      });
+      setTimeout(() => setFeedbackToast(null), 5000);
+    } catch (e: any) {
+      console.error('Failed to unassign driver:', e);
+      Alert.alert('Error', e.message || 'Failed to unassign driver.');
+      setFeedbackToast({
+        message: `Failed to remove driver: ${e.message || 'Network error'}`,
+        type: 'error',
+      });
+      setTimeout(() => setFeedbackToast(null), 5000);
+    } finally {
+      setIsUnassigning(false);
+    }
   };
 
   const activeCount = trucks.filter(t => t.status === 'active').length;
@@ -216,6 +270,34 @@ export default function TruckInventoryTab() {
 
   return (
     <ScrollView style={[styles.container, isMobile && { padding: 16 }]}>
+      {feedbackToast && (
+        <View style={{
+          backgroundColor: feedbackToast.type === 'success' ? '#ECFDF5' : '#FEE2E2',
+          borderWidth: 1,
+          borderColor: feedbackToast.type === 'success' ? '#A7F3D0' : '#FECACA',
+          borderRadius: 8,
+          padding: 12,
+          marginBottom: 16,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+            <MaterialIcons
+              name={feedbackToast.type === 'success' ? 'check-circle' : 'error-outline'}
+              size={20}
+              color={feedbackToast.type === 'success' ? '#059669' : '#DC2626'}
+            />
+            <Text style={{ fontSize: 13, color: feedbackToast.type === 'success' ? '#065F46' : '#991B1B', fontWeight: '600', flex: 1 }}>
+              {feedbackToast.message}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => setFeedbackToast(null)}>
+            <MaterialIcons name="close" size={18} color={feedbackToast.type === 'success' ? '#059669' : '#DC2626'} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Fleet Inventory</Text>
@@ -418,27 +500,47 @@ export default function TruckInventoryTab() {
                     </View>
                   </View>
                   
-                  <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
-                    <TouchableOpacity onPress={() => { setSelectedTruck(truck); setHistoryModalVisible(true); }} style={styles.actionBtn}>
+                    <View style={[styles.td, { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }]}>
+                    <TouchableOpacity
+                      onPress={() => { setSelectedTruck(truck); setHistoryModalVisible(true); }}
+                      style={styles.actionBtn}
+                      accessibilityLabel="View History"
+                    >
                       <MaterialIcons name="history" size={20} color="#4B5563" />
                     </TouchableOpacity>
                     {truck.assignedDriverId && (
-                      <TouchableOpacity onPress={() => handleUnassignDriver(truck.id)} style={styles.actionBtn}>
+                      <TouchableOpacity
+                        onPress={() => handleOpenUnassignModal(truck)}
+                        style={[styles.actionBtn, { backgroundColor: '#F5F3FF', borderColor: '#DDD6FE' }]}
+                        accessibilityLabel="Remove Driver"
+                      >
                         <MaterialIcons name="person-remove" size={18} color="#7C3AED" />
                       </TouchableOpacity>
                     )}
                     {truck.status !== 'active' && (
-                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'active')} style={styles.actionBtn}>
+                      <TouchableOpacity
+                        onPress={() => handleUpdateStatus(truck.id, 'active')}
+                        style={styles.actionBtn}
+                        accessibilityLabel="Mark Active"
+                      >
                         <MaterialIcons name="check-circle" size={20} color="#059669" />
                       </TouchableOpacity>
                     )}
                     {truck.status !== 'maintenance' && (
-                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'maintenance')} style={styles.actionBtn}>
+                      <TouchableOpacity
+                        onPress={() => handleUpdateStatus(truck.id, 'maintenance')}
+                        style={styles.actionBtn}
+                        accessibilityLabel="Mark Maintenance"
+                      >
                         <MaterialIcons name="build" size={20} color="#D97706" />
                       </TouchableOpacity>
                     )}
                     {truck.status !== 'out_of_service' && (
-                      <TouchableOpacity onPress={() => handleUpdateStatus(truck.id, 'out_of_service')} style={styles.actionBtn}>
+                      <TouchableOpacity
+                        onPress={() => handleUpdateStatus(truck.id, 'out_of_service')}
+                        style={styles.actionBtn}
+                        accessibilityLabel="Mark Out of Service"
+                      >
                         <MaterialIcons name="block" size={20} color="#DC2626" />
                       </TouchableOpacity>
                     )}
@@ -517,6 +619,96 @@ export default function TruckInventoryTab() {
                     </View>
                   )))}
                 </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Unassign Driver Confirmation Modal */}
+      <Modal
+        visible={unassignModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isUnassigning && setUnassignModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 460 }]}>
+            {truckToUnassign && (
+              <>
+                <View style={styles.modalHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#F5F3FF', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#DDD6FE' }}>
+                      <MaterialIcons name="person-remove" size={20} color="#7C3AED" />
+                    </View>
+                    <View>
+                      <Text style={styles.modalTitle}>Remove Assigned Driver</Text>
+                      <Text style={styles.modalSubtitle}>Unassign driver from this vehicle</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setUnassignModalVisible(false)}
+                    disabled={isUnassigning}
+                    style={styles.modalCloseBtn}
+                  >
+                    <MaterialIcons name="close" size={20} color="#9CA3AF" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ marginVertical: 16, backgroundColor: '#F9FAFB', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', gap: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '600' }}>TRUCK:</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>
+                      {truckToUnassign.plateNumber} ({truckToUnassign.type || 'Compactor'} - {truckToUnassign.capacity} Tons)
+                    </Text>
+                  </View>
+
+                  <View style={{ height: 1, backgroundColor: '#E5E7EB' }} />
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '600' }}>ASSIGNED DRIVER:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#EDE9FE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                      <MaterialIcons name="person" size={14} color="#7C3AED" />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED' }}>
+                        {truckToUnassign.assignedDriverName || 'Assigned Driver'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{ height: 1, backgroundColor: '#E5E7EB' }} />
+
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 2 }}>
+                    <MaterialIcons name="info-outline" size={16} color="#6B7280" style={{ marginTop: 1 }} />
+                    <Text style={{ fontSize: 12, color: '#6B7280', flex: 1, lineHeight: 18 }}>
+                      This will remove the driver from this truck and update their status to off-duty.
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                  <TouchableOpacity
+                    style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#FFF' }}
+                    onPress={() => setUnassignModalVisible(false)}
+                    disabled={isUnassigning}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8, backgroundColor: '#7C3AED' }}
+                    onPress={executeUnassignDriver}
+                    disabled={isUnassigning}
+                  >
+                    {isUnassigning ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="person-remove" size={16} color="#FFF" />
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#FFF' }}>Remove Driver</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </>
             )}
           </View>

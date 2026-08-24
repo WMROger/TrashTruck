@@ -24,6 +24,7 @@ import {
   DictCommandsTab,
   CenroProfileSettingsModal,
   OperationalLogsTab,
+  AdminNotificationDropdown,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
@@ -35,6 +36,8 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showProfileSettingsModal, setShowProfileSettingsModal] = useState(false);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isTabLoading, setIsTabLoading] = useState(false);
   const spinValue = new Animated.Value(0);
@@ -94,7 +97,8 @@ export default function AdminDashboard() {
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
-            if (userData.role === 'admin') {
+            const isCenroAdmin = userData.role === 'admin' || userData.role === 'cenro' || userData.role === 'coordinator' || userData.role === 'cenro_officer';
+            if (isCenroAdmin) {
               console.log('Admin dashboard: Admin role confirmed for:', user.email);
               setIsAdmin(true);
               setIsLoading(false);
@@ -259,9 +263,9 @@ export default function AdminDashboard() {
   // History counters (pickup completion and resolved trash reports) and list subscription
   useEffect(() => {
     if (!db) return;
-    const schedulesRef = collection(db, 'schedules');
-    const reportsRef = collection(db, 'reports');
-    const unsubSched = onSnapshot(schedulesRef, (snap) => {
+    const schedulesQuery = query(collection(db, 'schedules'), orderBy('createdAt', 'desc'), limit(50));
+    const reportsQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubSched = onSnapshot(schedulesQuery, (snap) => {
       const items = snap.docs.map((d) => d.data() as any);
       // Prefer explicit completed statuses if present, else count all
       const completed = items.filter((i) => {
@@ -271,7 +275,7 @@ export default function AdminDashboard() {
       const pickup = completed > 0 ? completed : items.length;
       setHistoryCounts((prev) => ({ ...prev, pickup }));
     });
-    const unsubRep = onSnapshot(reportsRef, (snap) => {
+    const unsubRep = onSnapshot(reportsQuery, (snap) => {
       const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any[];
       const onlyResolved = all.filter((r) => (r.status || '').toString().toLowerCase() === 'resolved');
       setResolvedReports(
@@ -369,7 +373,7 @@ export default function AdminDashboard() {
     if (!db) return;
     setIsHistoryLoading(true);
     try {
-      const collectionName = type === 'pickup' ? 'pickupHistory' : 'reports';
+      const collectionName = type === 'pickup' ? 'schedules' : 'reports';
       const collectionRef = collection(db, collectionName);
 
       const now = new Date();
@@ -399,11 +403,11 @@ export default function AdminDashboard() {
 
       const mapped: Report[] = data.map((r) => ({
         id: r.id,
-        title: r.title || 'Untitled',
-        description: r.description || '',
+        title: r.title || (type === 'pickup' ? `Pickup: ${r.barangay || 'Collection'}` : 'Untitled'),
+        description: r.description || r.wasteType || '',
         barangay: r.barangay || '',
         street: r.street || '',
-        userEmail: r.userEmail || '',
+        userEmail: r.userEmail || r.assignedDriverEmail || '',
         status: r.status || (type === 'pickup' ? 'completed' : 'pending'),
         createdAt: r.createdAt,
       }));
@@ -422,11 +426,7 @@ export default function AdminDashboard() {
     try {
       const itemsPerPage = 10;
       
-      let collectionName = 'reports';
-      if (type === 'pickup') {
-        collectionName = 'pickupHistory';
-      }
-      
+      const collectionName = type === 'pickup' ? 'schedules' : 'reports';
       const collectionRef = collection(db, collectionName);
       
       // Apply date filter
@@ -571,9 +571,21 @@ export default function AdminDashboard() {
         </View>
         <View style={{ flex: 1 }} />
         <View style={styles.topBarRight}>
-          <TouchableOpacity style={styles.topBarIconBtn} onPress={() => handleTabPress('announcements')}>
-            <MaterialIcons name="notifications-none" size={24} color="#374151" />
-            <View style={styles.notificationDot} />
+          <TouchableOpacity
+            style={[styles.topBarIconBtn, unreadNotifCount > 0 && styles.topBarIconBtnActive]}
+            onPress={() => setShowNotifDropdown(!showNotifDropdown)}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name={unreadNotifCount > 0 ? "notifications-active" : "notifications-none"}
+              size={22}
+              color={unreadNotifCount > 0 ? "#DC2626" : "#374151"}
+            />
+            {unreadNotifCount > 0 ? (
+              <View style={styles.notificationDot}>
+                <Text style={styles.notificationDotText}>{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
           <TouchableOpacity style={styles.topBarIconBtn} onPress={() => setShowProfileSettingsModal(true)}>
             <MaterialIcons name="settings" size={24} color="#374151" />
@@ -596,6 +608,14 @@ export default function AdminDashboard() {
           </View>
         </View>
       </View>
+
+      {/* Real-time Notification Dropdown */}
+      <AdminNotificationDropdown
+        visible={showNotifDropdown}
+        onClose={() => setShowNotifDropdown(false)}
+        onNavigateTab={(tabKey) => handleTabPress(tabKey)}
+        onUnreadCountChange={setUnreadNotifCount}
+      />
       
       <View style={styles.mainContainer}>
         <AdminSidebar 
@@ -856,17 +876,36 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   topBarIconBtn: {
-    padding: 8,
+    padding: 7,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     position: 'relative',
+  },
+  topBarIconBtnActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   notificationDot: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ef4444',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  notificationDotText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    lineHeight: 11,
   },
   topBarDivider: {
     width: 1,

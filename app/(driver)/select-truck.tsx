@@ -183,34 +183,52 @@ export default function SelectTruckScreen() {
     try {
       const driverName = user.displayName || user.email || 'Unknown Driver';
 
-      // Update the truck document
-      const truckRef = doc(db, 'trucks', truck.id);
-      await updateDoc(truckRef, {
-        assignedDriverId: user.uid,
-        assignedDriverName: driverName,
-        shiftStartedAt: serverTimestamp(),
-      });
+      // Timeout wrapper to prevent infinite loading if backend is throttled
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Truck assignment timed out. Please check network connection.')), 10000)
+      );
 
-      // Update the user's document
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        currentTruckId: truck.id,
-        currentTruckPlate: truck.plateNumber,
-        status: 'on_duty',
-        dutyStatus: 'on_duty',
-      });
+      const performUpdates = async () => {
+        // Update the truck document
+        const truckRef = doc(db, 'trucks', truck.id);
+        await updateDoc(truckRef, {
+          assignedDriverId: user.uid,
+          assignedDriverName: driverName,
+          shiftStartedAt: serverTimestamp(),
+        });
+
+        // Update the user's document
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+          currentTruckId: truck.id,
+          currentTruckPlate: truck.plateNumber,
+          status: 'on_duty',
+          dutyStatus: 'on_duty',
+        });
+      };
+
+      await Promise.race([performUpdates(), timeoutPromise]);
 
       router.replace('/(driver)');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to assign truck:', error);
-      Alert.alert('Error', 'Failed to assign truck. Please try again.');
+      const isQuota = error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded') || error?.message?.includes('resource-exhausted');
+      const msg = isQuota
+        ? 'Firebase daily quota has been exceeded for today. Firestore operations will resume once quota resets.'
+        : (error?.message || 'Failed to assign truck. Please try again.');
+
+      Alert.alert(isQuota ? 'Firebase Quota Exceeded' : 'Assignment Error', msg);
     } finally {
       setAssigning(false);
     }
   };
 
   const handleGoBack = () => {
-    router.replace('/(tabs)/home');
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/home' as any);
+    }
   };
 
   if (loading) {

@@ -2,7 +2,7 @@ import { useAuthContext } from '@/components/AuthContext';
 import { auth, db } from '@/config/firebase';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, onSnapshot, query, where, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 
@@ -10,6 +10,8 @@ import CompletePickupModal from '@/components/driver/CompletePickupModal';
 import ReportIssueModal from '@/components/driver/ReportIssueModal';
 import { useTheme } from '@/hooks/useTheme';
 import { locationService, SimulationState } from '@/services/locationService';
+import MapView, { Marker, Polyline } from '@/components/MapView';
+import { getBarangaySimulationRoute } from '@/constants/barangaySimulationRoutes';
 
 interface NextPickup {
   id: string;
@@ -47,6 +49,7 @@ export default function DriverIndex() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [showEndShiftModal, setShowEndShiftModal] = useState(false);
+  const [isEndingShift, setIsEndingShift] = useState(false);
   const [showActiveShiftModal, setShowActiveShiftModal] = useState(false);
   const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
 
@@ -58,6 +61,19 @@ export default function DriverIndex() {
 
   // GPS Simulation state
   const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
+
+  // Barangay Simulation Route Points for Mini-Map
+  const barangayRoutePoints = React.useMemo(() => {
+    return getBarangaySimulationRoute(assignedBarangay).map((pt) => ({
+      latitude: pt.latitude,
+      longitude: pt.longitude,
+    }));
+  }, [assignedBarangay]);
+
+  // Current coordinate for the truck marker on the mini-map
+  const currentTruckCoord = simulationState.currentCoordinate || (
+    barangayRoutePoints[0] ? barangayRoutePoints[0] : { latitude: 10.5218, longitude: 124.0285 }
+  );
 
   useEffect(() => {
     return locationService.onSimulationChange((state) => {
@@ -235,43 +251,67 @@ export default function DriverIndex() {
     router.push('/(driver)/pages/DriverHistoryPage');
   };
 
-  const handleProfileSettings = () => {
-    router.push('/(driver)/profile');
-  };
-
   const handleEndShift = () => {
     setShowEndShiftModal(true);
   };
 
   const confirmEndShift = async () => {
-    try {
-      if (user?.uid) {
-        if (simulationState.isActive) {
-          await locationService.stopSimulation(user.uid);
-        }
-        await locationService.stopTracking(user.uid);
+    if (isEndingShift) return;
+    setIsEndingShift(true);
 
-        if (currentTruck) {
-          // Unassign driver from truck
-          await updateDoc(doc(db, 'trucks', currentTruck.id), {
-            assignedDriverId: null,
-            assignedDriverName: null,
-            shiftStartedAt: null,
+    try {
+      const activeUid = user?.uid || auth?.currentUser?.uid;
+      if (activeUid && db) {
+        // 1. Stop location simulation and tracking
+        try {
+          if (simulationState.isActive) {
+            await locationService.stopSimulation(activeUid);
+          }
+          await locationService.stopTracking(activeUid);
+        } catch (locErr) {
+          console.warn('Error stopping location tracking on end shift:', locErr);
+        }
+
+        // 2. Identify truck to release
+        let targetTruckId = currentTruck?.id;
+        if (!targetTruckId) {
+          try {
+            const userSnap = await getDoc(doc(db, 'users', activeUid));
+            targetTruckId = userSnap.data()?.currentTruckId;
+          } catch {}
+        }
+
+        // 3. Release truck document in /trucks
+        if (targetTruckId) {
+          try {
+            await updateDoc(doc(db, 'trucks', targetTruckId), {
+              assignedDriverId: null,
+              assignedDriverName: null,
+              shiftStartedAt: null,
+              updatedAt: serverTimestamp(),
+            });
+          } catch (truckErr) {
+            console.warn('Could not release truck document on end shift:', truckErr);
+          }
+        }
+
+        // 4. Update driver profile in /users to off-duty
+        try {
+          await updateDoc(doc(db, 'users', activeUid), {
+            currentTruckId: null,
+            currentTruckPlate: null,
+            assignedTruck: null,
+            status: 'off_duty',
+            dutyStatus: 'off_duty',
             updatedAt: serverTimestamp(),
           });
+        } catch (userErr) {
+          console.warn('Could not update user profile on end shift:', userErr);
         }
 
-        // Clear truck and mark off-duty on user profile
-        await updateDoc(doc(db, 'users', user.uid), {
-          currentTruckId: null,
-          currentTruckPlate: null,
-          status: 'off_duty',
-          dutyStatus: 'off_duty',
-        });
-
-        // Ensure truck_locations is marked inactive
+        // 5. Update /truck_locations status
         try {
-          await setDoc(doc(db, 'truck_locations', user.uid), {
+          await setDoc(doc(db, 'truck_locations', activeUid), {
             status: 'inactive',
             isBroadcasting: false,
             lastUpdate: serverTimestamp(),
@@ -280,14 +320,18 @@ export default function DriverIndex() {
           console.warn('Could not update truck_locations on end shift:', locErr);
         }
       }
+
       setIsShiftActive(false);
       setCurrentTruck(null);
       setShowEndShiftModal(false);
-      // Navigate back to user portal
+
+      // Navigate back to user/home portal
       router.replace('/(tabs)/home');
-    } catch (e) {
+    } catch (e: any) {
       console.error('End shift error:', e);
-      Alert.alert('Error', 'Failed to end shift. Please try again.');
+      Alert.alert('Error', e.message || 'Failed to end shift. Please try again.');
+    } finally {
+      setIsEndingShift(false);
     }
   };
 
@@ -323,9 +367,16 @@ export default function DriverIndex() {
         </View>
         
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleProfileSettings}>
-            <Image source={{ uri: user?.photoURL || 'https://i.pravatar.cc/100?img=33' }} style={styles.avatar} />
-          </TouchableOpacity>
+          <View style={[
+            styles.driverStatusBadge,
+            isShiftActive ? styles.driverStatusOnDuty : styles.driverStatusOffDuty,
+            isDark && (isShiftActive ? styles.driverStatusOnDutyDark : styles.driverStatusOffDutyDark)
+          ]}>
+            <View style={[styles.driverStatusDot, { backgroundColor: isShiftActive ? '#22C55E' : '#9CA3AF' }]} />
+            <Text style={[styles.driverStatusBadgeText, { color: isShiftActive ? (isDark ? '#86EFAC' : '#15803D') : (isDark ? '#D1D5DB' : '#6B7280') }]}>
+              {isShiftActive ? 'ON DUTY' : 'OFF DUTY'}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -357,107 +408,109 @@ export default function DriverIndex() {
         </View>
       </View>
 
-      {/* GPS Route Simulation Card - Only active when driver is ON DUTY with an assigned truck */}
+      {/* Interactive Live Route Mini-Map Card - Active when Driver is ON DUTY with assigned truck */}
       {isShiftActive && !!currentTruck && (
-        <View style={[styles.simCard, isDark && styles.simCardDark, simulationState.isActive && styles.simCardActive]}>
-          <View style={styles.simHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 160 }}>
-              <View style={[styles.simIconBox, simulationState.isActive ? styles.simIconBoxActive : (isDark ? styles.simIconBoxDark : null)]}>
-                <MaterialIcons
-                  name={simulationState.isActive ? 'navigation' : 'satellite-alt'}
-                  size={20}
-                  color={simulationState.isActive ? '#FFFFFF' : (isDark ? '#86EFAC' : '#2E8B57')}
-                />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <Text style={[styles.simTitle, isDark && styles.textLight]} numberOfLines={1}>
-                    {simulationState.isActive ? `Simulating Brgy. ${assignedBarangay}` : 'GPS Route Simulator'}
-                  </Text>
-                  {simulationState.isActive && (
-                    <View style={styles.simLiveBadge}>
-                      <View style={styles.simPulseDot} />
-                      <Text style={styles.simLiveText}>STREAMING</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.simSubtitle, isDark && styles.textMuted]} numberOfLines={1}>
-                  {simulationState.isActive
-                    ? `${simulationState.locationName} · ${simulationState.currentSpeedKph} km/h`
-                    : `Transmits live collection telemetry for Brgy. ${assignedBarangay}`}
+        <View style={[styles.miniMapCard, isDark && styles.miniMapCardDark, simulationState.isActive && styles.miniMapCardActive]}>
+          {/* Mini-Map Header Bar */}
+          <View style={styles.miniMapHeader}>
+            <View style={styles.miniMapHeaderLeft}>
+              <View style={[styles.miniMapLivePill, isDark && styles.miniMapLivePillDark]}>
+                <View style={[styles.miniMapLiveDot, simulationState.isActive && { backgroundColor: '#16A34A' }]} />
+                <Text style={[styles.miniMapLiveText, isDark && { color: '#86EFAC' }]}>
+                  {simulationState.isActive ? 'LIVE TELEMETRY' : 'ROUTE MAP'}
                 </Text>
               </View>
+              <Text style={[styles.miniMapTitle, isDark && styles.textLight]} numberOfLines={1}>
+                Brgy. {assignedBarangay} Path
+              </Text>
             </View>
 
             <TouchableOpacity
-              style={[styles.simBtn, simulationState.isActive ? styles.simBtnStop : styles.simBtnStart]}
+              style={[styles.expandMapBtn, isDark && styles.expandMapBtnDark]}
+              onPress={() => router.push('/(driver)/route-map')}
+              activeOpacity={0.8}
+            >
+              <Feather name="maximize-2" size={13} color={isDark ? '#86EFAC' : '#166534'} />
+              <Text style={[styles.expandMapBtnText, isDark && { color: '#86EFAC' }]}>Full Map</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Interactive Mini-Map Canvas */}
+          <View style={[styles.mapCanvasContainer, isDark && styles.mapCanvasContainerDark]}>
+            <MapView
+              style={styles.miniMapCanvas}
+              initialRegion={{
+                latitude: currentTruckCoord.latitude,
+                longitude: currentTruckCoord.longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              }}
+              showsCompass={false}
+              showsMyLocationButton={false}
+            >
+              {barangayRoutePoints.length > 1 && (
+                <Polyline
+                  coordinates={barangayRoutePoints}
+                  strokeColor="#2E8B57"
+                  strokeWidth={4}
+                />
+              )}
+
+              {currentTruckCoord && (
+                <Marker coordinate={currentTruckCoord} anchor={{ x: 0.5, y: 0.5 }} title="Your Truck">
+                  <View style={styles.truckMarkerContainer}>
+                    <MaterialIcons name="local-shipping" size={15} color="#FFFFFF" />
+                  </View>
+                </Marker>
+              )}
+            </MapView>
+
+            {/* Floating Live Telemetry Bar */}
+            <View style={[styles.telemetryOverlay, isDark && styles.telemetryOverlayDark]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                <MaterialIcons
+                  name={simulationState.isActive ? 'navigation' : 'location-on'}
+                  size={15}
+                  color={isDark ? '#86EFAC' : '#16A34A'}
+                />
+                <Text style={[styles.telemetryStreetText, isDark && styles.textLight]} numberOfLines={1}>
+                  {simulationState.isActive ? simulationState.locationName : `Sector: Brgy. ${assignedBarangay}`}
+                </Text>
+              </View>
+              <View style={[styles.telemetrySpeedBox, isDark && styles.telemetrySpeedBoxDark]}>
+                <Text style={[styles.telemetrySpeedVal, { color: simulationState.isActive ? (simulationState.currentSpeedKph >= 60 ? '#DC2626' : '#16A34A') : (isDark ? '#9CA3AF' : '#6B7280') }]}>
+                  {simulationState.isActive ? `${simulationState.currentSpeedKph} km/h` : 'Standby'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Mini-Map Simulator & Telemetry Controls */}
+          <View style={styles.miniMapFooter}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.miniMapFooterLabel, isDark && styles.textMuted]} numberOfLines={1}>
+                {simulationState.isActive ? `Streaming: ${simulationState.currentStep}/${simulationState.totalSteps} Waypoints` : `Truck: ${currentTruck.plateNumber}`}
+              </Text>
+              <Text style={[styles.miniMapFooterSub, isDark && styles.textLight]} numberOfLines={1}>
+                {simulationState.isActive ? 'Real-time telemetry to dispatch' : 'GPS navigation active'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.simDriveBtn, simulationState.isActive ? styles.simDriveBtnStop : styles.simDriveBtnStart]}
               onPress={handleToggleSimulation}
               activeOpacity={0.85}
             >
               <MaterialIcons
                 name={simulationState.isActive ? 'stop' : 'play-arrow'}
-                size={18}
+                size={16}
                 color="#FFFFFF"
               />
-              <Text style={styles.simBtnText}>
-                {simulationState.isActive ? 'Stop' : 'Start Drive'}
+              <Text style={styles.simDriveBtnText}>
+                {simulationState.isActive ? 'Stop Drive' : 'Start Drive'}
               </Text>
             </TouchableOpacity>
           </View>
-
-          {/* Sector / Barangay Fixed Assigned Row */}
-          <View style={styles.simSectorRow}>
-            <Text style={[styles.simSectorLabel, isDark && styles.textMuted]}>Assigned Sector:</Text>
-            <View
-              style={[
-                styles.simSectorBtn,
-                isDark && styles.simSectorBtnDark,
-                { opacity: 1 },
-              ]}
-            >
-              <MaterialIcons name="location-on" size={15} color="#16A34A" />
-              <Text style={[styles.simSectorBtnText, isDark && styles.textLight, { fontWeight: '800' }]} numberOfLines={1}>
-                Brgy. {assignedBarangay}
-              </Text>
-              <View
-                style={{
-                  backgroundColor: isDark ? '#064E3B' : '#DCFCE7',
-                  paddingHorizontal: 6,
-                  paddingVertical: 2,
-                  borderRadius: 4,
-                  marginLeft: 4,
-                }}
-              >
-                <Text style={{ fontSize: 9.5, fontWeight: '800', color: isDark ? '#86EFAC' : '#166534' }}>ASSIGNED</Text>
-              </View>
-            </View>
-          </View>
-
-          {simulationState.isActive && (
-            <View style={styles.simProgressSection}>
-              <View style={styles.simMetricsRow}>
-                <Text style={[styles.simMetricText, isDark && styles.textMuted]}>
-                  Waypoint: <Text style={[styles.simMetricVal, isDark && styles.textLight]}>{simulationState.currentStep}/{simulationState.totalSteps}</Text>
-                </Text>
-                <Text style={[styles.simMetricText, isDark && styles.textMuted]}>
-                  Truck: <Text style={[styles.simMetricVal, isDark && styles.textLight]}>{simulationState.truckId}</Text>
-                </Text>
-                <Text style={[styles.simMetricText, isDark && styles.textMuted]}>
-                  Speed: <Text style={[styles.simMetricVal, { color: simulationState.currentSpeedKph >= 60 ? '#DC2626' : '#16A34A' }]}>
-                    {simulationState.currentSpeedKph} km/h
-                  </Text>
-                </Text>
-              </View>
-              <View style={styles.simProgressBarTrack}>
-                <View
-                  style={[
-                    styles.simProgressBarFill,
-                    { width: `${Math.min(100, Math.max(0, (simulationState.currentStep / (simulationState.totalSteps || 1)) * 100))}%` },
-                  ]}
-                />
-              </View>
-            </View>
-          )}
         </View>
       )}
 
@@ -669,17 +722,23 @@ export default function DriverIndex() {
               <TouchableOpacity
                 style={[styles.modalCancelBtn, isDark && { backgroundColor: '#374151', borderColor: '#4B5563' }]}
                 onPress={() => setShowEndShiftModal(false)}
+                disabled={isEndingShift}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.modalCancelText, isDark && { color: '#D1D5DB' }]}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, { backgroundColor: '#DC2626', shadowColor: '#DC2626' }]}
+                style={[styles.modalConfirmBtn, { backgroundColor: '#DC2626', shadowColor: '#DC2626' }, isEndingShift && { opacity: 0.7 }]}
                 onPress={confirmEndShift}
+                disabled={isEndingShift}
                 activeOpacity={0.85}
               >
-                <Text style={styles.modalConfirmText}>End Shift</Text>
+                {isEndingShift ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>End Shift</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -779,12 +838,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: '#4E6C50',
+  driverStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  driverStatusOnDuty: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  driverStatusOnDutyDark: {
+    backgroundColor: '#064E3B',
+    borderColor: '#059669',
+  },
+  driverStatusOffDuty: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+  },
+  driverStatusOffDutyDark: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  driverStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  driverStatusBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   welcomeSection: {
     flexDirection: 'row',
@@ -1484,5 +1571,201 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#16A34A',
     borderRadius: 3,
+  },
+  miniMapCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  miniMapCardDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  miniMapCardActive: {
+    borderColor: '#2E8B57',
+  },
+  miniMapHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  miniMapHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+    marginRight: 10,
+  },
+  miniMapLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  miniMapLivePillDark: {
+    backgroundColor: '#064E3B',
+  },
+  miniMapLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  miniMapLiveText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  miniMapTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E293B',
+    flexShrink: 1,
+  },
+  expandMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  expandMapBtnDark: {
+    backgroundColor: '#064E3B',
+    borderColor: '#059669',
+  },
+  expandMapBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  mapCanvasContainer: {
+    height: 190,
+    width: '100%',
+    position: 'relative',
+    backgroundColor: '#E2E8F0',
+  },
+  mapCanvasContainerDark: {
+    backgroundColor: '#0F172A',
+  },
+  miniMapCanvas: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  truckMarkerContainer: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#2E8B57',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  telemetryOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  telemetryOverlayDark: {
+    backgroundColor: 'rgba(30, 41, 59, 0.94)',
+    borderColor: 'rgba(51, 65, 85, 0.8)',
+  },
+  telemetryStreetText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E293B',
+    flexShrink: 1,
+  },
+  telemetrySpeedBox: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(241, 245, 249, 0.8)',
+  },
+  telemetrySpeedBoxDark: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+  },
+  telemetrySpeedVal: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  miniMapFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  miniMapFooterLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  miniMapFooterSub: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginTop: 1,
+  },
+  simDriveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  simDriveBtnStart: {
+    backgroundColor: '#2E8B57',
+  },
+  simDriveBtnStop: {
+    backgroundColor: '#DC2626',
+  },
+  simDriveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

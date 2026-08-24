@@ -18,6 +18,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
 
+  // Set of UIDs whose session lastLogin has already been updated to prevent repeated writes
+  const recordedSessionLoginRef = React.useRef<Set<string>>(new Set());
+
   // Enforce account disabling/inactivity during an active session, not only at the next login.
   useEffect(() => {
     if (!auth.user?.uid || !db) return;
@@ -31,21 +34,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           signOut(firebaseAuth).catch(error => console.warn('Unable to end deactivated account session:', error));
           return;
         }
-
-        // Throttle lastLogin update to at most once every 2 hours
-        const lastLoginTime = profile?.lastLogin?.toMillis ? profile.lastLogin.toMillis() : (profile?.lastLogin ? new Date(profile.lastLogin).getTime() : 0);
-        const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-        if (Date.now() - lastLoginTime > TWO_HOURS_MS) {
-          setDoc(userDocRef, { lastLogin: serverTimestamp() }, { merge: true }).catch(() => {});
-        }
       },
       error => {
-        // Silently ignore permission-denied during logout / session termination
-        if (error?.code !== 'permission-denied') {
+        // Silently ignore permission-denied or resource-exhausted during session termination/quota
+        if (error?.code !== 'permission-denied' && error?.code !== 'resource-exhausted') {
           console.warn('AuthContext profile listener warning:', error);
         }
       }
     );
+  }, [auth.user?.uid]);
+
+  // Strictly throttled once-per-session lastLogin timestamp write
+  useEffect(() => {
+    const uid = auth.user?.uid;
+    if (!uid || !db || recordedSessionLoginRef.current.has(uid)) return;
+    recordedSessionLoginRef.current.add(uid);
+
+    setDoc(doc(db, 'users', uid), { lastLogin: serverTimestamp() }, { merge: true }).catch(() => {});
   }, [auth.user?.uid]);
 
   useEffect(() => {

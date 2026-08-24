@@ -102,7 +102,12 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   }, []);
 
   useEffect(() => {
-    return onSnapshot(query(collection(db, 'client_activity'), limit(1500)), snapshot => {
+    const qEvents = query(
+      collection(db, 'client_activity'),
+      orderBy('createdAt', 'desc'),
+      limit(60)
+    );
+    return onSnapshot(qEvents, snapshot => {
       setEvents(snapshot.docs
         .map(item => ({ id: item.id, ...item.data() } as FleetEvent))
         .filter(item => item.event === 'fleet.location' || item.event === 'fleet.alert')

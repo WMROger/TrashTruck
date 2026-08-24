@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Platform, useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Theme = 'light' | 'dark';
+
+const THEME_STORAGE_KEY = 'trashtrack_theme_preference';
 
 interface ThemeContextType {
   theme: Theme;
@@ -14,70 +17,84 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemColorScheme = useColorScheme();
-  const [theme, setThemeState] = useState<Theme>('light'); // Default to light
-  const [isSystem, setIsSystem] = useState(true);
+  const [theme, setThemeState] = useState<Theme>('light');
+  const [isSystem, setIsSystem] = useState(false);
 
-  // Initialize theme from localStorage on web, or default to light
+  // Initialize theme from AsyncStorage (and localStorage on Web)
   useEffect(() => {
-    // Only try to access localStorage on web platform
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    let isMounted = true;
+
+    async function loadSavedTheme() {
       try {
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light' || savedTheme === 'dark') {
-          setThemeState(savedTheme);
-          setIsSystem(false);
-        } else if (systemColorScheme) {
-          setThemeState(systemColorScheme);
-          setIsSystem(true);
+        let savedTheme: string | null = null;
+
+        // Try reading from AsyncStorage first
+        savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
+
+        // Fallback to localStorage on Web if not found in AsyncStorage
+        if (!savedTheme && Platform.OS === 'web' && typeof window !== 'undefined') {
+          savedTheme = localStorage.getItem('theme') || localStorage.getItem(THEME_STORAGE_KEY);
+        }
+
+        if (isMounted) {
+          if (savedTheme === 'light' || savedTheme === 'dark') {
+            setThemeState(savedTheme as Theme);
+            setIsSystem(false);
+          } else if (savedTheme === 'system') {
+            setIsSystem(true);
+            if (systemColorScheme) {
+              setThemeState(systemColorScheme);
+            }
+          } else if (systemColorScheme) {
+            setThemeState(systemColorScheme);
+            setIsSystem(true);
+          }
         }
       } catch (error) {
-        console.log('localStorage not available, using default theme');
-        setThemeState('light');
-        setIsSystem(false);
+        console.log('Error loading theme preference:', error);
       }
-    } else {
-      // On mobile, default to light theme
-      setThemeState('light');
-      setIsSystem(false);
     }
+
+    loadSavedTheme();
+
+    return () => {
+      isMounted = false;
+    };
   }, [systemColorScheme]);
 
   const setTheme = (newTheme: Theme) => {
-    console.log('ThemeProvider - Setting theme to:', newTheme);
     setThemeState(newTheme);
     setIsSystem(false);
-    
-    // Save to localStorage only on web platform
+
+    // Save to AsyncStorage (works on iOS, Android, and Web)
+    AsyncStorage.setItem(THEME_STORAGE_KEY, newTheme).catch((e) =>
+      console.log('Could not save theme to AsyncStorage:', e)
+    );
+
+    // Also save to localStorage on web platform
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       try {
         localStorage.setItem('theme', newTheme);
-      } catch (error) {
-        console.log('Could not save theme to localStorage:', error);
-      }
+        localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+      } catch {}
     }
   };
 
   const toggleSystem = () => {
-    console.log('ThemeProvider - Toggling system theme');
     if (isSystem) {
-      // If currently using system, switch to current theme
       setIsSystem(false);
+      AsyncStorage.setItem(THEME_STORAGE_KEY, theme).catch(() => {});
     } else {
-      // If not using system, switch back to system
       setIsSystem(true);
       if (systemColorScheme) {
         setThemeState(systemColorScheme);
       }
+      AsyncStorage.setItem(THEME_STORAGE_KEY, 'system').catch(() => {});
     }
   };
 
   // Determine the actual theme to use
   const currentTheme = isSystem ? (systemColorScheme ?? 'light') : theme;
-  
-  // Debug: Log theme changes
-  useEffect(() => {
-    console.log('ThemeProvider - Theme changed to:', currentTheme, 'isSystem:', isSystem);
-  }, [currentTheme, isSystem]);
 
   const value = {
     theme: currentTheme,

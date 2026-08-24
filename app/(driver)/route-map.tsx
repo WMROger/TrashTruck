@@ -194,6 +194,14 @@ export default function DriverRouteMap() {
     }
   };
 
+  const handleGoBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(driver)' as any);
+    }
+  };
+
   const routeDistance = stops.find(stop => Number.isFinite(stop.routeOptimization?.estimatedDistanceKm))
     ?.routeOptimization?.estimatedDistanceKm;
   const routeDuration = routeMetadata?.estimatedDurationMinutes;
@@ -240,8 +248,13 @@ export default function DriverRouteMap() {
       </MapView>
 
       <View style={[styles.header, { top: insets.top + 10 }, isDark && styles.panelDark]}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => router.back()} accessibilityLabel="Back to driver home">
-          <MaterialIcons name="arrow-back" size={23} color={isDark ? '#F9FAFB' : '#1F2937'} />
+        <TouchableOpacity
+          style={[styles.iconButton, isDark && styles.iconButtonDark]}
+          onPress={handleGoBack}
+          accessibilityLabel="Back to driver dashboard"
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#1F2937'} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
           <Text style={[styles.headerTitle, isDark && styles.textLight]}>Live Route Dispatch</Text>
@@ -265,7 +278,7 @@ export default function DriverRouteMap() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.iconButton} onPress={() => {
+          <TouchableOpacity style={[styles.iconButton, isDark && styles.iconButtonDark]} onPress={() => {
             if (mapFitCoordinates.length > 1) {
               mapRef.current?.fitToCoordinates?.(mapFitCoordinates, { edgePadding: { top: 120, right: 60, bottom: 330, left: 60 }, animated: true });
             }
@@ -285,12 +298,20 @@ export default function DriverRouteMap() {
           <View style={styles.emptyBox}>
             <MaterialIcons name="cloud-off" size={30} color="#EF4444" />
             <Text style={styles.errorText}>{errorText}</Text>
+            <TouchableOpacity style={styles.backHomeBtn} onPress={handleGoBack}>
+              <MaterialIcons name="arrow-back" size={18} color="#FFFFFF" />
+              <Text style={styles.backHomeBtnText}>Back to Dashboard</Text>
+            </TouchableOpacity>
           </View>
         ) : !selectedStop ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="check-circle" size={35} color="#2E8B57" />
             <Text style={[styles.emptyTitle, isDark && styles.textLight]}>No active route stops</Text>
             <Text style={[styles.emptyText, isDark && styles.textMuted]}>Return to Home to wait for the next dispatch.</Text>
+            <TouchableOpacity style={styles.backHomeBtn} onPress={handleGoBack}>
+              <MaterialIcons name="arrow-back" size={18} color="#FFFFFF" />
+              <Text style={styles.backHomeBtnText}>Back to Dashboard</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
@@ -362,6 +383,7 @@ const styles = StyleSheet.create({
   header: { position: 'absolute', left: 16, right: 16, minHeight: 68, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: 18, padding: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 8, elevation: 5 },
   panelDark: { backgroundColor: 'rgba(31,41,55,0.97)' },
   iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
+  iconButtonDark: { backgroundColor: '#374151' },
   headerCopy: { flex: 1, marginHorizontal: 10 },
   headerTitle: { color: '#111827', fontSize: 17, fontWeight: '800' },
   headerSubtitle: { color: '#6B7280', fontSize: 11, marginTop: 2 },
@@ -398,6 +420,22 @@ const styles = StyleSheet.create({
   emptyTitle: { color: '#111827', fontSize: 16, fontWeight: '800', marginTop: 8 },
   emptyText: { color: '#6B7280', fontSize: 12, textAlign: 'center', marginTop: 3 },
   errorText: { color: '#B91C1C', fontSize: 12, textAlign: 'center', marginTop: 8 },
+  backHomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#2E8B57',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+  backHomeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   textLight: { color: '#F9FAFB' },
   textMuted: { color: '#9CA3AF' },
   simMapBtn: {

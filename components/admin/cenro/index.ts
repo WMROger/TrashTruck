@@ -16,3 +16,4 @@ export { default as DictCommandsTab } from './DictCommandsTab';
 export { default as CenroProfileSettingsModal } from './CenroProfileSettingsModal';
 export { default as CoordinatorOnboardingTab } from './CoordinatorOnboardingTab';
 export { default as OperationalLogsTab } from './OperationalLogsTab';
+export { default as AdminNotificationDropdown } from './AdminNotificationDropdown';

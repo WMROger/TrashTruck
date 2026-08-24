@@ -352,6 +352,7 @@ export default function OperationalLogsTab() {
           <ScrollView
             horizontal={true}
             showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0, flexShrink: 0, height: 42 }}
             contentContainerStyle={styles.filterPillsRow}
           >
             {[
@@ -557,12 +558,15 @@ const styles = StyleSheet.create({
   },
   mainRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 24,
     paddingBottom: 40,
   },
   leftColumn: {
     flex: 1.4,
     gap: 12,
+    alignSelf: 'flex-start',
+    width: '100%',
   },
   rightColumn: {
     flex: 1,
@@ -604,8 +608,10 @@ const styles = StyleSheet.create({
   },
   filterPillsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
+    height: 38,
   },
   filterPill: {
     paddingHorizontal: 12,
@@ -614,6 +620,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    alignSelf: 'center',
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   filterPillActive: {
     backgroundColor: '#1B4D3E',
