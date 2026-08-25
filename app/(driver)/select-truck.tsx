@@ -3,8 +3,9 @@ import { db } from '@/config/firebase';
 import { useTheme } from '@/hooks/useTheme';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
+import { autoAssignQueuedReportsOnDriverShiftStart } from '@/services/autoDispatchService';
 import {
   ActivityIndicator,
   Alert,
@@ -205,6 +206,18 @@ export default function SelectTruckScreen() {
           status: 'on_duty',
           dutyStatus: 'on_duty',
         });
+
+        // Check if there are queued verified reports for this driver's assigned barangay
+        try {
+          const userSnap = await getDoc(userRef);
+          const userData = userSnap.data();
+          const assignedBarangay = userData?.assignedBarangay || userData?.barangay || 'Poblacion';
+          autoAssignQueuedReportsOnDriverShiftStart(user.uid, assignedBarangay, truck.id, truck.plateNumber).catch((err) => {
+            console.warn('Shift start auto-bundle background note:', err);
+          });
+        } catch (bundleErr) {
+          console.warn('Could not auto-bundle reports on shift start:', bundleErr);
+        }
       };
 
       await Promise.race([performUpdates(), timeoutPromise]);

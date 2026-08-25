@@ -52,6 +52,7 @@ export default function DriverIndex() {
   const [isEndingShift, setIsEndingShift] = useState(false);
   const [showActiveShiftModal, setShowActiveShiftModal] = useState(false);
   const [selectedPickupId, setSelectedPickupId] = useState<string | null>(null);
+  const [activeToastAlert, setActiveToastAlert] = useState<{ id: string; title: string; message: string } | null>(null);
 
   // Current truck assignment
   const [currentTruck, setCurrentTruck] = useState<{ id: string; plateNumber: string; type: string } | null>(null);
@@ -61,6 +62,34 @@ export default function DriverIndex() {
 
   // GPS Simulation state
   const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
+
+  // Real-time listener for newly injected route waypoints
+  useEffect(() => {
+    const activeUid = user?.uid || auth?.currentUser?.uid;
+    if (!activeUid || !db) return;
+
+    const notifsRef = collection(db, 'notifications');
+    const qNotifs = query(
+      notifsRef,
+      where('userId', '==', activeUid),
+      where('type', '==', 'route_waypoint_added'),
+      where('read', '==', false)
+    );
+
+    const unsub = onSnapshot(qNotifs, (snap) => {
+      if (!snap.empty) {
+        const firstDoc = snap.docs[0];
+        const data = firstDoc.data();
+        setActiveToastAlert({
+          id: firstDoc.id,
+          title: data.title || '🚨 New Pickup Added to Route',
+          message: data.message || 'A new verified citizen report was slotted into your route.',
+        });
+      }
+    });
+
+    return () => unsub();
+  }, [user]);
 
   // Barangay Simulation Route Points for Mini-Map
   const barangayRoutePoints = React.useMemo(() => {
@@ -379,6 +408,48 @@ export default function DriverIndex() {
           </View>
         </View>
       </View>
+
+      {/* Real-Time AI Route Waypoint Alert Banner */}
+      {activeToastAlert && (
+        <View style={[styles.toastAlertCard, isDark && styles.toastAlertCardDark]}>
+          <View style={styles.toastAlertIconWrapper}>
+            <MaterialIcons name="navigation" size={20} color="#FFFFFF" />
+          </View>
+          <View style={styles.toastAlertTextWrapper}>
+            <Text style={styles.toastAlertTitleText}>{activeToastAlert.title}</Text>
+            <Text style={[styles.toastAlertMessageText, isDark && styles.textLight]} numberOfLines={2}>
+              {activeToastAlert.message}
+            </Text>
+          </View>
+          <View style={styles.toastAlertActionsRow}>
+            <TouchableOpacity
+              style={styles.toastAlertViewBtn}
+              onPress={() => {
+                if (db && activeToastAlert.id) {
+                  updateDoc(doc(db, 'notifications', activeToastAlert.id), { read: true }).catch(() => {});
+                }
+                setActiveToastAlert(null);
+                router.push('/(driver)/route-map');
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.toastAlertViewBtnText}>View Route</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.toastAlertDismissBtn}
+              onPress={() => {
+                if (db && activeToastAlert.id) {
+                  updateDoc(doc(db, 'notifications', activeToastAlert.id), { read: true }).catch(() => {});
+                }
+                setActiveToastAlert(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="close" size={16} color={isDark ? '#9CA3AF' : '#6B7280'} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Welcome & Shift Section */}
       <View style={[styles.welcomeSection, isDark && styles.cardDark]}>
@@ -828,15 +899,56 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   logoText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#1A3B2B',
     letterSpacing: -0.5,
   },
+  driverModePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  blueLiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#2563EB',
+  },
+  driverModePillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    letterSpacing: 0.3,
+  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
+  },
+  residentSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  residentSwitchBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#065F46',
   },
   driverStatusBadge: {
     flexDirection: 'row',
@@ -1767,5 +1879,67 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  toastAlertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F766E',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+    shadowColor: '#0F766E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#14B8A6',
+  },
+  toastAlertCardDark: {
+    backgroundColor: '#134E4A',
+    borderColor: '#2DD4BF',
+  },
+  toastAlertIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#0D9488',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastAlertTextWrapper: {
+    flex: 1,
+  },
+  toastAlertTitleText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  toastAlertMessageText: {
+    fontSize: 11.5,
+    color: '#CCFBF1',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  toastAlertActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  toastAlertViewBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  toastAlertViewBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F766E',
+  },
+  toastAlertDismissBtn: {
+    padding: 6,
   },
 });

@@ -37,6 +37,7 @@ import {
 } from '@/services/trafficAwareOptimizerService';
 import RouteOptimizationMap from './RouteOptimizationMap';
 import { writeAuditLog } from '@/services/auditLogService';
+import { isAutoDispatchEnabled, setAutoDispatchEnabled } from '@/services/autoDispatchService';
 
 interface Report {
   id: string;
@@ -104,10 +105,37 @@ export default function RouteOptimizationTab() {
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchSuccess, setDispatchSuccess] = useState(false);
 
+  // AI Autonomous Dispatch Toggle State
+  const [autoDispatchActive, setAutoDispatchActive] = useState(true);
+  const [isTogglingAutoDispatch, setIsTogglingAutoDispatch] = useState(false);
+
+  // Fetch initial auto dispatch toggle setting
+  useEffect(() => {
+    isAutoDispatchEnabled().then((enabled) => {
+      setAutoDispatchActive(enabled);
+    });
+  }, []);
+
+  const handleToggleAutoDispatch = async () => {
+    setIsTogglingAutoDispatch(true);
+    const nextVal = !autoDispatchActive;
+    setAutoDispatchActive(nextVal);
+    await setAutoDispatchEnabled(nextVal);
+    setIsTogglingAutoDispatch(false);
+  };
+
   // Report Preview Modal
   const [viewingReport, setViewingReport] = useState<Report | null>(null);
   const [reportSearch, setReportSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'acknowledged' | 'in_progress'>('all');
+
+  const autoDispatchedReportsCount = useMemo(() => {
+    return reports.filter((r) => r.status === 'in-progress' || r.status === 'in_progress').length;
+  }, [reports]);
+
+  const queuedReportsCount = useMemo(() => {
+    return reports.filter((r) => r.status === 'acknowledged' || (r as any).queuedForDriver === true).length;
+  }, [reports]);
 
   // 1. Subscribe to Collection Schedules for Dynamic Barangays
   useEffect(() => {
@@ -488,6 +516,85 @@ export default function RouteOptimizationTab() {
             />
             <Text style={[styles.subViewBtnText, activeSubView === 'report-dispatch' && styles.subViewBtnTextActive]}>
               2. Insert Verified Reports ({selectedReportIds.size > 0 ? `${selectedReportIds.size}/${barangayReports.length}` : barangayReports.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* AI Autonomous Dispatch Master Control Bar */}
+      <View style={[styles.autoDispatchHeaderBar, isNarrow && { flexDirection: 'column', gap: 14 }]}>
+        <View style={styles.autoDispatchLeft}>
+          <View
+            style={[
+              styles.autoDispatchIconCircle,
+              autoDispatchActive ? styles.autoDispatchIconCircleActive : styles.autoDispatchIconCirclePaused,
+            ]}
+          >
+            <MaterialIcons name="auto-mode" size={22} color={autoDispatchActive ? '#059669' : '#64748B'} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={styles.autoDispatchTitle}>Autonomous AI Report Dispatch</Text>
+              <View
+                style={[
+                  styles.autoDispatchStatusBadge,
+                  autoDispatchActive ? styles.autoDispatchStatusBadgeActive : styles.autoDispatchStatusBadgePaused,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.autoDispatchStatusDot,
+                    { backgroundColor: autoDispatchActive ? '#10B981' : '#94A3B8' },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.autoDispatchStatusText,
+                    { color: autoDispatchActive ? '#065F46' : '#475569' },
+                  ]}
+                >
+                  {autoDispatchActive ? 'ACTIVE (Auto-Slots into Driver Route)' : 'PAUSED (Manual Mode)'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.autoDispatchDesc}>
+              {autoDispatchActive
+                ? 'Verified citizen reports are automatically slotted into the active on-duty driver\'s route at lowest detour, or bundled when a driver clocks in.'
+                : 'Reports wait in the queue below until manually selected and dispatched by CENRO administrators.'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={[styles.autoDispatchRight, isMobile && { flexWrap: 'wrap' }]}>
+          <View style={styles.autoDispatchStatPill}>
+            <Text style={styles.autoDispatchStatNum}>{autoDispatchedReportsCount}</Text>
+            <Text style={styles.autoDispatchStatLabel}>Auto-Dispatched</Text>
+          </View>
+          <View style={[styles.autoDispatchStatPill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+            <Text style={[styles.autoDispatchStatNum, { color: '#B45309' }]}>{queuedReportsCount}</Text>
+            <Text style={[styles.autoDispatchStatLabel, { color: '#92400E' }]}>In Queue</Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.autoDispatchToggleBtn,
+              autoDispatchActive ? styles.autoDispatchToggleBtnActive : styles.autoDispatchToggleBtnPaused,
+            ]}
+            onPress={handleToggleAutoDispatch}
+            disabled={isTogglingAutoDispatch}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons
+              name={autoDispatchActive ? 'toggle-on' : 'toggle-off'}
+              size={28}
+              color={autoDispatchActive ? '#059669' : '#94A3B8'}
+            />
+            <Text
+              style={[
+                styles.autoDispatchToggleText,
+                { color: autoDispatchActive ? '#065F46' : '#475569' },
+              ]}
+            >
+              {autoDispatchActive ? 'Auto-Dispatch ON' : 'Auto-Dispatch OFF'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -2414,6 +2521,128 @@ const styles = StyleSheet.create({
   modalCloseDoneBtnText: {
     color: '#FFFFFF',
     fontSize: 13,
+    fontWeight: '800',
+  },
+  autoDispatchHeaderBar: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  autoDispatchLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  autoDispatchIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  autoDispatchIconCircleActive: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  autoDispatchIconCirclePaused: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  autoDispatchTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  autoDispatchDesc: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 3,
+    lineHeight: 16,
+  },
+  autoDispatchStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  autoDispatchStatusBadgeActive: {
+    backgroundColor: '#D1FAE5',
+  },
+  autoDispatchStatusBadgePaused: {
+    backgroundColor: '#F1F5F9',
+  },
+  autoDispatchStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  autoDispatchStatusText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  autoDispatchRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  autoDispatchStatPill: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  autoDispatchStatNum: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#065F46',
+  },
+  autoDispatchStatLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#059669',
+    marginTop: 1,
+  },
+  autoDispatchToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  autoDispatchToggleBtnActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981',
+  },
+  autoDispatchToggleBtnPaused: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+  },
+  autoDispatchToggleText: {
+    fontSize: 12,
     fontWeight: '800',
   },
 });

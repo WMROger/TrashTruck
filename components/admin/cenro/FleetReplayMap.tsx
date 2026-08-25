@@ -65,12 +65,38 @@ export default function FleetReplayMap({ points, activeIndex }: Props) {
       const script = document.createElement('script');
       script.id = 'leaflet-js';
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-      script.onload = () => setLeafletReady(true);
+      script.onload = () => {
+        if (window.L && window.L.DomUtil && !(window.L.DomUtil as any)._safeGetPosPatched) {
+          const origGetPos = window.L.DomUtil.getPosition;
+          window.L.DomUtil.getPosition = function (el: any) {
+            if (!el) return new (window.L as any).Point(0, 0);
+            try {
+              return origGetPos(el) || new (window.L as any).Point(0, 0);
+            } catch {
+              return new (window.L as any).Point(0, 0);
+            }
+          };
+          (window.L.DomUtil as any)._safeGetPosPatched = true;
+        }
+        setLeafletReady(true);
+      };
       document.head.appendChild(script);
     } else {
       const checkInterval = setInterval(() => {
         if (window.L) {
           clearInterval(checkInterval);
+          if (window.L.DomUtil && !(window.L.DomUtil as any)._safeGetPosPatched) {
+            const origGetPos = window.L.DomUtil.getPosition;
+            window.L.DomUtil.getPosition = function (el: any) {
+              if (!el) return new (window.L as any).Point(0, 0);
+              try {
+                return origGetPos(el) || new (window.L as any).Point(0, 0);
+              } catch {
+                return new (window.L as any).Point(0, 0);
+              }
+            };
+            (window.L.DomUtil as any)._safeGetPosPatched = true;
+          }
           setLeafletReady(true);
         }
       }, 100);
@@ -83,7 +109,20 @@ export default function FleetReplayMap({ points, activeIndex }: Props) {
     if (Platform.OS !== 'web' || !leafletReady || !window.L) return;
 
     const container = document.getElementById(mapIdRef.current);
-    if (!container || mapInstanceRef.current) return;
+    if (!container) return;
+
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.stop?.();
+        mapInstanceRef.current.off?.();
+        mapInstanceRef.current.remove?.();
+      } catch {}
+      mapInstanceRef.current = null;
+    }
+
+    if ((container as any)._leaflet_id) {
+      delete (container as any)._leaflet_id;
+    }
 
     try {
       const L = window.L;
@@ -114,9 +153,15 @@ export default function FleetReplayMap({ points, activeIndex }: Props) {
     return () => {
       if (mapInstanceRef.current) {
         try {
-          mapInstanceRef.current.remove();
+          mapInstanceRef.current.stop?.();
+          mapInstanceRef.current.off?.();
+          mapInstanceRef.current.remove?.();
         } catch (e) {}
         mapInstanceRef.current = null;
+      }
+      const el = document.getElementById(mapIdRef.current);
+      if (el && (el as any)._leaflet_id) {
+        delete (el as any)._leaflet_id;
       }
     };
   }, [leafletReady]);

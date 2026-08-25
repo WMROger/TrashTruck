@@ -12,8 +12,8 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
   const isSmall = size === 'small';
   const isLarge = size === 'large';
 
-  const badgeDimension = isSmall ? 48 : isLarge ? 72 : 60;
-  const iconSize = isSmall ? 22 : isLarge ? 34 : 28;
+  const badgeDimension = isSmall ? 52 : isLarge ? 76 : 64;
+  const iconSize = isSmall ? 24 : isLarge ? 36 : 30;
 
   return (
     <View style={styles.container}>
@@ -33,20 +33,20 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
           ]}
         >
           <MaterialIcons
-            name={isCenro ? 'eco' : 'security'}
+            name={isCenro ? 'eco' : 'admin-panel-settings'}
             size={iconSize}
-            color={isCenro ? '#1B4D3E' : '#0F766E'}
+            color={isCenro ? '#065F46' : '#0F766E'}
           />
         </View>
 
-        {/* Small verification dot */}
+        {/* Official Verification Checkmark Badge */}
         <View
           style={[
             styles.statusDot,
             isCenro ? styles.cenroStatusDot : styles.dictStatusDot,
           ]}
         >
-          <MaterialIcons name="verified" size={14} color="#FFFFFF" />
+          <MaterialIcons name="verified" size={13} color="#FFFFFF" />
         </View>
       </View>
 
@@ -62,10 +62,13 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
             </Text>
           </View>
         </View>
-        <Text style={styles.agencySub}>
+        <Text style={styles.agencySub} numberOfLines={1}>
           {isCenro
-            ? 'City Environment & Natural Resources'
-            : 'Dept. of Information & Communications Tech'}
+            ? 'City Environment & Natural Resources Office'
+            : 'Dept. of Information & Communications Technology'}
+        </Text>
+        <Text style={styles.agencyJurisdiction}>
+          {isCenro ? 'Danao City, Cebu • Solid Waste Logistics' : 'Republic of the Philippines • Central Visayas'}
         </Text>
       </View>
     </View>
@@ -85,11 +88,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1.5,
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cenroBadgeOuter: {
     backgroundColor: '#ECFDF5',
@@ -122,7 +125,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
   },
   cenroStatusDot: {
@@ -142,9 +145,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   agencyCode: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontSize: 12.5,
+    fontWeight: '900',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   cenroText: {
@@ -165,8 +168,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#CCFBF1',
   },
   pillText: {
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 9.5,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   cenroPillText: {
@@ -176,8 +179,14 @@ const styles = StyleSheet.create({
     color: '#0F766E',
   },
   agencySub: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '500',
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+    marginTop: 1,
+  },
+  agencyJurisdiction: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 2,
   },
 });

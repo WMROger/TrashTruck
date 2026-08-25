@@ -35,9 +35,10 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const slideAnim = useState(new Animated.Value(-SIDEBAR_WIDTH))[0];
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {
-      "CORE OPERATIONS": true,
-      "FLEET & DRIVERS": true,
-      "SYSTEM & COMMUNICATIONS": true,
+      "OPERATIONS & DISPATCH": true,
+      "FLEET & PERSONNEL": true,
+      "COMMUNITY & AUDIT": true,
+      "INSIGHTS & REPORTING": true,
     },
   );
 
@@ -63,27 +64,12 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
   const navigationGroups = [
     {
-      title: "CORE OPERATIONS",
+      title: "OPERATIONS & DISPATCH",
       items: [
         {
           id: "dashboard",
           label: "DASHBOARD",
           icon: "grid-view",
-        },
-        {
-          id: "driver-accounts",
-          label: "ACCOUNTS DIRECTORY",
-          icon: "recent-actors",
-        },
-        {
-          id: "collection-scheduler",
-          label: "COLLECTION SCHEDULES",
-          icon: "event-note",
-        },
-        {
-          id: "truck-inventory",
-          label: "FLEET INVENTORY",
-          icon: "local-shipping",
         },
         {
           id: "trash-reports",
@@ -92,27 +78,69 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         },
         {
           id: "route-optimization",
-          label: "ROUTE",
-          icon: "route",
+          label: "ROUTE & AI DISPATCH",
+          icon: "alt-route",
+        },
+        {
+          id: "collection-scheduler",
+          label: "COLLECTION SCHEDULES",
+          icon: "event-note",
+        },
+      ],
+    },
+    {
+      title: "FLEET & PERSONNEL",
+      items: [
+        {
+          id: "truck-inventory",
+          label: "FLEET INVENTORY",
+          icon: "local-shipping",
         },
         {
           id: "fleet-monitoring",
           label: "FLEET MONITORING",
           icon: "location-searching",
         },
-
-        { id: "announcements", label: "ANNOUNCEMENTS", icon: "campaign" },
         {
-          id: "operational-overrides",
-          label: "SYSTEM OVERRIDES",
-          icon: "report-problem",
+          id: "driver-accounts",
+          label: "ACCOUNTS DIRECTORY",
+          icon: "recent-actors",
+        },
+      ],
+    },
+    {
+      title: "COMMUNITY & AUDIT",
+      items: [
+        {
+          id: "logs",
+          label: "OPERATIONAL LOGS",
+          icon: "receipt-long",
+        },
+        {
+          id: "announcements",
+          label: "ANNOUNCEMENTS",
+          icon: "campaign",
         },
         {
           id: "service-feedback",
           label: "SERVICE FEEDBACK",
           icon: "rate-review",
         },
-        { id: "analytics", label: "ANALYTICS", icon: "bar-chart" },
+        {
+          id: "operational-overrides",
+          label: "SYSTEM OVERRIDES",
+          icon: "report-problem",
+        },
+      ],
+    },
+    {
+      title: "INSIGHTS & REPORTING",
+      items: [
+        {
+          id: "analytics",
+          label: "WASTE ANALYTICS",
+          icon: "bar-chart",
+        },
       ],
     },
   ];

@@ -111,23 +111,44 @@ export default function DriverRouteMap() {
 
     const assignedQuery = query(collection(db, 'schedules'), where('assignedDriverId', '==', user.uid));
     return onSnapshot(assignedQuery, snapshot => {
-      const nextStops = snapshot.docs
-        .map(scheduleDoc => {
-          const data = scheduleDoc.data();
-          return {
+      const nextStops: RouteStop[] = [];
+
+      snapshot.docs.forEach(scheduleDoc => {
+        const data = scheduleDoc.data();
+        const status = data.status || 'pending';
+        if (status === 'completed' || status === 'cancelled') return;
+
+        // If the schedule has embedded optimized stops (from AI auto-dispatch or route optimization)
+        if (Array.isArray(data.stops) && data.stops.length > 0) {
+          data.stops.forEach((s: any, idx: number) => {
+            nextStops.push({
+              id: `${scheduleDoc.id}_stop_${idx + 1}`,
+              street: s.name || data.street || `Stop ${idx + 1}`,
+              barangay: data.barangay || 'Danao City',
+              wasteCategory: s.type === 'citizen_report' ? 'Verified Citizen Report' : (data.wasteCategory || 'Routine Collection'),
+              status: status,
+              routeOrder: Number(s.order) || (idx + 1),
+              isLiveDispatch: true,
+              location: (s.lat && s.lng) ? { latitude: Number(s.lat), longitude: Number(s.lng) } : (data.location || null),
+              routeOptimization: data.routeOptimization || null,
+            });
+          });
+        } else if (data.isLiveDispatch || scheduleDoc.id === requestedScheduleId) {
+          nextStops.push({
             id: scheduleDoc.id,
             street: data.street || 'Unknown street',
             barangay: data.barangay || 'Danao City',
             wasteCategory: data.wasteCategory || 'General waste',
-            status: data.status || 'pending',
+            status: status,
             routeOrder: Number(data.routeOrder) || 0,
             isLiveDispatch: data.isLiveDispatch === true,
             location: data.location || null,
             routeOptimization: data.routeOptimization || null,
-          } satisfies RouteStop;
-        })
-        .filter(stop => ['pending', 'in-progress'].includes(stop.status) && (stop.isLiveDispatch || stop.id === requestedScheduleId))
-        .sort((a, b) => (a.routeOrder || Number.MAX_SAFE_INTEGER) - (b.routeOrder || Number.MAX_SAFE_INTEGER));
+          });
+        }
+      });
+
+      nextStops.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
 
       setStops(nextStops);
       setSelectedId(current => nextStops.some(stop => stop.id === current) ? current : (nextStops[0]?.id || ''));

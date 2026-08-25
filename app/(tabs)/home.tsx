@@ -4,6 +4,7 @@ import { db, storage } from "@/config/firebase";
 import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { NotificationService } from "@/services/notificationService";
+import EcoCarousel from "@/components/resident/EcoCarousel";
 import { formatAdaptiveMassFromMetricTons, toMetricTons, WasteMeasurementUnit } from "@/utils/wasteUnits";
 import { MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -634,59 +635,13 @@ export default function HomePage() {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 10) }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Your Eco Impact */}
-        <View style={styles.ecoImpactContainer}>
-          <Text style={styles.sectionTitleSmall}>Your Eco Impact</Text>
-          <View style={styles.ecoImpactCard}>
-            <View style={styles.pointsBadge}>
-              <Text style={styles.pointsLabel}>POINTS</Text>
-              <Text style={styles.pointsValue}>{totalPoints.toLocaleString()}</Text>
-            </View>
-            <View style={styles.levelRow}>
-              <Text style={styles.levelText}>Level {Math.floor(totalPoints / 500) + 1}: {Math.floor(totalPoints / 500) >= 4 ? 'Green Guardian' : 'Eco Starter'}</Text>
-              <Text style={styles.levelPercent}>{Math.min(100, Math.floor(((totalPoints % 500) / 500) * 100))}%</Text>
-            </View>
-            <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${Math.min(100, ((totalPoints % 500) / 500) * 100)}%` }]} />
-            </View>
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatAdaptiveMassFromMetricTons(trashCollectedTons)}</Text>
-                <Text style={styles.statLabel}>Trash Collected</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{userReports.length}</Text>
-                <Text style={styles.statLabel}>Reports</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Next Collection */}
-        <View style={styles.nextCollectionCard}>
-          <View style={styles.nextCollectionHeader}>
-            <IconSymbol name="clock" size={20} color="white" />
-            <Text style={styles.nextCollectionTitle}>Next Collection</Text>
-          </View>
-          {nextCollection ? (
-            <>
-              <Text style={styles.nextCollectionDate}>{nextCollection.dateLabel}</Text>
-              <Text style={styles.nextCollectionTime}>{nextCollection.timeText}</Text>
-              <View style={styles.nextCollectionDivider} />
-              <View style={styles.nextCollectionFooter}>
-                <IconSymbol name="arrow.triangle.2.circlepath" size={16} color="white" />
-                <Text style={styles.nextCollectionFooterText}>{nextCollection.wasteCategory}</Text>
-              </View>
-            </>
-          ) : (
-            <>
-              <Text style={styles.nextCollectionDate}>No upcoming collection</Text>
-              <Text style={styles.nextCollectionTime}>Set your barangay in your profile</Text>
-            </>
-          )}
-        </View>
+        {/* Eco Carousel Combining Next Collection, Eco Impact, and 2 Eco Tips */}
+        <EcoCarousel
+          totalPoints={totalPoints}
+          trashCollectedTons={trashCollectedTons}
+          userReportsCount={userReports.length}
+          nextCollection={nextCollection}
+        />
 
         {/* Community Updates */}
         <View style={styles.sectionHeaderRow}>
@@ -844,13 +799,57 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   greeting: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "800",
+  },
+  residentModePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  greenLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  residentModeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.4,
+  },
+  driverSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#1E3A8A',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  driverSwitchText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 12,
   },
   content: {
     padding: 20,

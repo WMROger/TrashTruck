@@ -3,13 +3,14 @@ import { useRouter } from 'expo-router';
 import {
   browserLocalPersistence,
   browserSessionPersistence,
+  onAuthStateChanged,
   sendEmailVerification,
   setPersistence,
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ImageBackground,
   ScrollView,
@@ -50,6 +51,40 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     message: '',
     type: 'error' as 'error' | 'warning' | 'info' | 'success',
   });
+
+  // If already authenticated with the correct role, redirect immediately via onAuthStateChanged
+  useEffect(() => {
+    if (!auth || !db) return;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) return;
+
+      if (isDictEmail(currentUser.email)) {
+        router.replace('/dict/dashboard');
+        return;
+      }
+
+      try {
+        const userRef = doc(db, 'users', currentUser.uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          const role = snap.data().role;
+          const isCenro = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
+          const isDictAdmin = role === 'dict' || role === 'dict_admin';
+
+          if (isDict && isDictAdmin) {
+            router.replace('/dict/dashboard');
+          } else if (!isDict && isCenro) {
+            router.replace('/admin/dashboard');
+          }
+        }
+      } catch (err) {
+        console.warn('Session verification warning in login form:', err);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isDict, router]);
 
   const showError = (
     message: string,
@@ -191,18 +226,33 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <ImageBackground
-        source={require('@/assets/images/admin_login_bg.png')}
+        source={require('@/assets/images/admin_login_bg_professional.jpg')}
         style={styles.fullScreenBackground}
         resizeMode="cover"
       >
-        <ScrollView
-          contentContainerStyle={styles.overlay}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.backdropDimmer}>
+          <ScrollView
+            contentContainerStyle={styles.overlay}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.floatingCardContainer}>
+            {/* Top Republic Ribbon */}
+            <View style={[styles.govRibbonBar, isDict ? styles.govRibbonBarDict : styles.govRibbonBarCenro]}>
+              <View style={styles.govRibbonFlagRow}>
+                <View style={[styles.flagDot, { backgroundColor: '#0038A8' }]} />
+                <View style={[styles.flagDot, { backgroundColor: '#CE1126' }]} />
+                <View style={[styles.flagDot, { backgroundColor: '#FCD116' }]} />
+                <Text style={[styles.govRibbonText, isDict ? styles.govRibbonTextDict : styles.govRibbonTextCenro]}>
+                  {isDict
+                    ? 'GOV.PH • REPUBLIC OF THE PHILIPPINES • DICT REGION VII'
+                    : 'LGU DANAO • CITY ENVIRONMENT AND NATURAL RESOURCES'}
+                </Text>
+              </View>
+            </View>
+
             <View
               style={[
                 styles.loginFloatingCard,
@@ -219,7 +269,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
                 </Text>
                 <Text style={styles.portalSubtitle}>
                   {isDict
-                    ? 'Enter your DICT governance credentials to access oversight telemetry and system commands.'
+                    ? 'Enter your DICT administrative credentials to access system oversight, audits, and user governance.'
                     : 'Enter your CENRO administrator credentials to access waste operations and fleet dispatch.'}
                 </Text>
               </View>
@@ -273,6 +323,11 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
                     </View>
                     <Text style={styles.checkboxLabel}>Keep me signed in</Text>
                   </TouchableOpacity>
+
+                  <View style={styles.encryptionPill}>
+                    <MaterialIcons name="lock" size={11} color="#0D9488" />
+                    <Text style={styles.encryptionPillText}>256-Bit SSL</Text>
+                  </View>
                 </View>
 
                 {/* Login Action Button */}
@@ -291,17 +346,18 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
 
                 {/* Portal Security Footnote */}
                 <View style={styles.securityFootnote}>
-                  <MaterialIcons name="lock-outline" size={13} color="#94A3B8" />
+                  <MaterialIcons name="verified-user" size={13} color="#64748B" />
                   <Text style={styles.securityFootnoteText}>
                     {isDict
-                      ? 'Protected under DICT Administrative Oversight Framework'
-                      : 'City Environment and Natural Resources Office • Danao City'}
+                      ? 'Protected under DICT Administrative Oversight & Governance Framework'
+                      : 'City Environment and Natural Resources Office • Danao City Official Portal'}
                   </Text>
                 </View>
               </View>
             </View>
           </View>
         </ScrollView>
+        </View>
       </ImageBackground>
 
       {/* Error Modal */}
@@ -324,6 +380,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  backdropDimmer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+  },
   overlay: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -333,20 +395,65 @@ const styles = StyleSheet.create({
   },
   floatingCardContainer: {
     width: '100%',
-    maxWidth: 490,
+    maxWidth: 510,
     alignSelf: 'center',
   },
+  govRibbonBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: -1,
+  },
+  govRibbonBarDict: {
+    backgroundColor: '#042F2E',
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#115E59',
+  },
+  govRibbonBarCenro: {
+    backgroundColor: '#064E3B',
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#059669',
+  },
+  govRibbonFlagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  flagDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  govRibbonText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  govRibbonTextDict: {
+    color: '#CCFBF1',
+  },
+  govRibbonTextCenro: {
+    color: '#D1FAE5',
+  },
   loginFloatingCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
     width: '100%',
-    padding: 28,
+    padding: 30,
     borderRadius: 24,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     borderWidth: 1.5,
     shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
-    shadowRadius: 28,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.12,
+    shadowRadius: 32,
+    elevation: 10,
   },
   cenroCardAccent: {
     borderColor: '#D1FAE5',
@@ -355,7 +462,7 @@ const styles = StyleSheet.create({
     borderColor: '#CCFBF1',
   },
   headingWrapper: {
-    marginBottom: 22,
+    marginBottom: 20,
   },
   welcomeText: {
     fontSize: 24,
@@ -381,7 +488,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 22,
     marginTop: 4,
   },
   rememberOption: {
@@ -412,10 +519,21 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: '500',
   },
-  forgotPasswordLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
+  encryptionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#CCFBF1',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  encryptionPillText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#0F766E',
   },
   securityFootnote: {
     flexDirection: 'row',

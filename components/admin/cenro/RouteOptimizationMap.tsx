@@ -40,7 +40,23 @@ export default function RouteOptimizationMap({
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
+    const patchDomUtil = () => {
+      if (window.L && window.L.DomUtil && !(window.L.DomUtil as any)._safeGetPosPatched) {
+        const origGetPos = window.L.DomUtil.getPosition;
+        window.L.DomUtil.getPosition = function (el: any) {
+          if (!el) return new (window.L as any).Point(0, 0);
+          try {
+            return origGetPos(el) || new (window.L as any).Point(0, 0);
+          } catch {
+            return new (window.L as any).Point(0, 0);
+          }
+        };
+        (window.L.DomUtil as any)._safeGetPosPatched = true;
+      }
+    };
+
     if (window.L) {
+      patchDomUtil();
       setLeafletReady(true);
       return;
     }
@@ -57,12 +73,16 @@ export default function RouteOptimizationMap({
       const script = document.createElement('script');
       script.id = 'leaflet-js';
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-      script.onload = () => setLeafletReady(true);
+      script.onload = () => {
+        patchDomUtil();
+        setLeafletReady(true);
+      };
       document.head.appendChild(script);
     } else {
       const check = setInterval(() => {
         if (window.L) {
           clearInterval(check);
+          patchDomUtil();
           setLeafletReady(true);
         }
       }, 100);
@@ -77,35 +97,56 @@ export default function RouteOptimizationMap({
     const L = window.L;
     if (!L) return;
 
+    const container = document.getElementById(mapIdRef.current);
+    if (!container) return;
+
     if (mapInstanceRef.current) {
       try {
-        mapInstanceRef.current.remove();
+        mapInstanceRef.current.stop?.();
+        mapInstanceRef.current.off?.();
+        mapInstanceRef.current.remove?.();
       } catch {}
       mapInstanceRef.current = null;
     }
 
-    const map = L.map(mapIdRef.current, {
-      center: DANAO_DEFAULT_CENTER,
-      zoom: 15,
-      zoomControl: false,
-      attributionControl: false,
-    });
+    if ((container as any)._leaflet_id) {
+      delete (container as any)._leaflet_id;
+    }
 
-    L.control.zoom({ position: 'topright' }).addTo(map);
+    try {
+      const map = L.map(mapIdRef.current, {
+        center: DANAO_DEFAULT_CENTER,
+        zoom: 15,
+        zoomControl: false,
+        attributionControl: false,
+      });
 
-    // High quality OpenStreetMap tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-    }).addTo(map);
+      L.control.zoom({ position: 'topright' }).addTo(map);
 
-    mapInstanceRef.current = map;
-    markersLayerRef.current = L.layerGroup().addTo(map);
+      // High quality OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
+
+      mapInstanceRef.current = map;
+      markersLayerRef.current = L.layerGroup().addTo(map);
+    } catch (initErr) {
+      console.warn('Route map initialization note:', initErr);
+    }
 
     return () => {
       try {
-        map.remove();
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.stop?.();
+          mapInstanceRef.current.off?.();
+          mapInstanceRef.current.remove?.();
+        }
       } catch {}
       mapInstanceRef.current = null;
+      const el = document.getElementById(mapIdRef.current);
+      if (el && (el as any)._leaflet_id) {
+        delete (el as any)._leaflet_id;
+      }
     };
   }, [leafletReady]);
 

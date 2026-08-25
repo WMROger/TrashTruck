@@ -172,21 +172,28 @@ function RootLayoutNav() {
         }
       }
     } else if (isAuthenticated) {
+      const isCenroAdmin =
+        userRole === 'admin' ||
+        userRole === 'cenro' ||
+        userRole === 'coordinator' ||
+        userRole === 'cenro_officer';
+      const isDictAdmin = userRole === 'dict' || userRole === 'dict_admin';
+
       // Authenticated access
       if (segmentStr === 'admin' || segmentStr.toLowerCase() === 'cenro') {
         if (segments[1] === 'dashboard') {
-          if (userRole !== 'admin') {
+          if (!isCenroAdmin) {
             router.replace('/cenro' as any);
           }
-        } else if (userRole === 'admin' && (segmentStr.toLowerCase() === 'cenro' || segments[1] === 'login')) {
+        } else if (isCenroAdmin && (segmentStr.toLowerCase() === 'cenro' || segments[1] === 'login' || !segments[1])) {
           router.replace('/admin/dashboard' as any);
         }
       } else if (segmentStr.toLowerCase() === 'dict') {
         if (segments[1] === 'dashboard') {
-          if (userRole !== 'dict') {
+          if (!isDictAdmin) {
             router.replace('/dict' as any);
           }
-        } else if (userRole === 'dict' && (segments.length === 1 || segments[1] === 'login')) {
+        } else if (isDictAdmin && (segments.length === 1 || segments[1] === 'login')) {
           router.replace('/dict/dashboard' as any);
         }
       } else {
@@ -201,7 +208,7 @@ function RootLayoutNav() {
           ) {
             router.replace('/(driver)' as any);
           }
-        } else if (userRole === 'admin') {
+        } else if (isCenroAdmin) {
           if (
             currentSegment === 'splash' ||
             currentSegment === 'auth' ||
@@ -210,7 +217,7 @@ function RootLayoutNav() {
           ) {
             router.replace('/admin/dashboard' as any);
           }
-        } else if (userRole === 'dict') {
+        } else if (isDictAdmin) {
           if (
             currentSegment === 'splash' ||
             currentSegment === 'auth' ||
