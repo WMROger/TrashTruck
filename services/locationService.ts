@@ -4,6 +4,7 @@ import { db } from '@/config/firebase';
 import { dailyTripId, distanceFromRouteMeters, distanceMeters, FleetTrackingContext } from '@/services/fleetMonitoringService';
 
 import { getBarangaySimulationRoute, SimulationWaypoint } from '@/constants/barangaySimulationRoutes';
+import { getRoadSnappedSimulationRoute } from '@/services/osrmRoutingService';
 
 export type SimulationState = {
   isActive: boolean;
@@ -297,9 +298,9 @@ class LocationService {
       targetBarangay = routeBarangays[0] || barangayOrRoute[0]?.barangay || 'Poblacion';
     } else if (typeof barangayOrRoute === 'string' && barangayOrRoute.trim()) {
       targetBarangay = barangayOrRoute.trim();
-      route = getBarangaySimulationRoute(targetBarangay);
+      route = await getRoadSnappedSimulationRoute(targetBarangay);
     } else {
-      route = getBarangaySimulationRoute('Poblacion');
+      route = await getRoadSnappedSimulationRoute('Poblacion');
     }
 
     const effectiveTruckId = truckId || 'TRUCK-DANAO-01';

@@ -36,6 +36,7 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
   const [selectedTrip, setSelectedTrip] = useState('');
   const [replayIndex, setReplayIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [speedMultiplier, setSpeedMultiplier] = useState<1 | 2 | 3>(1);
   const [selectedBarangay, setSelectedBarangay] = useState('all');
   const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
   const [driverBarangays, setDriverBarangays] = useState<Record<string, string>>({});
@@ -176,8 +177,10 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
     setPlaying(false);
   }, [selectedTrip]);
 
+  // Automated Replay Interval
   useEffect(() => {
     if (!playing || replayPoints.length < 2) return;
+    const intervalMs = Math.round(650 / speedMultiplier);
     const timer = setInterval(() => {
       setReplayIndex(index => {
         if (index >= replayPoints.length - 1) {
@@ -186,9 +189,21 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
         }
         return index + 1;
       });
-    }, 700);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [playing, replayPoints.length]);
+  }, [playing, replayPoints.length, speedMultiplier]);
+
+  const handlePlayToggle = () => {
+    if (replayPoints.length < 2) return;
+    if (!playing && replayIndex >= replayPoints.length - 1) {
+      setReplayIndex(0);
+    }
+    setPlaying(prev => !prev);
+  };
+
+  const handleCycleSpeed = () => {
+    setSpeedMultiplier(prev => (prev === 1 ? 2 : prev === 2 ? 3 : 1));
+  };
 
   const now = Date.now();
   const latestByTruck = new Map<string, FleetEvent>();
@@ -252,17 +267,56 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
             <View>
               <Text style={styles.cardTitle}>Trip Replay</Text>
               <Text style={styles.cardSubtitle}>
-                {trip ? `${trip.plateNumber} ${trip.barangay ? `• Brgy. ${trip.barangay}` : ''} · ${trip.points.length} recorded points` : 'No trip selected'}
+                {trip ? `${trip.plateNumber} ${trip.barangay ? `• Brgy. ${trip.barangay}` : ''} · ${trip.points.length} recorded points · Step ${replayIndex + 1} of ${replayPoints.length}` : 'No trip selected'}
               </Text>
             </View>
             <View style={styles.replayActions}>
-              <TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.max(0, index - 1))}><MaterialIcons name="skip-previous" size={20} color="#334155" /></TouchableOpacity>
-              <TouchableOpacity style={styles.playButton} onPress={() => setPlaying(value => !value)} disabled={replayPoints.length < 2}><MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" /><Text style={styles.playText}>{playing ? 'Pause' : 'Replay'}</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton} onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}><MaterialIcons name="skip-next" size={20} color="#334155" /></TouchableOpacity>
+              <TouchableOpacity
+                style={styles.speedButton}
+                onPress={handleCycleSpeed}
+                accessibilityLabel="Toggle playback speed"
+              >
+                <Text style={styles.speedText}>{speedMultiplier}x</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => setReplayIndex(index => Math.max(0, index - 1))}
+              >
+                <MaterialIcons name="skip-previous" size={20} color="#334155" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.playButton, playing && styles.pauseButton]}
+                onPress={handlePlayToggle}
+                disabled={replayPoints.length < 2}
+              >
+                <MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={20} color="#FFFFFF" />
+                <Text style={styles.playText}>
+                  {playing ? 'Pause' : replayIndex >= replayPoints.length - 1 ? 'Restart' : 'Replay'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => setReplayIndex(index => Math.min(replayPoints.length - 1, index + 1))}
+              >
+                <MaterialIcons name="skip-next" size={20} color="#334155" />
+              </TouchableOpacity>
             </View>
           </View>
           <FleetReplayMap points={replayPoints} activeIndex={replayIndex} />
-          {!!replayPoints.length && <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${((replayIndex + 1) / replayPoints.length) * 100}%` }]} /></View>}
+          {!!replayPoints.length && (
+            <View style={styles.progressTrackContainer}>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${((replayIndex + 1) / replayPoints.length) * 100}%` }]} />
+              </View>
+              <View style={styles.progressLabelRow}>
+                <Text style={styles.progressLabel}>Point #1 (Departure)</Text>
+                <Text style={styles.progressLabelHighlight}>
+                  {Math.round(((replayIndex + 1) / replayPoints.length) * 100)}% Traveled
+                </Text>
+                <Text style={styles.progressLabel}>Point #{replayPoints.length} (Destination)</Text>
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={[styles.tripListCard, isMobile && { minWidth: 0, width: '100%' }]}>
@@ -312,8 +366,14 @@ export default function FleetMonitoringTab({ oversightLabel = 'CENRO FLEET CONTR
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' }, content: { padding: 24 }, loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' }, loadingText: { color: '#64748B', marginTop: 12 },
-  headerRow: { marginBottom: 14 }, eyebrow: { color: '#2563EB', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginBottom: 5 }, title: { color: '#0F172A', fontSize: 24, fontWeight: '900' }, subtitle: { color: '#64748B', fontSize: 12, marginTop: 5 },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  content: { padding: 24 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' },
+  loadingText: { color: '#64748B', marginTop: 12 },
+  headerRow: { marginBottom: 14 },
+  eyebrow: { color: '#2563EB', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginBottom: 5 },
+  title: { color: '#0F172A', fontSize: 24, fontWeight: '900' },
+  subtitle: { color: '#64748B', fontSize: 12, marginTop: 5 },
   filterSection: { marginBottom: 16, backgroundColor: '#FFFFFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
   filterHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   filterLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.8 },
@@ -324,9 +384,53 @@ const styles = StyleSheet.create({
   filterPillActive: { backgroundColor: '#2563EB', borderColor: '#1D4ED8' },
   filterPillText: { fontSize: 12, fontWeight: '700', color: '#475569' },
   filterPillTextActive: { color: '#FFFFFF' },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18 }, metric: { flex: 1, minWidth: 150, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, padding: 15 }, alertMetric: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }, metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, metricValue: { color: '#0F172A', fontSize: 25, fontWeight: '900', marginTop: 5 },
-  mainGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 }, replayCard: { flex: 3, minWidth: 560, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 }, tripListCard: { flex: 1, minWidth: 260, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }, cardTitle: { color: '#0F172A', fontSize: 15, fontWeight: '900' }, cardSubtitle: { color: '#64748B', fontSize: 10, marginTop: 3, lineHeight: 15 }, replayActions: { flexDirection: 'row', alignItems: 'center', gap: 7 }, iconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8 }, playButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#2563EB', paddingHorizontal: 12, height: 36, borderRadius: 8 }, playText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' }, progressTrack: { height: 5, backgroundColor: '#E2E8F0', borderRadius: 5, marginTop: 10, overflow: 'hidden' }, progressFill: { height: '100%', backgroundColor: '#2563EB' },
-  tripRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 10, backgroundColor: '#F8FAFC', marginTop: 9 }, tripRowActive: { backgroundColor: '#2563EB' }, truckIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }, tripTruck: { color: '#0F172A', fontSize: 11, fontWeight: '900' }, tripMeta: { color: '#64748B', fontSize: 9, marginTop: 3 }, empty: { color: '#64748B', fontSize: 11, lineHeight: 17, paddingVertical: 16 },
-  alertCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16, marginTop: 16 }, alertRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }, alertIcon: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }, alertTitle: { color: '#0F172A', fontSize: 11, fontWeight: '900' }, alertMeta: { color: '#64748B', fontSize: 9, marginTop: 3 }, alertDetail: { color: '#B91C1C', fontSize: 11, fontWeight: '900' },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18 },
+  metric: { flex: 1, minWidth: 150, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, padding: 15 },
+  alertMetric: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
+  metricValue: { color: '#0F172A', fontSize: 25, fontWeight: '900', marginTop: 5 },
+  mainGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  replayCard: { flex: 3, minWidth: 560, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 },
+  tripListCard: { flex: 1, minWidth: 260, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 },
+  cardTitle: { color: '#0F172A', fontSize: 15, fontWeight: '900' },
+  cardSubtitle: { color: '#64748B', fontSize: 11, marginTop: 3, lineHeight: 15, fontWeight: '600' },
+  replayActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  speedButton: {
+    paddingHorizontal: 8,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+  },
+  speedText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#334155',
+  },
+  iconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, backgroundColor: '#FFFFFF' },
+  playButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#2563EB', paddingHorizontal: 14, height: 36, borderRadius: 8 },
+  pauseButton: { backgroundColor: '#D97706' },
+  playText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  progressTrackContainer: { marginTop: 12 },
+  progressTrack: { height: 6, backgroundColor: '#E2E8F0', borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#2563EB', borderRadius: 3 },
+  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  progressLabel: { fontSize: 10, color: '#64748B', fontWeight: '600' },
+  progressLabelHighlight: { fontSize: 10, color: '#2563EB', fontWeight: '800' },
+  tripRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 10, backgroundColor: '#F8FAFC', marginTop: 9 },
+  tripRowActive: { backgroundColor: '#2563EB' },
+  truckIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
+  tripTruck: { color: '#0F172A', fontSize: 11, fontWeight: '900' },
+  tripMeta: { color: '#64748B', fontSize: 9, marginTop: 3 },
+  empty: { color: '#64748B', fontSize: 11, lineHeight: 17, paddingVertical: 16 },
+  alertCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 16, marginTop: 16 },
+  alertRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  alertIcon: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  alertTitle: { color: '#0F172A', fontSize: 11, fontWeight: '900' },
+  alertMeta: { color: '#64748B', fontSize: 9, marginTop: 3 },
+  alertDetail: { color: '#B91C1C', fontSize: 11, fontWeight: '900' },
 });

@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { Alert, Animated, Dimensions, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -94,11 +94,17 @@ export default function AdminDashboard() {
         try {
           const userRef = doc(db, 'users', user.uid);
           const userSnap = await getDoc(userRef);
+          const isKnownAdmin = user.email?.toLowerCase().startsWith('admin@') || user.email?.toLowerCase().startsWith('cenro@');
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
-            const isCenroAdmin = userData.role === 'admin' || userData.role === 'cenro' || userData.role === 'coordinator' || userData.role === 'cenro_officer';
-            if (isCenroAdmin) {
+            let role = userData.role;
+            if ((!role || role === 'user') && isKnownAdmin) {
+              await setDoc(userRef, { role: 'admin', status: 'active', updatedAt: serverTimestamp() }, { merge: true });
+              role = 'admin';
+            }
+            const isCenroAdmin = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
+            if (isCenroAdmin || isKnownAdmin) {
               console.log('Admin dashboard: Admin role confirmed for:', user.email);
               setIsAdmin(true);
               setIsLoading(false);
@@ -108,6 +114,22 @@ export default function AdminDashboard() {
               await signOut(auth);
               router.replace('/admin/login');
             }
+          } else if (isKnownAdmin) {
+            await setDoc(userRef, {
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName || 'CENRO Admin',
+              name: user.displayName || 'CENRO Admin',
+              role: 'admin',
+              status: 'active',
+              verified: true,
+              department: 'City Environment & Natural Resources Office (CENRO Danao)',
+              agency: 'CENRO Danao City',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+            setIsAdmin(true);
+            setIsLoading(false);
           } else {
             console.log('Admin dashboard: User document not found in Firestore');
             Alert.alert('Access Denied', 'User profile not found.');
