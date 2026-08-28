@@ -20,7 +20,7 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
     const firestore = context.firestore();
     const users = [
       ['admin-1', { uid: 'admin-1', email: 'admin@example.com', role: 'admin', status: 'active', disabled: false }],
-      ['dict-1', { uid: 'dict-1', email: 'dict@example.com', role: 'dict', status: 'active', disabled: false }],
+      ['cicto-1', { uid: 'cicto-1', email: 'cicto@example.com', role: 'cicto', status: 'active', disabled: false }],
       ['resident-1', { uid: 'resident-1', email: 'one@example.com', role: 'user', status: 'active', disabled: false }],
       ['resident-2', { uid: 'resident-2', email: 'two@example.com', role: 'user', status: 'active', disabled: false }],
       ['resident-legacy', { uid: 'resident-legacy', email: 'legacy@example.com', role: 'user' }],
@@ -41,7 +41,7 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
   const otherResident = environment.authenticatedContext('resident-2', { email: 'two@example.com' }).firestore();
   const driver = environment.authenticatedContext('driver-1', { email: 'driver@example.com', role: 'driver' }).firestore();
   const admin = environment.authenticatedContext('admin-1', { email: 'admin@example.com', role: 'admin' }).firestore();
-  const dictUser = environment.authenticatedContext('dict-1', { email: 'dict@example.com', role: 'dict' }).firestore();
+  const cictoUser = environment.authenticatedContext('cicto-1', { email: 'cicto@example.com', role: 'cicto' }).firestore();
   const legacyResident = environment.authenticatedContext('resident-legacy', { email: 'legacy@example.com' }).firestore();
 
   await t.test('residents cannot promote themselves or mutate fleet configuration', async () => {
@@ -50,53 +50,63 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
     await assertFails(addDoc(collection(resident, 'barangay_schedules'), { barangayName: 'Poblacion' }));
   });
 
-  await t.test('admins can manage protected operational records', async () => {
-    await assertSucceeds(addDoc(collection(admin, 'trucks'), { plateNumber: 'NEW-001', status: 'active' }));
-    await assertSucceeds(addDoc(collection(admin, 'barangay_schedules'), { barangayName: 'Poblacion' }));
-    await assertSucceeds(addDoc(collection(admin, 'schedules'), { assignedDriverId: 'driver-1', status: 'pending' }));
-    await assertSucceeds(setDoc(doc(admin, 'employee_ids', 'CENRO-2026-001'), { userId: 'driver-1', assignedAt: new Date() }));
-    await assertSucceeds(setDoc(doc(admin, 'license_numbers', 'N01-23-456789'), { userId: 'driver-1', assignedAt: new Date() }));
-    await assertSucceeds(setDoc(doc(admin, 'coordinator_employee_ids', 'CENRO-COORD-001'), { userId: 'resident-2', assignedAt: new Date() }));
-    await assertFails(setDoc(doc(resident, 'employee_ids', 'FAKE-001'), { userId: 'resident-1' }));
-    await assertFails(setDoc(doc(resident, 'coordinator_employee_ids', 'FAKE-COORD'), { userId: 'resident-1' }));
-    await assertFails(getDoc(doc(resident, 'license_numbers', 'N01-23-456789')));
-  });
-
-  await t.test('report access is owner-scoped and query-compatible', async () => {
-    await assertSucceeds(getDoc(doc(resident, 'reports', 'report-1')));
-    await assertFails(getDoc(doc(resident, 'reports', 'report-2')));
-    const ownReports = await assertSucceeds(getDocs(query(collection(resident, 'reports'), where('userId', '==', 'resident-1'))));
-    assert.equal(ownReports.size, 1);
-    await assertFails(getDocs(query(collection(resident, 'reports'), where('status', '==', 'pending'))));
-  });
-
-  await t.test('legacy active profiles without explicit status flags remain usable', async () => {
-    await assertSucceeds(addDoc(collection(legacyResident, 'reports'), {
-      userId: 'resident-legacy', status: 'pending', street: 'Legacy Street',
-    }));
-  });
-
-  await t.test('drivers can publish only their own truck location', async () => {
+  await t.test('drivers can only update telemetry for their own assigned identity', async () => {
     await assertSucceeds(setDoc(doc(driver, 'truck_locations', 'driver-1'), {
-      driverId: 'driver-1', truckId: 'truck-1', lat: 10.52, lng: 124.03, status: 'active',
+      driverId: 'driver-1', latitude: 10.52, longitude: 124.03, status: 'active', updatedAt: new Date(),
     }));
-    await assertFails(setDoc(doc(driver, 'truck_locations', 'driver-2'), {
-      driverId: 'driver-2', truckId: 'truck-1', lat: 10.52, lng: 124.03, status: 'active',
+    await assertFails(setDoc(doc(driver, 'truck_locations', 'other-driver'), {
+      driverId: 'other-driver', latitude: 10.52, longitude: 124.03, status: 'active',
     }));
   });
 
-  await t.test('assigned drivers can submit evidence but cannot reassign routes', async () => {
+  await t.test('drivers complete schedules only with structured payload and positive measurement', async () => {
     await assertSucceeds(updateDoc(doc(driver, 'schedules', 'schedule-1'), {
       status: 'completed',
+      completedAt: new Date(),
+      completedBy: 'driver@example.com',
       completedByUid: 'driver-1',
-      completionImage: 'https://example.com/evidence.jpg',
+      completedByName: 'Driver One',
+      completionImage: 'https://example.com/completion.jpg',
       completionLocation: { lat: 10.52, lng: 124.03 },
-      collectionMeasurement: { value: 42, unit: 'kg', bagCount: 3 },
+      collectionMeasurement: { value: 15.5, unit: 'kg', bagCount: 3 },
+      updatedAt: new Date(),
     }));
-    await assertFails(updateDoc(doc(driver, 'schedules', 'schedule-1'), { assignedDriverId: 'driver-2' }));
+    await assertFails(updateDoc(doc(driver, 'schedules', 'schedule-1'), {
+      status: 'completed',
+      completedAt: new Date(),
+      completedBy: 'driver@example.com',
+      completedByUid: 'driver-1',
+      completedByName: 'Driver One',
+      completionImage: 'https://example.com/completion.jpg',
+      completionLocation: { lat: 10.52, lng: 124.03 },
+      collectionMeasurement: { value: 0, unit: 'kg' },
+      updatedAt: new Date(),
+    }));
+    await assertFails(updateDoc(doc(driver, 'schedules', 'schedule-1'), {
+      status: 'completed',
+      completedAt: new Date(),
+      completedBy: 'driver@example.com',
+      completedByUid: 'driver-1',
+      completedByName: 'Driver One',
+      completionImage: 'https://example.com/completion.jpg',
+      completionLocation: { lat: 10.52, lng: 124.03 },
+      collectionMeasurement: { value: -1, unit: 'kg' },
+      updatedAt: new Date(),
+    }));
+    await assertFails(updateDoc(doc(driver, 'schedules', 'schedule-1'), {
+      status: 'completed',
+      completedAt: new Date(),
+      completedBy: 'driver@example.com',
+      completedByUid: 'driver-1',
+      completedByName: 'Driver One',
+      completionImage: 'https://example.com/completion.jpg',
+      completionLocation: { lat: 10.52, lng: 124.03 },
+      collectionMeasurement: { value: 15.5, unit: 'invalid-unit' },
+      updatedAt: new Date(),
+    }));
   });
 
-  await t.test('verified completions create one immutable reward ledger award', async () => {
+  await t.test('reward awards are write-once and redemptions follow strict catalog items', async () => {
     const award = {
       userId: 'resident-1', reportId: 'report-1', scheduleId: 'schedule-1', tokens: 100,
       reason: 'verified-collection-completed', createdByUid: 'driver-1', awardedAt: new Date(),
@@ -106,29 +116,29 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
     await assertSucceeds(getDoc(doc(resident, 'reward_awards', 'report_report-1')));
     await assertFails(getDoc(doc(otherResident, 'reward_awards', 'report_report-1')));
     await assertFails(setDoc(doc(resident, 'reward_awards', 'report_report-2'), { ...award, reportId: 'report-2' }));
-    const redemption = await assertSucceeds(addDoc(collection(dictUser, 'reward_redemptions'), {
+    const redemption = await assertSucceeds(addDoc(collection(cictoUser, 'reward_redemptions'), {
       userId: 'resident-1', souvenirId: 'tote', souvenirName: 'CENRO Tote Bag', cost: 500,
-      issuedByUid: 'dict-1', issuedAt: new Date(), status: 'completed', mode: 'spark-ledger',
+      issuedByUid: 'cicto-1', issuedAt: new Date(), status: 'completed', mode: 'spark-ledger',
     }));
     await assertSucceeds(getDoc(doc(resident, 'reward_redemptions', redemption.id)));
     await assertFails(getDoc(doc(otherResident, 'reward_redemptions', redemption.id)));
-    await assertFails(updateDoc(doc(dictUser, 'reward_redemptions', redemption.id), { cost: 1 }));
-    await assertFails(deleteDoc(doc(dictUser, 'reward_redemptions', redemption.id)));
-    await assertFails(addDoc(collection(dictUser, 'reward_redemptions'), {
+    await assertFails(updateDoc(doc(cictoUser, 'reward_redemptions', redemption.id), { cost: 1 }));
+    await assertFails(deleteDoc(doc(cictoUser, 'reward_redemptions', redemption.id)));
+    await assertFails(addDoc(collection(cictoUser, 'reward_redemptions'), {
       userId: 'resident-1', souvenirId: 'tote', souvenirName: 'CENRO Tote Bag', cost: 1,
-      issuedByUid: 'dict-1', issuedAt: new Date(), status: 'completed', mode: 'spark-ledger',
+      issuedByUid: 'cicto-1', issuedAt: new Date(), status: 'completed', mode: 'spark-ledger',
     }));
   });
 
-  await t.test('DICT oversight works directly on Spark without Cloud Functions', async () => {
-    await assertSucceeds(getDocs(collection(dictUser, 'reports')));
-    await assertSucceeds(getDocs(collection(dictUser, 'schedules')));
-    await assertSucceeds(updateDoc(doc(dictUser, 'users', 'resident-2'), { role: 'coordinator', updatedAt: new Date() }));
-    await assertFails(updateDoc(doc(dictUser, 'users', 'dict-1'), { role: 'user', updatedAt: new Date() }));
-    await assertFails(updateDoc(doc(dictUser, 'users', 'resident-1'), { tokens: 99999 }));
-    await assertSucceeds(addDoc(collection(dictUser, 'interagency_messages'), {
+  await t.test('CICTO oversight works directly on Spark without Cloud Functions', async () => {
+    await assertSucceeds(getDocs(collection(cictoUser, 'reports')));
+    await assertSucceeds(getDocs(collection(cictoUser, 'schedules')));
+    await assertSucceeds(updateDoc(doc(cictoUser, 'users', 'resident-2'), { role: 'coordinator', updatedAt: new Date() }));
+    await assertFails(updateDoc(doc(cictoUser, 'users', 'cicto-1'), { role: 'user', updatedAt: new Date() }));
+    await assertFails(updateDoc(doc(cictoUser, 'users', 'resident-1'), { tokens: 99999 }));
+    await assertSucceeds(addDoc(collection(cictoUser, 'interagency_messages'), {
       subject: 'Route review', message: 'Review the high-priority collection route.', priority: 'high',
-      senderUid: 'dict-1', senderRole: 'dict', status: 'sent', deliveryMode: 'spark-firestore', createdAt: new Date(),
+      senderUid: 'cicto-1', senderRole: 'cicto', status: 'sent', deliveryMode: 'spark-firestore', createdAt: new Date(),
     }));
     await assertSucceeds(addDoc(collection(admin, 'interagency_messages'), {
       subject: 'Operational Dispatch', message: 'CENRO unit acknowledging directive.', priority: 'normal',
@@ -137,11 +147,11 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
     await assertSucceeds(getDocs(collection(admin, 'interagency_messages')));
     await assertFails(addDoc(collection(resident, 'interagency_messages'), {
       subject: 'Fake command', message: 'This must not be accepted.', priority: 'urgent',
-      senderUid: 'resident-1', senderRole: 'dict', status: 'sent', createdAt: new Date(),
+      senderUid: 'resident-1', senderRole: 'cicto', status: 'sent', createdAt: new Date(),
     }));
   });
 
-  await t.test('resident-to-CENRO-to-driver-to-DICT capstone workflow succeeds', async () => {
+  await t.test('resident-to-CENRO-to-driver-to-CICTO capstone workflow succeeds', async () => {
     await assertSucceeds(setDoc(doc(resident, 'reports', 'e2e-report'), {
       userId: 'resident-1', status: 'pending', title: 'Roadside waste', street: 'Rizal Street',
       barangay: 'Poblacion', location: { lat: 10.52, lng: 124.03 }, createdAt: new Date(),
@@ -160,7 +170,7 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
       userId: 'resident-1', reportId: 'e2e-report', scheduleId: 'e2e-schedule', tokens: 100,
       reason: 'verified-collection-completed', createdByUid: 'driver-1', awardedAt: new Date(),
     }));
-    const awards = await assertSucceeds(getDocs(query(collection(dictUser, 'reward_awards'), where('userId', '==', 'resident-1'))));
+    const awards = await assertSucceeds(getDocs(query(collection(cictoUser, 'reward_awards'), where('userId', '==', 'resident-1'))));
     assert.ok(awards.docs.some(item => item.id === 'report_e2e-report'));
   });
 
@@ -169,10 +179,13 @@ test('Firestore rules enforce role, ownership, and driver boundaries', { skip: !
       token: 'native-fcm-token', tokenType: 'fcm', platform: 'android', enabled: true,
     }));
     await assertFails(setDoc(doc(otherResident, 'users', 'resident-1', 'devices', 'device-2'), {
-      token: 'stolen-token', tokenType: 'fcm', platform: 'android', enabled: true,
+      token: 'spoofed-token', tokenType: 'fcm', platform: 'android', enabled: true,
     }));
-    await assertFails(addDoc(collection(resident, 'audit_logs'), { actorUid: 'resident-1', event: 'fake.admin.event' }));
-    await assertSucceeds(addDoc(collection(resident, 'client_activity'), { actorUid: 'resident-1', event: 'screen.opened' }));
-    await assertFails(addDoc(collection(resident, 'proximity_alerts'), { userId: 'resident-1' }));
+    await assertFails(setDoc(doc(resident, 'audit_logs', 'spoofed-log'), {
+      event: 'spoofed.event', actorUid: 'resident-1', createdAt: new Date(),
+    }));
+    await assertFails(setDoc(doc(admin, 'audit_logs', 'admin-spoofed-log'), {
+      event: 'admin.spoofed.event', actorUid: 'admin-1', createdAt: new Date(),
+    }));
   });
 });

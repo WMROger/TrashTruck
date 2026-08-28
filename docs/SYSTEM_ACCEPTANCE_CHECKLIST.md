@@ -11,12 +11,12 @@ Last updated: 2026-08-13
 - [x] Tested Firestore rules compile and are deployed to `trashtruck-swu-98ce9`.
 - [x] Expo public configuration resolves successfully for Android, iOS, and web.
 - [x] A clean static web export completes successfully.
-- [x] Firebase Hosting points to the Expo web export and enables clean route URLs for admin and DICT links.
+- [x] Firebase Hosting points to the Expo web export and enables clean route URLs for admin and CICTO links.
 - [x] Google, Facebook, and Cloudinary client-secret values are absent from the generated web bundle.
 
 ## Defense-day end-to-end test
 
-Run this sequence using separate resident, CENRO, driver, and DICT accounts. Record a screenshot or short screen capture for each completed section.
+Run this sequence using separate resident, CENRO, driver, and CICTO accounts. Record a screenshot or short screen capture for each completed section.
 
 ### Resident
 
@@ -32,7 +32,7 @@ Run this sequence using separate resident, CENRO, driver, and DICT accounts. Rec
 - [ ] Sign in with a verified CENRO account and confirm non-CENRO accounts are rejected.
 - [ ] Review the resident report, assign a suitable truck and driver, and dispatch it.
 - [ ] Confirm capacity warnings defer stops that exceed the assigned truck capacity.
-- [ ] Open the live map, heat map, route view, fleet replay, analytics, expense/budget panel, and DICT command inbox.
+- [ ] Open the live map, heat map, route view, fleet replay, analytics, expense/budget panel, and CICTO command inbox.
 - [ ] Create a driver and an environmental coordinator; verify that the administrator remains signed in and each new user receives an email-verification link.
 - [ ] Export service feedback, coordinator records, and override activity.
 
@@ -42,15 +42,15 @@ Run this sequence using separate resident, CENRO, driver, and DICT accounts. Rec
 - [ ] Confirm live dispatch cards open the device mapping application for navigation.
 - [ ] Complete the assigned stop with measured waste, photo, GPS, and issue status as applicable.
 - [ ] Confirm weights display in kilograms below 1,000 kg and metric tons at or above 1,000 kg.
-- [ ] End the shift and confirm the trip appears in driver history and CENRO/DICT fleet replay.
+- [ ] End the shift and confirm the trip appears in driver history and CENRO/CICTO fleet replay.
 
-### DICT
+### CICTO
 
-- [ ] Sign in with a verified DICT account and confirm routing to the DICT portal.
+- [ ] Sign in with a verified CICTO account and confirm routing to the CICTO portal.
 - [ ] Review data inventory, identity/access, fleet operations, rewards, and the overview dashboard.
 - [ ] Send a CENRO command and confirm it appears in the CENRO inbox.
 - [ ] Reconcile eligible historical reward awards, issue one valid catalog redemption, and confirm the ledger balance updates once.
-- [ ] Confirm residents cannot edit reward values, staff roles, reservations, or DICT commands directly.
+- [ ] Confirm residents cannot edit reward values, staff roles, reservations, or CICTO commands directly.
 
 ## External validation still required
 

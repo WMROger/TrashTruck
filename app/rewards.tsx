@@ -118,7 +118,7 @@ export default function ResidentRewardsPage() {
           </View>
 
           <Text style={styles.sectionTitle}>Souvenir catalog</Text>
-          <Text style={styles.sectionHelp}>No online payment is required. Bring your registered account email to the CENRO/DICT desk; authorized staff verify your balance and record the release.</Text>
+          <Text style={styles.sectionHelp}>No online payment is required. Bring your registered account email to the CENRO/CICTO desk; authorized staff verify your balance and record the release.</Text>
           {catalogItems.map(item => {
             const eligible = balance >= item.cost;
             return (

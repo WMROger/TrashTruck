@@ -10,7 +10,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { LogBox, Platform } from 'react-native';
-import { isDictEmail, ensureDictProfileInFirestore } from '@/constants/dictConfig';
+import { isCictoEmail, ensureCictoProfileInFirestore } from '@/constants/cictoConfig';
 
 LogBox.ignoreLogs([
   'You are initializing Firebase Auth for React Native without providing AsyncStorage',
@@ -132,9 +132,9 @@ function RootLayoutNav() {
 
       setRoleLoading(true);
       try {
-        if (isDictEmail(user.email)) {
-          await ensureDictProfileInFirestore(user.uid, user.email || 'dict@trashtrack.gov.ph', user.displayName || 'DICT Super Admin');
-          setUserRole('dict');
+        if (isCictoEmail(user.email)) {
+          await ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
+          setUserRole('cicto');
         } else {
           const userRef = doc(db, 'users', user.uid);
           const userSnap = await getDoc(userRef);
@@ -142,7 +142,7 @@ function RootLayoutNav() {
         }
       } catch (error) {
         console.error('Error checking user role:', error);
-        setUserRole(isDictEmail(user.email) ? 'dict' : 'user');
+        setUserRole(isCictoEmail(user.email) ? 'cicto' : 'user');
       } finally {
         setRoleResolvedForUid(user.uid);
         setRoleLoading(false);
@@ -162,7 +162,7 @@ function RootLayoutNav() {
       if (
         segmentStr === 'admin' ||
         segmentStr.toLowerCase() === 'cenro' ||
-        segmentStr.toLowerCase() === 'dict'
+        segmentStr.toLowerCase() === 'cicto'
       ) {
         // Allow unauthenticated portal access to login screens
       } else {
@@ -177,7 +177,9 @@ function RootLayoutNav() {
         userRole === 'cenro' ||
         userRole === 'coordinator' ||
         userRole === 'cenro_officer';
-      const isDictAdmin = userRole === 'dict' || userRole === 'dict_admin';
+      const isCictoAdmin =
+        userRole === 'cicto' ||
+        userRole === 'cicto_admin';
 
       // Authenticated access
       if (segmentStr === 'admin' || segmentStr.toLowerCase() === 'cenro') {
@@ -188,13 +190,13 @@ function RootLayoutNav() {
         } else if (isCenroAdmin && (segmentStr.toLowerCase() === 'cenro' || segments[1] === 'login' || !segments[1])) {
           router.replace('/admin/dashboard' as any);
         }
-      } else if (segmentStr.toLowerCase() === 'dict') {
+      } else if (segmentStr.toLowerCase() === 'cicto') {
         if (segments[1] === 'dashboard') {
-          if (!isDictAdmin) {
-            router.replace('/dict' as any);
+          if (!isCictoAdmin) {
+            router.replace('/cicto' as any);
           }
-        } else if (isDictAdmin && (segments.length === 1 || segments[1] === 'login')) {
-          router.replace('/dict/dashboard' as any);
+        } else if (isCictoAdmin && (segments.length === 1 || segments[1] === 'login')) {
+          router.replace('/cicto/dashboard' as any);
         }
       } else {
         // Route according to user role
@@ -217,14 +219,14 @@ function RootLayoutNav() {
           ) {
             router.replace('/admin/dashboard' as any);
           }
-        } else if (isDictAdmin) {
+        } else if (isCictoAdmin) {
           if (
             currentSegment === 'splash' ||
             currentSegment === 'auth' ||
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login'
           ) {
-            router.replace('/dict/dashboard' as any);
+            router.replace('/cicto/dashboard' as any);
           }
         } else {
           // Resident user
@@ -241,12 +243,12 @@ function RootLayoutNav() {
     }
   }, [userRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
 
-  // Route-scoped global font: Poppins on admin/dict/cenro, Plus Jakarta Sans & Inter elsewhere
+  // Route-scoped global font: Poppins on admin/cicto/cenro, Plus Jakarta Sans & Inter elsewhere
   useEffect(() => {
     const segmentStr = String(segments[0] || '').toLowerCase();
     const isAdminRoute =
       segmentStr === 'admin' ||
-      segmentStr === 'dict' ||
+      segmentStr === 'cicto' ||
       segmentStr === 'cenro';
 
     const adminFont = Platform.select({
@@ -394,14 +396,14 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
-        name="dict"
+        name="cicto"
         options={{
           headerShown: false,
           ...getTransitionConfig('admin'),
         }}
       />
       <Stack.Screen
-        name="DICT"
+        name="CICTO"
         options={{
           headerShown: false,
           ...getTransitionConfig('admin'),

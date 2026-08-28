@@ -85,4 +85,4 @@ eas build --platform android --profile preview
 ## 💡 Tips for Capstone Defense Day
 * Install the `.apk` on your test devices 1–2 days before your defense.
 * Standalone APKs do **not** require running `npx expo start` on your laptop; they run independently anywhere.
-* Keep the CENRO/DICT web dashboard running on your laptop browser (`npx expo start --web`) to project the live maps on the big screen during your presentation.
+* Keep the CENRO/CICTO web dashboard running on your laptop browser (`npx expo start --web`) to project the live maps on the big screen during your presentation.

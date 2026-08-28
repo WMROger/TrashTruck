@@ -195,13 +195,13 @@ export default function DriverAccountsTab({
       snap.forEach((d) => {
         const data = d.data();
         const role = String(data.role || "user").toLowerCase();
-        // CENRO cannot see DICT or Admin accounts in the operational directory
+        // CENRO cannot see CICTO or Admin accounts in the operational directory
         if (
-          role === "dict" ||
+          role === "cicto" ||
           role === "admin" ||
           String(data.email || "")
             .toLowerCase()
-            .includes("dict@")
+            .includes("cicto@")
         ) {
           return;
         }
@@ -247,7 +247,7 @@ export default function DriverAccountsTab({
 
   const getRoleLabel = (role: string) => {
     if (role === "admin") return "Admin";
-    if (role === "dict") return "DICT";
+    if (role === "cicto") return "CICTO";
     if (role === "coordinator") return "Coordinator";
     if (role === "driver") return "Driver";
     return "Resident";
@@ -265,7 +265,7 @@ export default function DriverAccountsTab({
           <Text style={[styles.roleText, { color: "#B91C1C" }]}>Admin</Text>
         </View>
       );
-    if (role === "dict")
+    if (role === "cicto")
       return (
         <View
           style={[
@@ -273,7 +273,7 @@ export default function DriverAccountsTab({
             { backgroundColor: "#F5F3FF", borderColor: "#DDD6FE" },
           ]}
         >
-          <Text style={[styles.roleText, { color: "#6D28D9" }]}>DICT</Text>
+          <Text style={[styles.roleText, { color: "#6D28D9" }]}>CICTO</Text>
         </View>
       );
     if (role === "driver")
@@ -357,7 +357,7 @@ export default function DriverAccountsTab({
         (u.role === "user" || !u.role || u.role === "resident"));
 
     return (
-      u.role !== "dict" && u.role !== "admin" && matchesSearch && matchesRole
+      u.role !== "cicto" && u.role !== "admin" && matchesSearch && matchesRole
     );
   });
 

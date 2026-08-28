@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+from csv import DictReader as CictoReader
 import json
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+cicto = dict
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,11 +26,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_actuals(path: Path) -> dict[str, float]:
+def load_actuals(path: Path) -> cicto[str, float]:
     if not path.exists():
         return {}
     with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
+        rows = list(CictoReader(handle))
     return {
         row["period"].strip(): float(row["actual_tons"])
         for row in rows

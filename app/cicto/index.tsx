@@ -1,6 +1,6 @@
 import React from 'react';
 import PortalLoginForm from '@/components/admin/PortalLoginForm';
 
-export default function DictPortalIndex() {
-  return <PortalLoginForm portal="dict" />;
+export default function CictoPortalIndex() {
+  return <PortalLoginForm portal="cicto" />;
 }

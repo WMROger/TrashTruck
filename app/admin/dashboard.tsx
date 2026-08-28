@@ -21,7 +21,7 @@ import {
   DriverAccountsTab,
   AnnouncementsTab,
   FleetMonitoringTab,
-  DictCommandsTab,
+  CictoCommandsTab,
   CenroProfileSettingsModal,
   OperationalLogsTab,
   AdminNotificationDropdown,
@@ -516,8 +516,8 @@ export default function AdminDashboard() {
         return <OperationalLogsTab />;
       case 'announcements':
         return <AnnouncementsTab />;
-      case 'dict-commands':
-        return <DictCommandsTab />;
+      case 'cicto-commands':
+        return <CictoCommandsTab />;
       case 'coordinators':
         return <DriverAccountsTab initialSubTab="coordinators" />;
       case 'analytics':

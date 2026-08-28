@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+from csv import DictReader as CictoReader
 import json
 import subprocess
 from datetime import date
 from pathlib import Path
 
 import numpy as np
+
+cicto = dict
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def score(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+def score(actual: np.ndarray, predicted: np.ndarray) -> cicto[str, float]:
     errors = actual - predicted
     return {
         "mae": round(float(np.mean(np.abs(errors))), 2),
@@ -52,7 +55,7 @@ def main() -> None:
         forecast_sets.append([item["value_tons"] for item in metrics["forecast"]])
 
         with (run_dir / "test_predictions.csv").open(newline="", encoding="utf-8") as handle:
-            rows = list(csv.DictReader(handle))
+            rows = list(CictoReader(handle))
         actual = np.asarray([float(row["actual_tons"]) for row in rows])
         prediction_sets.append([float(row["lstm"]) for row in rows])
 

@@ -154,7 +154,7 @@ const htmlContent = `<!DOCTYPE html>
       font-weight: 700;
       letter-spacing: 0.5px;
     }
-    .badge-dict { background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE; }
+    .badge-cicto { background: #F0FDFA; color: #0F766E; border: 1px solid #CCFBF1; }
     .badge-cenro { background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; }
     .badge-driver { background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A; }
     .badge-citizen { background: #F3F4F6; color: #4B5563; border: 1px solid #E5E7EB; }
@@ -186,14 +186,14 @@ const htmlContent = `<!DOCTYPE html>
 
   <div class="header-banner">
     <h1>🏛️ TrashTrack System Turnover & Operations Manual</h1>
-    <p>Department of Information and Communications Technology (DICT) ⇄ LGU Danao City (CENRO)</p>
+    <p>City Information and Communications Technology Office (CICTO) ⇄ LGU Danao City (CENRO)</p>
   </div>
 
   <div class="meta-card">
     <h2>📌 Document Control & Institutional Metadata</h2>
     <div class="meta-grid">
       <div class="meta-item"><strong>System Name:</strong> TrashTrack (Municipal Waste Logistics & Telemetry)</div>
-      <div class="meta-item"><strong>Deploying / Supervising Agency:</strong> DICT Regional Office VII</div>
+      <div class="meta-item"><strong>Deploying / Supervising Agency:</strong> CICTO Danao City</div>
       <div class="meta-item"><strong>Operating Municipal Beneficiary:</strong> CENRO – Danao City, Cebu</div>
       <div class="meta-item"><strong>Statutory Compliance:</strong> RA 9003, RA 10173, E-Governance Framework</div>
       <div class="meta-item"><strong>Production Environment:</strong> Web Portals & Mobile Apps (Android/iOS)</div>
@@ -203,32 +203,32 @@ const htmlContent = `<!DOCTYPE html>
 
   <h2>1. Executive Summary & Governance Model</h2>
   <p>
-    <strong>TrashTrack</strong> is an enterprise-grade municipal solid waste logistics, real-time vehicle telemetry, citizen geotagged reporting, and eco-token reward incentive platform. It establishes a compliant, high-security bridge between <strong>DICT</strong> (National & Regional Policy Oversight) and <strong>CENRO</strong> (Local Municipal Operations).
+    <strong>TrashTrack</strong> is an enterprise-grade municipal solid waste logistics, real-time vehicle telemetry, citizen geotagged reporting, and eco-token reward incentive platform. It establishes a compliant, high-security bridge between <strong>CICTO</strong> (Municipal IT Governance & Policy Oversight) and <strong>CENRO</strong> (Local Municipal Operations).
   </p>
 
   <h3>4-Tier Role Authority Architecture</h3>
   <div class="diagram-box">
     <div class="mermaid">
 graph TD
-    classDef dict fill:#1E293B,stroke:#4F46E5,stroke-width:2px,color:#FFFFFF;
+    classDef cicto fill:#042F2E,stroke:#0D9488,stroke-width:2px,color:#FFFFFF;
     classDef cenro fill:#064E3B,stroke:#10B981,stroke-width:2px,color:#FFFFFF;
     classDef ops fill:#1E3A8A,stroke:#3B82F6,stroke-width:2px,color:#FFFFFF;
     classDef citizen fill:#78350F,stroke:#F59E0B,stroke-width:2px,color:#FFFFFF;
 
-    DICT["TIER 1: DICT Super Administrator<br/><b>Role: 'dict'</b><br/>• Provisions CENRO Administrators<br/>• Security & Inactivity Governance<br/>• 1-Min OTP Account Purging<br/>• Inter-Agency Directives"]:::dict
+    CICTO["TIER 1: CICTO Super Administrator<br/><b>Role: 'cicto'</b><br/>• Provisions CENRO Administrators<br/>• Security & Inactivity Governance<br/>• 1-Min OTP Account Purging<br/>• Inter-Agency Directives"]:::cicto
     CENRO["TIER 2: CENRO City Administrator<br/><b>Role: 'admin'</b><br/>• Onboards Drivers & Coordinators<br/>• Danao City Barangay Schedules<br/>• Fleet Telemetry & Overrides<br/>• Physical Souvenir Voucher Validation"]:::cenro
     Drivers["TIER 3: Truck Drivers<br/><b>Role: 'driver'</b><br/>• GPS Route Navigation<br/>• Scale Weighing (Tons/Kg)<br/>• Photographic Completion"]:::ops
     Coordinators["TIER 3: Barangay Coordinators<br/><b>Role: 'coordinator'</b><br/>• Barangay Bin Audits<br/>• Waste Segregation Compliance<br/>• Neighborhood Notices"]:::ops
     Residents["TIER 4: Citizen Community<br/><b>Role: 'user'</b><br/>• Geotagged Trash Reports<br/>• Live Truck Tracking<br/>• 50 Eco-Tokens per Collection<br/>• Sustainable Souvenir Claims"]:::citizen
 
-    DICT -->|"1. Provisions Admin & Credentials"| CENRO
+    CICTO -->|"1. Provisions Admin & Credentials"| CENRO
     CENRO -->|"2. Onboards with Secondary Auth"| Drivers
     CENRO -->|"2. Appoints & Assigns Barangay"| Coordinators
     Residents -->|"3. Submits Geotagged Report"| CENRO
     CENRO -->|"4. Optimizes Route & Dispatches"| Drivers
     Drivers -->|"5. Completes Pickup with Photo/Scale Data"| Residents
     Drivers -->|"6. Automatic 50-Token Ledger Award"| Residents
-    DICT -.->|"Continuous Governance & Inactivity Cleanups"| Residents
+    CICTO -.->|"Continuous Governance & Inactivity Cleanups"| Residents
     </div>
   </div>
 
@@ -236,15 +236,15 @@ graph TD
 
   <h2>2. Step-by-Step Turnover & Operational Workflow</h2>
 
-  <h3>Phase 1: DICT Master Initialization & CENRO Provisioning</h3>
+  <h3>Phase 1: CICTO Master Initialization & CENRO Provisioning</h3>
   <ol>
     <li>
-      <strong>DICT Super Admin Sign-In:</strong>
-      The designated DICT supervisor accesses the master executive console (<code>dict@trashtrack.gov.ph</code>). The portal incorporates auto-healing Firestore self-initialization (<code>ensureDictProfileInFirestore</code>), guaranteeing administrative oversight is never lost.
+      <strong>CICTO Super Admin Sign-In:</strong>
+      The designated CICTO supervisor accesses the master executive console (<code>cicto@trashtrack.gov.ph</code>). The portal incorporates auto-healing Firestore self-initialization (<code>ensureCictoProfileInFirestore</code>), guaranteeing administrative oversight is never lost.
     </li>
     <li>
       <strong>Provisioning CENRO Administrator:</strong>
-      Under <strong>Identity & Access Management</strong>, DICT clicks <em>"Create CENRO Account"</em>. The system automatically creates a high-entropy password (e.g., <code>Cenro@Danao7421!Gov</code>) and employee ID (<code>CENRO-ADMIN-01</code>), creates the Firebase Auth profile in an isolated secondary session without signing out DICT, and dispatches a welcome email with a 5-minute temporary code.
+      Under <strong>Identity & Access Management</strong>, CICTO clicks <em>"Create CENRO Account"</em>. The system automatically creates a high-entropy password (e.g., <code>Cenro@Danao7421!Gov</code>) and employee ID (<code>CENRO-ADMIN-01</code>), creates the Firebase Auth profile in an isolated secondary session without signing out CICTO, and dispatches a welcome email with a 5-minute temporary code.
     </li>
   </ol>
 
@@ -270,7 +270,7 @@ sequenceDiagram
     participant Cloud as ☁️ Firebase Firestore
     actor CENRO as 🏢 CENRO Admin
     actor Driver as 🚛 Truck Driver
-    actor DICT as 🏛️ DICT Oversight
+    actor CICTO as 🏛️ CICTO Oversight
 
     Resident->>App: Submits Trash Report (Photo, Barangay, GPS Pin)
     App->>Cloud: Writes to /reports (status: 'pending')
@@ -282,7 +282,7 @@ sequenceDiagram
     Driver->>Cloud: Updates schedule (status: 'completed', validEvidence: true)
     Cloud->>Cloud: Immutable Ledger creates award (50 Eco-Tokens)
     Cloud-->>Resident: Notification: 50 Eco-Tokens credited
-    Cloud-->>DICT: Cryptographic audit event logged
+    Cloud-->>CICTO: Cryptographic audit event logged
     </div>
   </div>
 
@@ -299,7 +299,7 @@ sequenceDiagram
 
   <h3>1. 1-Minute OTP Account Deletion Policy</h3>
   <p>
-    Any permanent account deletion requested by DICT triggers a temporary 6-digit authorization PIN with an enforced <strong>1-minute (60-second)</strong> expiration countdown to prevent unauthorized or accidental data loss.
+    Any permanent account deletion requested by CICTO triggers a temporary 6-digit authorization PIN with an enforced <strong>1-minute (60-second)</strong> expiration countdown to prevent unauthorized or accidental data loss.
   </p>
 
   <h3>2. 6-Month Resident Inactivity Deactivation Policy</h3>
@@ -309,7 +309,7 @@ sequenceDiagram
   <ul>
     <li><strong>Data Preservation:</strong> Historical waste reports, scale tonnage metrics, and token ledgers are permanently preserved.</li>
     <li><strong>Automated Cron:</strong> A daily background Cloud Function (<code>deactivateInactiveResidents</code>) runs every 24 hours.</li>
-    <li><strong>DICT Console Controls:</strong> DICT Super Admins can filter <code>Inactive (6+ Mos)</code> accounts and perform on-demand batch deactivations or individual reactivations.</li>
+    <li><strong>CICTO Console Controls:</strong> CICTO Super Admins can filter <code>Inactive (6+ Mos)</code> accounts and perform on-demand batch deactivations or individual reactivations.</li>
   </ul>
 
   <h3>3. Operational Overrides vs Audit Logs Separation</h3>
@@ -332,9 +332,9 @@ EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=trashtruck-swu-98ce9.appspot.com
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=109283746512
 EXPO_PUBLIC_FIREBASE_APP_ID=1:109283746512:web:a1b2c3d4e5f6
 
-# DICT Super Administrator Default Credentials
-EXPO_PUBLIC_DICT_ADMIN_EMAIL=dict@trashtrack.gov.ph
-EXPO_PUBLIC_DICT_ADMIN_PASSWORD=DictAdmin2026!
+# CICTO Super Administrator Default Credentials
+EXPO_PUBLIC_CICTO_ADMIN_EMAIL=cicto@trashtrack.gov.ph
+EXPO_PUBLIC_CICTO_ADMIN_PASSWORD=CictoAdmin2026!
 
 # Cloudinary Unsigned Photographic Evidence Upload
 EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=danao-trashtrack
@@ -366,8 +366,8 @@ EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSy...</code></pre>
       </tr>
       <tr>
         <td><strong>Supervising Agency</strong></td>
-        <td>DICT Regional Office VII</td>
-        <td>DICT Project Officer</td>
+        <td>CICTO Danao City</td>
+        <td>CICTO Project Officer</td>
         <td>________________________</td>
         <td>____/____/2026</td>
       </tr>
@@ -399,8 +399,8 @@ EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSy...</code></pre>
 </body>
 </html>`;
 
-const outputHtmlPath = path.join(__dirname, '..', 'docs', 'DICT_TURNOVER_MANUAL.html');
-const outputPdfPath = path.join(__dirname, '..', 'docs', 'DICT_TURNOVER_MANUAL.pdf');
+const outputHtmlPath = path.join(__dirname, '..', 'docs', 'CICTO_TURNOVER_MANUAL.html');
+const outputPdfPath = path.join(__dirname, '..', 'docs', 'CICTO_TURNOVER_MANUAL.pdf');
 
 fs.writeFileSync(outputHtmlPath, htmlContent);
 console.log('✅ Generated HTML manual at:', outputHtmlPath);

@@ -226,23 +226,23 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         <TouchableOpacity
           style={[
             styles.bottomNavBtn,
-            activeTab === "dict-commands" && styles.activeBottomNavBtn,
+            activeTab === "cicto-commands" && styles.activeBottomNavBtn,
           ]}
-          onPress={() => handleItemPress("dict-commands")}
+          onPress={() => handleItemPress("cicto-commands")}
           activeOpacity={0.7}
         >
           <MaterialIcons
             name="forum"
             size={20}
-            color={activeTab === "dict-commands" ? "#1B4D3E" : "#4B5563"}
+            color={activeTab === "cicto-commands" ? "#1B4D3E" : "#4B5563"}
           />
           <Text
             style={[
               styles.bottomNavText,
-              activeTab === "dict-commands" && styles.activeBottomNavText,
+              activeTab === "cicto-commands" && styles.activeBottomNavText,
             ]}
           >
-            DICT COMMAND & CHAT
+            CICTO COMMAND & CHAT
           </Text>
         </TouchableOpacity>
 

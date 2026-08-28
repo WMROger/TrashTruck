@@ -131,7 +131,7 @@ export default function LoginScreen() {
           });
         } else {
           const existingData = snap.data();
-          const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'dict' || existingData?.role === 'coordinator';
+          const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'cicto' || existingData?.role === 'coordinator';
           await setDoc(
             userRef,
             {

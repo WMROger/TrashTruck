@@ -26,18 +26,18 @@ import AgencySign from './AgencySign';
 import ErrorModal from '../ErrorModal';
 import { auth, db } from '../../config/firebase';
 import {
-  isDictIdentifier,
-  isDictEmail,
-  loginOrBootstrapDictAccount,
-  ensureDictProfileInFirestore,
-} from '../../constants/dictConfig';
+  isCictoIdentifier,
+  isCictoEmail,
+  loginOrBootstrapCictoAccount,
+  ensureCictoProfileInFirestore,
+} from '../../constants/cictoConfig';
 
 interface PortalLoginFormProps {
-  portal: 'cenro' | 'dict';
+  portal: 'cenro' | 'cicto';
 }
 
 export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
-  const isDict = portal === 'dict';
+  const isCicto = portal === 'cicto';
   const router = useRouter();
 
   const [username, setUsername] = useState('');
@@ -59,8 +59,8 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) return;
 
-      if (isDictEmail(currentUser.email)) {
-        router.replace('/dict/dashboard');
+      if (isCictoEmail(currentUser.email)) {
+        router.replace('/cicto/dashboard' as any);
         return;
       }
 
@@ -70,12 +70,12 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
         if (snap.exists()) {
           const role = snap.data().role;
           const isCenro = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
-          const isDictAdmin = role === 'dict' || role === 'dict_admin';
+          const isCictoAdmin = role === 'cicto' || role === 'cicto_admin';
 
-          if (isDict && isDictAdmin) {
-            router.replace('/dict/dashboard');
-          } else if (!isDict && isCenro) {
-            router.replace('/admin/dashboard');
+          if (isCicto && isCictoAdmin) {
+            router.replace('/cicto/dashboard' as any);
+          } else if (!isCicto && isCenro) {
+            router.replace('/admin/dashboard' as any);
           }
         }
       } catch (err) {
@@ -84,7 +84,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     });
 
     return () => unsubscribe();
-  }, [isDict, router]);
+  }, [isCicto, router]);
 
   const showError = (
     message: string,
@@ -112,15 +112,15 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     setIsLoading(true);
 
     try {
-      if (isDict) {
-        // --- DICT PORTAL AUTHENTICATION ---
+      if (isCicto) {
+        // --- CICTO PORTAL AUTHENTICATION ---
         await setPersistence(
           auth,
           keepLoggedIn ? browserLocalPersistence : browserSessionPersistence,
         );
-        const dictUser = await loginOrBootstrapDictAccount(username, password);
-        console.log('DICT authentication successful for:', dictUser.email);
-        router.replace('/dict/dashboard');
+        const cictoUser = await loginOrBootstrapCictoAccount(username, password);
+        console.log('CICTO authentication successful for:', cictoUser.user.email);
+        router.replace('/cicto/dashboard' as any);
         return;
       } else {
         // --- CENRO PORTAL AUTHENTICATION ---
@@ -135,16 +135,16 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        const userIsDict = isDictEmail(user.email);
+        const userIsCicto = isCictoEmail(user.email);
 
         if (db) {
-          if (userIsDict) {
-            await ensureDictProfileInFirestore(
+          if (userIsCicto) {
+            await ensureCictoProfileInFirestore(
               user.uid,
-              user.email || 'dict@trashtrack.gov.ph',
-              user.displayName || 'DICT Super Admin',
+              user.email || 'cicto@trashtrack.gov.ph',
+              user.displayName || 'CICTO Super Admin',
             );
-            router.replace('/dict/dashboard');
+            router.replace('/cicto/dashboard' as any);
             return;
           }
 
@@ -164,7 +164,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
             if (userData.mustChangePassword === true && expiresAtMillis && nowMillis > expiresAtMillis) {
               await signOut(auth);
               showError(
-                'Your temporary access code/password has expired (valid for 5 minutes). Please contact your DICT administrator to re-provision credentials.',
+                'Your temporary access code/password has expired (valid for 5 minutes). Please contact your CICTO administrator to re-provision credentials.',
                 'Access Code Expired',
                 'error'
               );
@@ -172,13 +172,13 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
             }
 
             const isCenroAdmin = userRole === 'admin' || userRole === 'cenro' || userRole === 'coordinator' || userRole === 'cenro_officer';
-            const isDictAdmin = userRole === 'dict' || userRole === 'dict_admin';
+            const isCictoAdmin = userRole === 'cicto' || userRole === 'cicto_admin';
 
             if (isCenroAdmin) {
-              router.replace('/admin/dashboard');
+              router.replace('/admin/dashboard' as any);
               return;
-            } else if (isDictAdmin) {
-              router.replace('/dict/dashboard');
+            } else if (isCictoAdmin) {
+              router.replace('/cicto/dashboard' as any);
               return;
             } else if (userRole === 'driver') {
               await signOut(auth);
@@ -186,7 +186,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
               return;
             } else if (userRole === 'user') {
               await signOut(auth);
-              showError('This account is registered as a Resident. To access CENRO, create or elevate the account in the DICT Identity & Access dashboard.', 'Resident Account', 'warning');
+              showError('This account is registered as a Resident. To access CENRO, create or elevate the account in the CICTO User Management dashboard.', 'Resident Account', 'warning');
               return;
             } else {
               await signOut(auth);
@@ -208,8 +208,8 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
 
       let errorMessage = 'Login failed. Please verify your credentials and try again.';
       if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        errorMessage = isDict
-          ? 'DICT Administrator credentials incorrect.'
+        errorMessage = isCicto
+          ? 'CICTO Administrator credentials incorrect.'
           : 'CENRO Admin account not found or password incorrect.';
       } else if (error.code === 'auth/wrong-password') {
         errorMessage = 'Incorrect password.';
@@ -240,14 +240,14 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           >
           <View style={styles.floatingCardContainer}>
             {/* Top Republic Ribbon */}
-            <View style={[styles.govRibbonBar, isDict ? styles.govRibbonBarDict : styles.govRibbonBarCenro]}>
+            <View style={[styles.govRibbonBar, isCicto ? styles.govRibbonBarCicto : styles.govRibbonBarCenro]}>
               <View style={styles.govRibbonFlagRow}>
                 <View style={[styles.flagDot, { backgroundColor: '#0038A8' }]} />
                 <View style={[styles.flagDot, { backgroundColor: '#CE1126' }]} />
                 <View style={[styles.flagDot, { backgroundColor: '#FCD116' }]} />
-                <Text style={[styles.govRibbonText, isDict ? styles.govRibbonTextDict : styles.govRibbonTextCenro]}>
-                  {isDict
-                    ? 'GOV.PH • REPUBLIC OF THE PHILIPPINES • DICT REGION VII'
+                <Text style={[styles.govRibbonText, isCicto ? styles.govRibbonTextCicto : styles.govRibbonTextCenro]}>
+                  {isCicto
+                    ? 'GOV.PH • REPUBLIC OF THE PHILIPPINES • CICTO DANAO'
                     : 'LGU DANAO • CITY ENVIRONMENT AND NATURAL RESOURCES'}
                 </Text>
               </View>
@@ -256,20 +256,20 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
             <View
               style={[
                 styles.loginFloatingCard,
-                isDict ? styles.dictCardAccent : styles.cenroCardAccent,
+                isCicto ? styles.cictoCardAccent : styles.cenroCardAccent,
               ]}
             >
               {/* Minimalist Agency Seal / Sign */}
-              <AgencySign type={portal} size="medium" />
+              <AgencySign type={isCicto ? 'cicto' : 'cenro'} size="medium" />
 
               {/* Dynamic Welcome Heading */}
               <View style={styles.headingWrapper}>
-                <Text style={[styles.welcomeText, isDict ? styles.dictWelcomeText : styles.cenroWelcomeText]}>
-                  {isDict ? 'Welcome back, DICT Admin' : 'Welcome back, CENRO Admin'}
+                <Text style={[styles.welcomeText, isCicto ? styles.cictoWelcomeText : styles.cenroWelcomeText]}>
+                  {isCicto ? 'Welcome back, CICTO Admin' : 'Welcome back, CENRO Admin'}
                 </Text>
                 <Text style={styles.portalSubtitle}>
-                  {isDict
-                    ? 'Enter your DICT administrative credentials to access system oversight, audits, and user governance.'
+                  {isCicto
+                    ? 'Enter your CICTO administrative credentials to access system oversight, audits, and user governance.'
                     : 'Enter your CENRO administrator credentials to access waste operations and fleet dispatch.'}
                 </Text>
               </View>
@@ -277,7 +277,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
               {/* Login Form */}
               <View style={styles.form}>
                 <AdminInput
-                  placeholder={isDict ? 'DICT Username or Email' : 'CENRO Username or Email'}
+                  placeholder={isCicto ? 'CICTO Username or Email' : 'CENRO Username or Email'}
                   value={username}
                   onChangeText={setUsername}
                   icon="person"
@@ -316,7 +316,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
                     <View
                       style={[
                         styles.checkbox,
-                        keepLoggedIn && (isDict ? styles.checkboxCheckedDict : styles.checkboxCheckedCenro),
+                        keepLoggedIn && (isCicto ? styles.checkboxCheckedCicto : styles.checkboxCheckedCenro),
                       ]}
                     >
                       {keepLoggedIn && <MaterialIcons name="check" size={14} color="#FFFFFF" />}
@@ -335,11 +335,11 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
                   title={
                     isLoading
                       ? 'Authenticating...'
-                      : isDict
-                      ? 'Sign In to DICT Portal'
+                      : isCicto
+                      ? 'Sign In to CICTO Portal'
                       : 'Sign In to CENRO Portal'
                   }
-                  colorScheme={isDict ? 'teal' : 'green'}
+                  colorScheme={isCicto ? 'teal' : 'green'}
                   onPress={handleLogin}
                   disabled={isLoading}
                 />
@@ -348,8 +348,8 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
                 <View style={styles.securityFootnote}>
                   <MaterialIcons name="verified-user" size={13} color="#64748B" />
                   <Text style={styles.securityFootnoteText}>
-                    {isDict
-                      ? 'Protected under DICT Administrative Oversight & Governance Framework'
+                    {isCicto
+                      ? 'Protected under CICTO Administrative Oversight & Governance Framework'
                       : 'City Environment and Natural Resources Office • Danao City Official Portal'}
                   </Text>
                 </View>
@@ -360,15 +360,12 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
         </View>
       </ImageBackground>
 
-      {/* Error Modal */}
       <ErrorModal
         visible={errorModal.visible}
         title={errorModal.title}
         message={errorModal.message}
         type={errorModal.type}
         onClose={closeErrorModal}
-        autoClose={true}
-        autoCloseDelay={4500}
       />
     </SafeAreaView>
   );
@@ -382,20 +379,18 @@ const styles = StyleSheet.create({
   },
   backdropDimmer: {
     flex: 1,
-    width: '100%',
-    height: '100%',
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    justifyContent: 'center',
   },
   overlay: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    minHeight: '100%',
+    padding: 24,
   },
   floatingCardContainer: {
     width: '100%',
-    maxWidth: 510,
+    maxWidth: 460,
     alignSelf: 'center',
   },
   govRibbonBar: {
@@ -408,7 +403,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: -1,
   },
-  govRibbonBarDict: {
+  govRibbonBarCicto: {
     backgroundColor: '#042F2E',
     borderWidth: 1,
     borderBottomWidth: 0,
@@ -435,7 +430,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
   },
-  govRibbonTextDict: {
+  govRibbonTextCicto: {
     color: '#CCFBF1',
   },
   govRibbonTextCenro: {
@@ -458,7 +453,7 @@ const styles = StyleSheet.create({
   cenroCardAccent: {
     borderColor: '#D1FAE5',
   },
-  dictCardAccent: {
+  cictoCardAccent: {
     borderColor: '#CCFBF1',
   },
   headingWrapper: {
@@ -473,7 +468,7 @@ const styles = StyleSheet.create({
   cenroWelcomeText: {
     color: '#1B4D3E',
   },
-  dictWelcomeText: {
+  cictoWelcomeText: {
     color: '#0F172A',
   },
   portalSubtitle: {
@@ -510,7 +505,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#059669',
     borderColor: '#059669',
   },
-  checkboxCheckedDict: {
+  checkboxCheckedCicto: {
     backgroundColor: '#0D9488',
     borderColor: '#0D9488',
   },

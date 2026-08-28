@@ -114,7 +114,7 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
 
 /**
  * Provisions or elevates an account to CENRO Admin (role: 'admin').
- * Executed exclusively by DICT Super Admin.
+ * Executed exclusively by CICTO Super Admin.
  */
 export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
   const input = normalize(raw);
@@ -122,7 +122,7 @@ export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
   if (input.mode === 'upgrade') {
     const result = await writeCenroRecords(input.existingUserId, input);
     await writeAuditLog('notification.preferences_updated' as any, 'user_role', input.existingUserId, {
-      action: 'dict_elevate_cenro',
+      action: 'cicto_elevate_cenro',
       employeeId: input.employeeId,
       department: input.department,
     });
@@ -157,7 +157,7 @@ export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
 
     const result = await writeCenroRecords(createdUser.uid, input);
     await writeAuditLog('notification.preferences_updated' as any, 'user_role', createdUser.uid, {
-      action: 'dict_create_cenro',
+      action: 'cicto_create_cenro',
       email: input.email,
       employeeId: input.employeeId,
     });
@@ -175,7 +175,7 @@ export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
 
 /**
  * Revokes CENRO Admin status back to resident (role: 'user').
- * Executed exclusively by DICT Super Admin.
+ * Executed exclusively by CICTO Super Admin.
  */
 export async function revokeCenroAdmin(userId: string) {
   if (!db) throw new Error('Firestore is unavailable.');
@@ -188,6 +188,6 @@ export async function revokeCenroAdmin(userId: string) {
   });
 
   await writeAuditLog('notification.preferences_updated' as any, 'user_role', userId, {
-    action: 'dict_revoke_cenro',
+    action: 'cicto_revoke_cenro',
   });
 }

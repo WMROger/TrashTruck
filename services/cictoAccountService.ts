@@ -17,9 +17,9 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { isDictEmail } from '@/constants/dictConfig';
+import { isCictoEmail } from '@/constants/cictoConfig';
 
-export interface DictNotification {
+export interface CictoNotification {
   id: string;
   type: 'account_deleted' | 'admin_created' | 'system_alert';
   title: string;
@@ -38,6 +38,7 @@ export interface DictNotification {
   actorName?: string;
 }
 
+
 export interface DeletionRequestResult {
   requestId: string;
   otpPin: string;
@@ -55,12 +56,12 @@ function generate6DigitOtp(): string {
 }
 
 // In-memory persistent notification cache and subscriber registry
-let memoryNotifications: DictNotification[] = [];
-let firestoreNotifications: DictNotification[] = [];
-const notificationSubscribers = new Set<(notifs: DictNotification[]) => void>();
+let memoryNotifications: CictoNotification[] = [];
+let firestoreNotifications: CictoNotification[] = [];
+const notificationSubscribers = new Set<(notifs: CictoNotification[]) => void>();
 
 function notifySubscribers() {
-  const map = new Map<string, DictNotification>();
+  const map = new Map<string, CictoNotification>();
   
   memoryNotifications.forEach((n) => map.set(n.id, n));
   firestoreNotifications.forEach((n) => {
@@ -95,11 +96,11 @@ export async function requestAccountDeletionOtp(targetUser: {
   employeeId?: string;
 }): Promise<DeletionRequestResult> {
   if (!db) throw new Error('Database is currently unavailable.');
-  if (!auth.currentUser) throw new Error('DICT administrator authentication is required.');
+  if (!auth.currentUser) throw new Error('CICTO administrator authentication is required.');
 
-  // Guard: Protect DICT accounts from deletion
-  if (targetUser.role === 'dict' || isDictEmail(targetUser.email)) {
-    throw new Error('DICT Super Administrator accounts cannot be deleted from the directory.');
+  // Guard: Protect CICTO accounts from deletion
+  if (targetUser.role === 'cicto' || isCictoEmail(targetUser.email)) {
+    throw new Error('CICTO Super Administrator accounts cannot be deleted from the directory.');
   }
 
   const otpPin = generate6DigitOtp();
@@ -107,12 +108,12 @@ export async function requestAccountDeletionOtp(targetUser: {
   const ttlMs = 1 * 60 * 1000; // 1 minute validity
   const expiresAt = new Date(now + ttlMs);
 
-  const adminEmail = auth.currentUser.email || 'dict@trashtrack.gov.ph';
+  const adminEmail = auth.currentUser.email || 'cicto@trashtrack.gov.ph';
 
   // Create temporary verification document in Firestore
   let requestId = 'otp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
   try {
-    const otpRef = await addDoc(collection(db, 'dict_otp_verifications'), {
+    const otpRef = await addDoc(collection(db, 'cicto_otp_verifications'), {
       targetUid: targetUser.id,
       targetEmail: targetUser.email,
       targetName: targetUser.displayName || 'Unnamed User',
@@ -129,7 +130,7 @@ export async function requestAccountDeletionOtp(targetUser: {
     console.warn('Firestore verification save warning (using client fallback):', err);
   }
 
-  console.log(`🔒 DICT Deletion PIN generated for ${targetUser.email}: [${otpPin}]`);
+  console.log(`🔒 CICTO Deletion PIN generated for ${targetUser.email}: [${otpPin}]`);
 
   return {
     requestId,
@@ -139,6 +140,8 @@ export async function requestAccountDeletionOtp(targetUser: {
     targetName: targetUser.displayName || targetUser.email,
   };
 }
+
+export const requestCictoAccountDeletion = requestAccountDeletionOtp;
 
 /**
  * Confirms account deletion with the provided 6-digit OTP.
@@ -154,11 +157,11 @@ export async function confirmAccountDeletion(params: {
   const { requestId, pin, targetUid, targetEmail } = params;
 
   if (!db) throw new Error('Database is currently unavailable.');
-  if (!auth.currentUser) throw new Error('DICT administrator authentication is required.');
+  if (!auth.currentUser) throw new Error('CICTO administrator authentication is required.');
   if (!pin || pin.trim().length !== 6) throw new Error('Please enter a valid 6-digit One-Time PIN.');
 
   // 1. Verify OTP in Firestore
-  const otpDocRef = doc(db, 'dict_otp_verifications', requestId);
+  const otpDocRef = doc(db, 'cicto_otp_verifications', requestId);
   const otpSnap = await getDoc(otpDocRef);
 
   if (!otpSnap.exists()) {
@@ -176,7 +179,7 @@ export async function confirmAccountDeletion(params: {
   }
 
   if (String(otpData.otpPin).trim() !== pin.trim()) {
-    throw new Error('Invalid One-Time PIN. Please check your DICT Security Notification Bell and try again.');
+    throw new Error('Invalid One-Time PIN. Please check your CICTO Security Notification Bell and try again.');
   }
 
   if (otpData.targetUid !== targetUid) {
@@ -190,7 +193,7 @@ export async function confirmAccountDeletion(params: {
   // 2. Attempt to delete from Firebase Authentication via Cloud Function
   try {
     const functionsInstance = getFunctions(undefined, 'us-central1');
-    const deleteCallable = httpsCallable(functionsInstance, 'dictConfirmDeleteAccount');
+    const deleteCallable = httpsCallable(functionsInstance, 'cictoConfirmDeleteAccount');
     const result = await deleteCallable({
       requestId,
       pin: pin.trim(),
@@ -200,7 +203,6 @@ export async function confirmAccountDeletion(params: {
     authDeleted = true;
   } catch (cloudFnError: any) {
     console.warn('Note on Cloud Function deletion execution:', cloudFnError?.message || cloudFnError);
-    // Proceed to wipe Firestore in client transaction if cloud function was unreachable or spark plan
   }
 
   // 3. Delete from Firestore in an atomic transaction/batch
@@ -228,7 +230,7 @@ export async function confirmAccountDeletion(params: {
   // Mark linked notifications as used
   try {
     const notifSnap = await getDocs(
-      query(collection(db, 'dict_notifications'), where('requestId', '==', requestId))
+      query(collection(db, 'cicto_notifications'), where('requestId', '==', requestId))
     );
     notifSnap.forEach((nDoc) => {
       batch.update(nDoc.ref, { status: 'used' });
@@ -237,11 +239,11 @@ export async function confirmAccountDeletion(params: {
 
   await batch.commit();
 
-  const adminEmail = auth.currentUser.email || 'dict@trashtrack.gov.ph';
-  const adminName = auth.currentUser.displayName || 'DICT Super Administrator';
+  const adminEmail = auth.currentUser.email || 'cicto@trashtrack.gov.ph';
+  const adminName = auth.currentUser.displayName || 'CICTO Super Administrator';
 
   // 4. Create real-time Audit / Activity Log Notification (displays in top-right bell)
-  const deletionLogNotif: DictNotification = {
+  const deletionLogNotif: CictoNotification = {
     id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     type: 'account_deleted',
     title: 'Account Permanently Deleted',
@@ -262,7 +264,7 @@ export async function confirmAccountDeletion(params: {
   notifySubscribers();
 
   try {
-    await addDoc(collection(db, 'dict_notifications'), {
+    await addDoc(collection(db, 'cicto_notifications'), {
       type: 'account_deleted',
       title: 'Account Permanently Deleted',
       description: `User account ${targetEmail} (${targetUid}) was deleted from Authentication and Firestore.`,
@@ -290,7 +292,7 @@ export async function confirmAccountDeletion(params: {
       metadata: {
         targetEmail,
         deletedBy: adminEmail,
-        reason: 'DICT Oversight Security Deletion',
+        reason: 'CICTO Oversight Security Deletion',
         authDeleted,
       },
       createdAt: serverTimestamp(),
@@ -308,10 +310,10 @@ export async function confirmAccountDeletion(params: {
 }
 
 /**
- * Subscribes to real-time active DICT notifications for the top-right notification bell.
+ * Subscribes to real-time active CICTO notifications for the top-right notification bell.
  */
-export function subscribeToDictNotifications(
-  callback: (notifications: DictNotification[]) => void
+export function subscribeToCictoNotifications(
+  callback: (notifications: CictoNotification[]) => void
 ): () => void {
   notificationSubscribers.add(callback);
   
@@ -328,7 +330,7 @@ export function subscribeToDictNotifications(
 
   try {
     const notifQuery = query(
-      collection(db, 'dict_notifications'),
+      collection(db, 'cicto_notifications'),
       limit(20)
     );
 
@@ -342,7 +344,7 @@ export function subscribeToDictNotifications(
         notifySubscribers();
       },
       (err) => {
-        console.warn('DICT firestore notification sync note (using in-memory fallback):', err?.message || err);
+        console.warn('CICTO firestore notification sync note (using in-memory fallback):', err?.message || err);
       }
     );
   } catch (err) {
@@ -357,10 +359,11 @@ export function subscribeToDictNotifications(
   };
 }
 
+
 /**
  * Dismisses or marks a notification as read.
  */
-export async function dismissDictNotification(notificationId: string): Promise<void> {
+export async function dismissCictoNotification(notificationId: string): Promise<void> {
   // Update memory immediately
   memoryNotifications = memoryNotifications.filter((n) => n.id !== notificationId);
   firestoreNotifications = firestoreNotifications.filter((n) => n.id !== notificationId);
@@ -368,24 +371,25 @@ export async function dismissDictNotification(notificationId: string): Promise<v
 
   if (!db) return;
   try {
-    const notifRef = doc(db, 'dict_notifications', notificationId);
+    const notifRef = doc(db, 'cicto_notifications', notificationId);
     await updateDoc(notifRef, { status: 'dismissed' });
   } catch (error) {
     console.warn('Error dismissing notification:', error);
   }
 }
 
+
 /**
  * Clears all notifications from the active view.
  */
-export async function clearAllDictNotifications(): Promise<void> {
+export async function clearAllCictoNotifications(): Promise<void> {
   memoryNotifications = [];
   firestoreNotifications = [];
   notifySubscribers();
 
   if (!db) return;
   try {
-    const snap = await getDocs(collection(db, 'dict_notifications'));
+    const snap = await getDocs(collection(db, 'cicto_notifications'));
     const batch = writeBatch(db);
     snap.forEach((d) => batch.delete(d.ref));
     await batch.commit();
@@ -393,6 +397,7 @@ export async function clearAllDictNotifications(): Promise<void> {
     console.warn('Error clearing notifications:', error);
   }
 }
+
 
 export const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
 
@@ -447,10 +452,10 @@ export async function deactivateResidentAccount(
   reason: string = '6-Month Inactivity Policy'
 ): Promise<{ success: boolean; message: string }> {
   if (!db) throw new Error('Database is currently unavailable.');
-  if (!auth.currentUser) throw new Error('DICT administrator authentication is required.');
+  if (!auth.currentUser) throw new Error('CICTO administrator authentication is required.');
 
-  const adminEmail = auth.currentUser.email || 'dict@trashtrack.gov.ph';
-  const adminName = auth.currentUser.displayName || 'DICT Super Administrator';
+  const adminEmail = auth.currentUser.email || 'cicto@trashtrack.gov.ph';
+  const adminName = auth.currentUser.displayName || 'CICTO Super Administrator';
 
   const userRef = doc(db, 'users', targetUid);
   await updateDoc(userRef, {
@@ -478,9 +483,9 @@ export async function deactivateResidentAccount(
     });
   } catch {}
 
-  // Log in dict_notifications
+  // Log in cicto_notifications
   try {
-    await addDoc(collection(db, 'dict_notifications'), {
+    await addDoc(collection(db, 'cicto_notifications'), {
       type: 'system_alert',
       title: 'Resident Account Deactivated',
       description: `Resident ${targetEmail} (${targetUid}) was deactivated due to ${reason}.`,
@@ -511,9 +516,9 @@ export async function reactivateResidentAccount(
   targetEmail: string
 ): Promise<{ success: boolean; message: string }> {
   if (!db) throw new Error('Database is currently unavailable.');
-  if (!auth.currentUser) throw new Error('DICT administrator authentication is required.');
+  if (!auth.currentUser) throw new Error('CICTO administrator authentication is required.');
 
-  const adminEmail = auth.currentUser.email || 'dict@trashtrack.gov.ph';
+  const adminEmail = auth.currentUser.email || 'cicto@trashtrack.gov.ph';
 
   const userRef = doc(db, 'users', targetUid);
   await updateDoc(userRef, {
@@ -551,7 +556,7 @@ export async function batchDeactivateStaleResidents(
   usersList: Array<{ id: string; email: string; role: string; lastLogin?: any; createdAt?: any; disabled?: boolean; status?: string }>
 ): Promise<{ count: number; emails: string[] }> {
   if (!db) throw new Error('Database is currently unavailable.');
-  if (!auth.currentUser) throw new Error('DICT administrator authentication is required.');
+  if (!auth.currentUser) throw new Error('CICTO administrator authentication is required.');
 
   const staleUsers = usersList.filter(
     (u) =>
@@ -566,7 +571,7 @@ export async function batchDeactivateStaleResidents(
   }
 
   const batch = writeBatch(db);
-  const adminEmail = auth.currentUser.email || 'dict@trashtrack.gov.ph';
+  const adminEmail = auth.currentUser.email || 'cicto@trashtrack.gov.ph';
 
   staleUsers.forEach((u) => {
     const uRef = doc(db, 'users', u.id);
@@ -601,4 +606,3 @@ export async function batchDeactivateStaleResidents(
     emails: staleUsers.map((u) => u.email),
   };
 }
-

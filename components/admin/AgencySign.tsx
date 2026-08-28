@@ -3,7 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 interface AgencySignProps {
-  type: 'cenro' | 'dict';
+  type: 'cenro' | 'cicto';
   size?: 'small' | 'medium' | 'large';
 }
 
@@ -21,14 +21,14 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
       <View
         style={[
           styles.badgeOuter,
-          isCenro ? styles.cenroBadgeOuter : styles.dictBadgeOuter,
+          isCenro ? styles.cenroBadgeOuter : styles.cictoBadgeOuter,
           { width: badgeDimension, height: badgeDimension, borderRadius: badgeDimension / 2 },
         ]}
       >
         <View
           style={[
             styles.badgeInner,
-            isCenro ? styles.cenroBadgeInner : styles.dictBadgeInner,
+            isCenro ? styles.cenroBadgeInner : styles.cictoBadgeInner,
             { width: badgeDimension - 8, height: badgeDimension - 8, borderRadius: (badgeDimension - 8) / 2 },
           ]}
         >
@@ -43,7 +43,7 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
         <View
           style={[
             styles.statusDot,
-            isCenro ? styles.cenroStatusDot : styles.dictStatusDot,
+            isCenro ? styles.cenroStatusDot : styles.cictoStatusDot,
           ]}
         >
           <MaterialIcons name="verified" size={13} color="#FFFFFF" />
@@ -53,22 +53,22 @@ export default function AgencySign({ type, size = 'medium' }: AgencySignProps) {
       {/* Official Sign Metadata */}
       <View style={styles.textContainer}>
         <View style={styles.agencyRow}>
-          <Text style={[styles.agencyCode, isCenro ? styles.cenroText : styles.dictText]}>
-            {isCenro ? 'CENRO • DANAO' : 'DICT • REGION VII'}
+          <Text style={[styles.agencyCode, isCenro ? styles.cenroText : styles.cictoText]}>
+            {isCenro ? 'CENRO • DANAO' : 'CICTO • DANAO'}
           </Text>
-          <View style={[styles.pillBadge, isCenro ? styles.cenroPill : styles.dictPill]}>
-            <Text style={[styles.pillText, isCenro ? styles.cenroPillText : styles.dictPillText]}>
-              {isCenro ? 'LGU OFFICIAL' : 'GOV.PH SECURE'}
+          <View style={[styles.pillBadge, isCenro ? styles.cenroPill : styles.cictoPill]}>
+            <Text style={[styles.pillText, isCenro ? styles.cenroPillText : styles.cictoPillText]}>
+              {isCenro ? 'LGU OFFICIAL' : 'CICTO OFFICIAL'}
             </Text>
           </View>
         </View>
         <Text style={styles.agencySub} numberOfLines={1}>
           {isCenro
             ? 'City Environment & Natural Resources Office'
-            : 'Dept. of Information & Communications Technology'}
+            : 'City Information & Communications Technology Office'}
         </Text>
         <Text style={styles.agencyJurisdiction}>
-          {isCenro ? 'Danao City, Cebu • Solid Waste Logistics' : 'Republic of the Philippines • Central Visayas'}
+          {isCenro ? 'Danao City, Cebu • Solid Waste Logistics' : 'Republic of the Philippines • Danao City IT Governance'}
         </Text>
       </View>
     </View>
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     borderColor: '#A7F3D0',
   },
-  dictBadgeOuter: {
+  cictoBadgeOuter: {
     backgroundColor: '#F0FDFA',
     borderColor: '#99F6E4',
   },
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#D1FAE5',
     borderColor: '#34D399',
   },
-  dictBadgeInner: {
+  cictoBadgeInner: {
     backgroundColor: '#CCFBF1',
     borderColor: '#2DD4BF',
   },
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   cenroStatusDot: {
     backgroundColor: '#059669',
   },
-  dictStatusDot: {
+  cictoStatusDot: {
     backgroundColor: '#0D9488',
   },
   textContainer: {
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   cenroText: {
     color: '#065F46',
   },
-  dictText: {
+  cictoText: {
     color: '#115E59',
   },
   pillBadge: {
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   cenroPill: {
     backgroundColor: '#D1FAE5',
   },
-  dictPill: {
+  cictoPill: {
     backgroundColor: '#CCFBF1',
   },
   pillText: {
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   cenroPillText: {
     color: '#047857',
   },
-  dictPillText: {
+  cictoPillText: {
     color: '#0F766E',
   },
   agencySub: {

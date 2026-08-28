@@ -275,7 +275,7 @@ class LocationService {
 
   /**
    * Starts a real-time GPS simulation driving along Danao City routes for a specific Barangay.
-   * Telemetry is written directly to Firestore so DICT & CENRO dashboards update live.
+   * Telemetry is written directly to Firestore so CICTO & CENRO dashboards update live.
    */
   public async startSimulation(
     driverId: string,

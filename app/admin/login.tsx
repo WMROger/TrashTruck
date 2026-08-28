@@ -4,7 +4,7 @@ import PortalLoginForm from '@/components/admin/PortalLoginForm';
 
 export default function AdminLoginPage() {
   const params = useLocalSearchParams<{ portal?: string }>();
-  const isDict = params.portal === 'dict';
+  const isCicto = params.portal === 'cicto';
 
-  return <PortalLoginForm portal={isDict ? 'dict' : 'cenro'} />;
+  return <PortalLoginForm portal={isCicto ? 'cicto' : 'cenro'} />;
 }

@@ -163,8 +163,8 @@ export default function CenroProfileSettingsModal({
                   </Text>
                   <Text style={styles.adminEmail}>{user?.email || 'admin@trashtrack.gov.ph'}</Text>
                   <View style={styles.badgeRow}>
-                    <View style={styles.dictBadge}>
-                      <Text style={styles.dictBadgeText}>✓ DICT VERIFIED</Text>
+                    <View style={styles.cictoBadge}>
+                      <Text style={styles.cictoBadgeText}>✓ CICTO VERIFIED</Text>
                     </View>
                     <View style={styles.roleBadge}>
                       <Text style={styles.roleBadgeText}>CENRO OFFICER</Text>
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 6,
   },
-  dictBadge: {
+  cictoBadge: {
     backgroundColor: '#ECFDF5',
     borderColor: '#A7F3D0',
     borderWidth: 1,
@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
   },
-  dictBadgeText: {
+  cictoBadgeText: {
     fontSize: 10,
     fontWeight: '800',
     color: '#065F46',

@@ -1,5 +1,5 @@
 import { auth, db } from '@/config/firebase';
-import { isDictEmail } from '@/constants/dictConfig';
+import { isCictoEmail } from '@/constants/cictoConfig';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -31,7 +31,7 @@ export function useAuth() {
         return;
       }
 
-      if (isDictEmail(currentUser.email)) {
+      if (isCictoEmail(currentUser.email)) {
         setIsFirestoreVerified(true);
         setLoading(false);
         return;
@@ -42,7 +42,7 @@ export function useAuth() {
         if (snap.exists()) {
           const data = snap.data();
           const role = data?.role;
-          const isVerified = data?.verified === true || role === 'driver' || role === 'admin' || role === 'dict' || role === 'coordinator';
+          const isVerified = data?.verified === true || role === 'driver' || role === 'admin' || role === 'cicto' || role === 'coordinator';
           setIsFirestoreVerified(isVerified);
         } else {
           setIsFirestoreVerified(false);

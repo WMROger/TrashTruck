@@ -74,7 +74,7 @@ export default function LoadingPage() {
       } else {
         // Existing user - update login timestamp
         const existingData = userSnap.data();
-        const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'dict' || existingData?.role === 'coordinator';
+        const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'cicto' || existingData?.role === 'coordinator';
         await setDoc(userRef, {
           email: user.email || existingData?.email || '',
           displayName: user.displayName || existingData?.displayName || existingData?.name || 'User',
@@ -162,15 +162,15 @@ export default function LoadingPage() {
         if (snap.exists()) {
           const data = snap.data();
           const userRole = (data as any)?.role;
-          if (userRole === 'driver' || userRole === 'admin' || userRole === 'dict' || userRole === 'cenro' || userRole === 'coordinator' || (data as any)?.verified === true) {
+          if (userRole === 'driver' || userRole === 'admin' || userRole === 'cicto' || userRole === 'cenro' || userRole === 'coordinator' || (data as any)?.verified === true) {
             isDriverOrPreVerified = true;
           }
           
-          // Handle admin and dict logins
-          if (userRole === 'admin' || userRole === 'dict' || userRole === 'cenro') {
+          // Handle admin and cicto logins
+          if (userRole === 'admin' || userRole === 'cicto' || userRole === 'cenro') {
             if (Platform.OS === 'web') {
-              if (userRole === 'dict') {
-                router.replace('/dict/dashboard' as any);
+              if (userRole === 'cicto') {
+                router.replace('/cicto/dashboard' as any);
               } else {
                 router.replace('/admin/dashboard' as any);
               }
@@ -318,7 +318,7 @@ export default function LoadingPage() {
           return;
         }
         
-        if (role === 'admin' || role === 'dict') {
+        if (role === 'admin' || role === 'cicto') {
           if (Platform.OS !== 'web') {
             try { await signOut(auth); } catch {}
             showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
@@ -329,8 +329,8 @@ export default function LoadingPage() {
             console.log('Admin user detected, redirecting to admin dashboard');
             router.replace('/admin/dashboard' as any);
           } else {
-            console.log('DICT user detected, redirecting to DICT dashboard');
-            router.replace('/dict/dashboard' as any);
+            console.log('CICTO user detected, redirecting to CICTO dashboard');
+            router.replace('/cicto/dashboard' as any);
           }
         } else if (role === 'driver') {
           console.log('Driver user detected, redirecting to driver interface');

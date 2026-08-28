@@ -31,18 +31,18 @@ service cloud.firestore {
       && userProfile().role == 'admin';
   }
 
-  function isDict() {
+  function isCicto() {
     return isAuthenticated() && (
-      (request.auth.token.keys().hasAny(['email']) && (request.auth.token.email.matches('(?i).*dict.*') || request.auth.token.email == 'dict@trashtrack.gov.ph'))
-      || (hasActiveProfile() && userProfile().role == 'dict')
+      (request.auth.token.keys().hasAny(['email']) && (request.auth.token.email.matches('(?i).*cicto.*') || request.auth.token.email == 'cicto@trashtrack.gov.ph'))
+      || (hasActiveProfile() && userProfile().role == 'cicto')
     );
   }
 
-  function validDictProfileCreate(userId) {
+  function validCictoProfileCreate(userId) {
     return isOwner(userId)
-      && request.resource.data.role == 'dict'
+      && request.resource.data.role == 'cicto'
       && request.auth.token.keys().hasAny(['email'])
-      && (request.auth.token.email.matches('(?i).*dict.*') || request.auth.token.email == 'dict@trashtrack.gov.ph');
+      && (request.auth.token.email.matches('(?i).*cicto.*') || request.auth.token.email == 'cicto@trashtrack.gov.ph');
   }
 
   function isAssignedDriver(schedule) {
@@ -166,11 +166,11 @@ service cloud.firestore {
       );
   }
 
-  function dictRoleUpdateOnly(userId) {
-    return isDict()
+  function cictoRoleUpdateOnly(userId) {
+    return isCicto()
       && userId != request.auth.uid
       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'department', 'designation', 'employeeId', 'status', 'updatedAt'])
-      && request.resource.data.role in ['user', 'admin'];
+      && request.resource.data.role in ['user', 'admin', 'cicto'];
   }
 
   function ownDriverLocation(locationId) {
@@ -180,7 +180,7 @@ service cloud.firestore {
   }
 
     match /schedules/{scheduleId} {
-      allow read: if isAdmin() || isDict()
+      allow read: if isAdmin() || isCicto()
         || isAssignedDriver(resource.data)
         || isOwner(resource.data.get('userId', ''));
       allow create, delete: if isAdmin();
@@ -199,7 +199,7 @@ service cloud.firestore {
 
     match /truck_locations/{driverId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin() || isDict() || (isAuthenticated() && driverId == request.auth.uid);
+      allow create, update, delete: if isAdmin() || isCicto() || (isAuthenticated() && driverId == request.auth.uid);
     }
 
     match /trucks/{truckId} {
@@ -224,16 +224,16 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if validResidentProfileCreate(userId) || validDictProfileCreate(userId) || isAdmin() || isDict();
-      allow read: if isOwner(userId) || isAdmin() || isDict();
-      allow update: if isOwner(userId) || isAdmin() || isDict() || dictRoleUpdateOnly(userId)
+      allow create: if validResidentProfileCreate(userId) || validCictoProfileCreate(userId) || isAdmin() || isCicto();
+      allow read: if isOwner(userId) || isAdmin() || isCicto();
+      allow update: if isOwner(userId) || isAdmin() || isCicto() || cictoRoleUpdateOnly(userId)
         || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
-      allow delete: if isAdmin() || isDict();
+      allow delete: if isAdmin() || isCicto();
     }
 
     match /mail/{mailId} {
       allow create: if isAuthenticated();
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
     }
 
     match /users/{userId}/devices/{deviceId} {
@@ -242,12 +242,12 @@ service cloud.firestore {
     }
 
     match /employee_ids/{employeeId} {
-      allow read: if isAdmin() || isDict();
-      allow write: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
+      allow write: if isAdmin() || isCicto();
     }
 
     match /license_numbers/{licenseNumber} {
-      allow read, write: if isAdmin() || isDict();
+      allow read, write: if isAdmin() || isCicto();
     }
 
     match /coordinator_employee_ids/{employeeId} {
@@ -264,7 +264,7 @@ service cloud.firestore {
       allow create: if hasActiveProfile()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending';
-      allow read: if isAdmin() || isDict() || resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || isCicto() || resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
@@ -347,14 +347,14 @@ service cloud.firestore {
     }
 
     match /audit_logs/{logId} {
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
       allow create, update, delete: if false;
     }
 
     match /client_activity/{logId} {
       allow create: if isAuthenticated()
         && request.resource.data.actorUid == request.auth.uid;
-      allow read: if isAdmin() || isDict() || (isAuthenticated() && resource.data.actorUid == request.auth.uid);
+      allow read: if isAdmin() || isCicto() || (isAuthenticated() && resource.data.actorUid == request.auth.uid);
       allow update, delete: if false;
     }
 
@@ -413,21 +413,21 @@ service cloud.firestore {
 
     match /reward_catalog/{catalogId} {
       allow read: if isAuthenticated();
-      allow write: if isDict() || isAdmin();
+      allow write: if isCicto() || isAdmin();
     }
 
     match /reward_redemptions/{redemptionId} {
-      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
+      allow read: if isAdmin() || isCicto() || isOwner(resource.data.userId);
       allow create: if isAuthenticated();
-      allow update: if isDict() || isAdmin();
+      allow update: if isCicto() || isAdmin();
       allow delete: if false;
     }
 
     match /interagency_messages/{messageId} {
-      allow read: if isAdmin() || isDict();
-      allow create: if (isAdmin() || isDict())
+      allow read: if isAdmin() || isCicto();
+      allow create: if (isAdmin() || isCicto())
         && request.resource.data.senderUid == request.auth.uid
-        && request.resource.data.senderRole in ['dict', 'cenro', 'admin']
+        && request.resource.data.senderRole in ['cicto', 'cenro', 'admin']
         && request.resource.data.status == 'sent'
         && request.resource.data.subject is string
         && request.resource.data.subject.size() >= 1
@@ -440,8 +440,8 @@ service cloud.firestore {
     }
 
     match /reward_awards/{awardId} {
-      allow read: if isAdmin() || isDict() || isOwner(resource.data.userId);
-      allow create: if isDict() || isAdmin() || (
+      allow read: if isAdmin() || isCicto() || isOwner(resource.data.userId);
+      allow create: if isCicto() || isAdmin() || (
         hasActiveProfile()
         && awardId == 'report_' + request.resource.data.reportId
         && request.resource.data.tokens == 50
@@ -466,31 +466,31 @@ service cloud.firestore {
     }
 
     match /analytics/{document=**} {
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
       allow write: if isAdmin();
     }
 
     match /error_logs/{document=**} {
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
       allow write: if isAdmin();
     }
 
-    match /dict_notifications/{notificationId} {
+    match /cicto_notifications/{notificationId} {
       allow read, write: if isAuthenticated();
     }
 
-    match /dict_otp_verifications/{verificationId} {
+    match /cicto_otp_verifications/{verificationId} {
       allow read, write: if isAuthenticated();
     }
 
     match /audit_logs/{logId} {
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
       allow create: if isAuthenticated();
       allow update, delete: if false;
     }
 
     match /client_activity/{activityId} {
-      allow read: if isAdmin() || isDict();
+      allow read: if isAdmin() || isCicto();
       allow create: if isAuthenticated();
       allow update, delete: if false;
     }

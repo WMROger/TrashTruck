@@ -166,7 +166,7 @@ export default function CoordinatorOnboardingTab({
           role !== "admin" &&
           role !== "driver" &&
           role !== "coordinator" &&
-          role !== "dict"
+          role !== "cicto"
         ) {
           residents.push({ id: d.id, ...data });
         }

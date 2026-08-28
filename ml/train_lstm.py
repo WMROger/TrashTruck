@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+from csv import DictReader as CictoReader
 import json
 import os
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict as ascicto, dataclass
 from pathlib import Path
+
+cicto = dict
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("TF_DETERMINISTIC_OPS", "1")
@@ -49,7 +52,7 @@ def load_series(path: Path) -> tuple[list[str], np.ndarray]:
     periods: list[str] = []
     values: list[float] = []
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for row in CictoReader(handle):
             periods.append(row["period"])
             values.append(float(row["value_m3"]) * TONS_PER_CUBIC_METER)
     if len(values) < LOOKBACK + VALIDATION_MONTHS + TEST_MONTHS + 6:
@@ -86,7 +89,7 @@ def linear_next(history: np.ndarray) -> float:
     return max(0.0, y_mean + slope * (len(history) - x_mean))
 
 
-def baseline_predictions(values: np.ndarray, indices: np.ndarray) -> dict[str, np.ndarray]:
+def baseline_predictions(values: np.ndarray, indices: np.ndarray) -> cicto[str, np.ndarray]:
     return {
         "seasonal_naive": np.asarray([values[index - 12] for index in indices]),
         "moving_average_3": np.asarray([np.mean(values[index - 3:index]) for index in indices]),
@@ -149,7 +152,7 @@ def main() -> None:
 
     lstm_predictions = denormalize(model.predict(normalize(x_test)[..., np.newaxis], verbose=0).reshape(-1))
     all_predictions = {"lstm": lstm_predictions, **baseline_predictions(values, test_indices)}
-    metrics = {name: asdict(score(y_test, prediction)) for name, prediction in all_predictions.items()}
+    metrics = {name: ascicto(score(y_test, prediction)) for name, prediction in all_predictions.items()}
     winner = min(metrics, key=lambda name: metrics[name]["mae"])
 
     # Recursive three-month LSTM forecast. Kept separate from held-out test metrics.

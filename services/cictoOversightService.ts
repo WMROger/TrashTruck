@@ -10,7 +10,7 @@ import {
   where,
 } from 'firebase/firestore';
 
-export type DictOversightSnapshot = {
+export type CictoOversightSnapshot = {
   generatedAt: string;
   counts: Record<string, number>;
   roles: Record<string, number>;
@@ -34,6 +34,7 @@ export type DictOversightSnapshot = {
   messages: any[];
 };
 
+
 const normalizeValue = (value: any): any => {
   if (value?.toDate) return value.toDate().toISOString();
   if (Array.isArray(value)) return value.map(normalizeValue);
@@ -46,7 +47,7 @@ const normalizeValue = (value: any): any => {
 const rows = (snapshot: any) => snapshot.docs.map((item: any) => ({ id: item.id, ...normalizeValue(item.data()) }));
 const safeGet = async (reference: any) => getDocs(reference).catch(() => ({ docs: [], size: 0 } as any));
 
-export async function getDictOversightSnapshot(): Promise<DictOversightSnapshot> {
+export async function getCictoOversightSnapshot(): Promise<CictoOversightSnapshot> {
   if (!db) throw new Error('Firestore is unavailable.');
   const [users, reports, schedules, trucks, locations, audit, errors, activity, expenses, messages, announcements] = await Promise.all([
     safeGet(collection(db, 'users')),
@@ -115,12 +116,13 @@ export async function getDictOversightSnapshot(): Promise<DictOversightSnapshot>
   };
 }
 
+
 export interface InteragencyMessageInput {
   message: string;
   subject?: string;
   priority?: 'normal' | 'high' | 'urgent';
   channelId?: string;
-  senderRole?: 'dict' | 'admin' | 'cenro';
+  senderRole?: 'cicto' | 'admin' | 'cenro';
   senderName?: string;
   senderEmail?: string;
 }
@@ -131,7 +133,7 @@ export async function sendInteragencyMessage(input: InteragencyMessageInput) {
   if (message.length < 1 || message.length > 3000) {
     throw new Error('Please enter a message to transmit.');
   }
-  const senderRole = input.senderRole || 'dict';
+  const senderRole = input.senderRole || 'cicto';
   const priority = input.priority || 'normal';
   const subject = input.subject?.trim() || (priority === 'urgent' ? '🚨 URGENT DIRECTIVE' : priority === 'high' ? '⚡ PRIORITY ADVISORY' : 'Operational Dispatch');
   const channelId = input.channelId || 'general-command';
@@ -142,7 +144,7 @@ export async function sendInteragencyMessage(input: InteragencyMessageInput) {
     priority,
     channelId,
     senderUid: auth.currentUser.uid,
-    senderName: input.senderName || auth.currentUser.displayName || (senderRole === 'dict' ? 'DICT Controller' : 'CENRO Administrator'),
+    senderName: input.senderName || auth.currentUser.displayName || (senderRole === 'cicto' ? 'CICTO Controller' : 'CENRO Administrator'),
     senderEmail: input.senderEmail || auth.currentUser.email || '',
     senderRole,
     status: 'sent',
@@ -152,8 +154,8 @@ export async function sendInteragencyMessage(input: InteragencyMessageInput) {
   return { id: messageRef.id };
 }
 
-export async function sendDictCommand(input: { subject: string; message: string; priority: 'normal' | 'high' | 'urgent'; channelId?: string }) {
-  if (!db || !auth.currentUser) throw new Error('An authenticated DICT account is required.');
+export async function sendCictoCommand(input: { subject: string; message: string; priority: 'normal' | 'high' | 'urgent'; channelId?: string }) {
+  if (!db || !auth.currentUser) throw new Error('An authenticated CICTO account is required.');
   const subject = input.subject.trim();
   const message = input.message.trim();
   if (subject.length < 2 || subject.length > 120 || message.length < 1 || message.length > 3000) {
@@ -165,9 +167,9 @@ export async function sendDictCommand(input: { subject: string; message: string;
     priority: input.priority,
     channelId: input.channelId || 'general-command',
     senderUid: auth.currentUser.uid,
-    senderName: auth.currentUser.displayName || 'DICT Controller',
+    senderName: auth.currentUser.displayName || 'CICTO Controller',
     senderEmail: auth.currentUser.email || '',
-    senderRole: 'dict',
+    senderRole: 'cicto',
     status: 'sent',
     deliveryMode: 'spark-firestore',
     createdAt: serverTimestamp(),
@@ -175,3 +177,4 @@ export async function sendDictCommand(input: { subject: string; message: string;
   const admins = await getDocs(query(collection(db, 'users'), where('role', '==', 'admin')));
   return { id: messageRef.id, recipientCount: admins.size };
 }
+

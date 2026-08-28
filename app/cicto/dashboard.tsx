@@ -7,37 +7,37 @@ import { doc, getDoc } from 'firebase/firestore';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
-import DictSidebar from '../../components/admin/DictSidebar';
-import { CenroCommandTab, DataManagementTab, DictDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, DictLogoutModal, DictNotificationDropdown } from '../../components/admin/dict';
-import { isDictEmail, ensureDictProfileInFirestore } from '../../constants/dictConfig';
-import { DictNotification, subscribeToDictNotifications } from '../../services/dictAccountService';
+import CictoSidebar from '../../components/admin/CictoSidebar';
+import { CenroCommandTab, DataManagementTab, CictoDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, CictoLogoutModal, CictoNotificationDropdown } from '../../components/admin/cicto';
+import { isCictoEmail, ensureCictoProfileInFirestore } from '../../constants/cictoConfig';
+import { CictoNotification, subscribeToCictoNotifications } from '../../services/cictoAccountService';
 
-export default function DictDashboard() {
+export default function CictoDashboard() {
   const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
-  const [isDictAdmin, setIsDictAdmin] = useState(false);
+  const [isCictoAdmin, setIsCictoAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [notifications, setNotifications] = useState<DictNotification[]>([]);
+  const [notifications, setNotifications] = useState<CictoNotification[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const { width } = useWindowDimensions();
   const sidebarCollapsed = Platform.OS === 'web' && width < 980;
   
   useEffect(() => {
-    const checkDictAccess = async () => {
+    const checkCictoAccess = async () => {
       if (authLoading) return;
       if (!user) {
-        console.log('DICT dashboard: No user found, redirecting to login');
-        router.replace('/dict');
+        console.log('CICTO dashboard: No user found, redirecting to login');
+        router.replace('/cicto' as any);
         return;
       }
 
-      // Check if user has recognized DICT email
-      if (isDictEmail(user.email)) {
-        console.log('DICT dashboard: Hardcoded DICT identity recognized for:', user.email);
-        await ensureDictProfileInFirestore(user.uid, user.email || 'dict@trashtrack.gov.ph', user.displayName || 'DICT Super Admin');
-        setIsDictAdmin(true);
+      // Check if user has recognized CICTO email
+      if (isCictoEmail(user.email)) {
+        console.log('CICTO dashboard: Hardcoded CICTO identity recognized for:', user.email);
+        await ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
+        setIsCictoAdmin(true);
         setIsLoading(false);
         return;
       }
@@ -49,46 +49,46 @@ export default function DictDashboard() {
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
-            if (userData.role === 'dict') {
-              console.log('DICT dashboard: DICT role confirmed for:', user.email);
-              setIsDictAdmin(true);
+            if (userData.role === 'cicto') {
+              console.log('CICTO dashboard: CICTO role confirmed for:', user.email);
+              setIsCictoAdmin(true);
               setIsLoading(false);
             } else {
-              console.log('DICT dashboard: User does not have dict role:', user.email);
-              Alert.alert('Access Denied', 'You do not have DICT admin privileges.');
+              console.log('CICTO dashboard: User does not have cicto role:', user.email);
+              Alert.alert('Access Denied', 'You do not have CICTO admin privileges.');
               await signOut(auth);
-              router.replace('/dict');
+              router.replace('/cicto' as any);
             }
           } else {
-            console.log('DICT dashboard: User document not found');
+            console.log('CICTO dashboard: User document not found');
             Alert.alert('Access Denied', 'User profile not found.');
             await signOut(auth);
-            router.replace('/dict');
+            router.replace('/cicto' as any);
           }
         } catch (error) {
-          console.error('DICT dashboard: Error checking role:', error);
+          console.error('CICTO dashboard: Error checking role:', error);
           Alert.alert('Error', 'Failed to verify privileges.');
           await signOut(auth);
-          router.replace('/dict');
+          router.replace('/cicto' as any);
         }
       } else {
-        Alert.alert('Access Unavailable', 'DICT clearance cannot be verified because Firestore is unavailable.');
+        Alert.alert('Access Unavailable', 'CICTO clearance cannot be verified because Firestore is unavailable.');
         try { await signOut(auth); } catch {}
-        router.replace('/dict');
+        router.replace('/cicto' as any);
         setIsLoading(false);
       }
     };
 
-    checkDictAccess();
+    checkCictoAccess();
   }, [authLoading, router, user]);
 
   useEffect(() => {
-    if (!isDictAdmin) return;
-    const unsubscribe = subscribeToDictNotifications((notifs) => {
+    if (!isCictoAdmin) return;
+    const unsubscribe = subscribeToCictoNotifications((notifs) => {
       setNotifications(notifs);
     });
     return () => unsubscribe();
-  }, [isDictAdmin]);
+  }, [isCictoAdmin]);
 
   const activeLogCount = notifications.filter((n) => n.status === 'active').length;
 
@@ -100,9 +100,9 @@ export default function DictDashboard() {
     try {
       await signOut(auth);
       setShowLogoutModal(false);
-      router.replace('/dict');
+      router.replace('/cicto' as any);
     } catch (error) {
-      console.error('DICT logout error:', error);
+      console.error('CICTO logout error:', error);
       Alert.alert('Logout Error', 'Failed to sign out. Please try again.');
     }
   };
@@ -114,7 +114,7 @@ export default function DictDashboard() {
       case 'identity-access':
         return <IdentityAccessTab />;
       case 'dashboard':
-        return <DictDashboardTab />;
+        return <CictoDashboardTab />;
       case 'data-management':
         return <DataManagementTab />;
       case 'fleet-ops':
@@ -122,7 +122,7 @@ export default function DictDashboard() {
       case 'cenro-command':
         return <CenroCommandTab />;
       default:
-        return <DictDashboardTab />;
+        return <CictoDashboardTab />;
     }
   };
 
@@ -130,19 +130,19 @@ export default function DictDashboard() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#374151" />
-        <Text style={styles.loadingText}>Verifying DICT clearance...</Text>
+        <Text style={styles.loadingText}>Verifying CICTO clearance...</Text>
       </View>
     );
   }
 
-  if (!isDictAdmin) {
+  if (!isCictoAdmin) {
     return null;
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['right', 'bottom', 'left']}>
       <View style={styles.dashboardLayout}>
-        <DictSidebar 
+        <CictoSidebar 
           activeTab={activeTab} 
           onTabChange={setActiveTab} 
           onLogout={handleLogout} 
@@ -152,7 +152,7 @@ export default function DictDashboard() {
         <View style={[styles.mainContent, Platform.OS === 'web' ? { marginLeft: sidebarCollapsed ? 80 : 280 } : null]}>
           {/* Header Bar */}
           <View style={styles.headerBar}>
-            <Text style={styles.headerTitle}>TrashTrack DICT Oversight Portal</Text>
+            <Text style={styles.headerTitle}>TrashTrack CICTO Oversight Portal</Text>
             <View style={styles.headerRight}>
               {/* Notification Bell Button */}
               <TouchableOpacity
@@ -189,7 +189,7 @@ export default function DictDashboard() {
           </View>
 
           {/* Notification Dropdown Panel */}
-          <DictNotificationDropdown
+          <CictoNotificationDropdown
             visible={showNotifDropdown}
             notifications={notifications}
             onClose={() => setShowNotifDropdown(false)}
@@ -202,8 +202,8 @@ export default function DictDashboard() {
         </View>
       </View>
 
-      {/* DICT Admin Logout Confirmation Modal */}
-      <DictLogoutModal
+      {/* CICTO Admin Logout Confirmation Modal */}
+      <CictoLogoutModal
         visible={showLogoutModal}
         userEmail={user?.email}
         userName={user?.displayName}
@@ -248,11 +248,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
+    zIndex: 10,
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#374151',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    letterSpacing: -0.5,
   },
   headerRight: {
     flexDirection: 'row',
@@ -262,26 +264,23 @@ const styles = StyleSheet.create({
   bellBtn: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 20,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   bellBtnActive: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: '#FEE2E2',
   },
   badgeContainer: {
     position: 'absolute',
-    top: -4,
-    right: -4,
+    top: -2,
+    right: -2,
     backgroundColor: '#DC2626',
+    borderRadius: 10,
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
@@ -291,15 +290,18 @@ const styles = StyleSheet.create({
   badgeText: {
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   profileBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 24,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   adminInfo: {
     alignItems: 'flex-end',
@@ -307,36 +309,30 @@ const styles = StyleSheet.create({
   adminName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#111827',
+    color: '#1F2937',
   },
   adminRole: {
-    fontSize: 11,
-    color: '#6B7280',
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#0F766E',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   avatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#4B6354',
-    justifyContent: 'center',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#0F766E',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
     color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '700',
-    fontSize: 16,
   },
   tabContent: {
     flex: 1,
+    overflow: 'hidden',
   },
-  placeholderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  placeholderText: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  }
 });

@@ -51,10 +51,10 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
           Welcome, ${adminName}
         </h2>
         <p style="font-size: 14px; color: #475569; margin: 0 0 20px;">
-          Your official administrative clearance for the <strong>TrashTrack Danao City Municipal Waste Operations System</strong> has been provisioned under DICT Regional Oversight.
+          Your official administrative clearance for the <strong>TrashTrack Danao City Municipal Waste Operations System</strong> has been provisioned under CICTO Oversight.
         </p>
 
-        <!-- Official DICT Verification Clearance Banner -->
+        <!-- Official CICTO Verification Clearance Banner -->
         <div style="background-color: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;">
           <table width="100%" border="0" cellspacing="0" cellpadding="0">
             <tr>
@@ -65,10 +65,10 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
               </td>
               <td>
                 <strong style="color: #065f46; font-size: 14px; display: block; margin-bottom: 3px;">
-                  DICT Official Government Verification & Clearance
+                  CICTO Official Government Verification & Clearance
                 </strong>
                 <span style="color: #047857; font-size: 12.5px; line-height: 1.5; display: block;">
-                  This account has been officially verified and granted municipal administrative authority by the Department of Information and Communications Technology (DICT). No separate verification link is needed.
+                  This account has been officially verified and granted municipal administrative authority by the City Information and Communications Technology Office (CICTO). No separate verification link is needed.
                 </span>
               </td>
             </tr>
@@ -152,7 +152,7 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
           City Environment and Natural Resources Office (CENRO) • Danao City
         </p>
         <p style="margin: 0; color: #64748b;">
-          Supervised by Department of Information and Communications Technology (DICT) Region VII
+          Supervised by City Information and Communications Technology Office (CICTO) Danao City
         </p>
         <p style="font-size: 11px; margin-top: 12px; color: #94a3b8;">
           This automated security dispatch contains confidential administrative credentials. Do not forward.

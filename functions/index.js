@@ -34,14 +34,14 @@ async function requireCenroAdmin(context) {
   return context.auth.uid;
 }
 
-async function requireDictOversight(context) {
+async function requireCictoOversight(context) {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required.');
   const profile = await db.collection('users').doc(context.auth.uid).get();
   const data = profile.data();
   const isActive = profile.exists && data?.disabled !== true && data?.status !== 'disabled';
-  const hasOversightRole = ['dict', 'admin'].includes(data?.role) || context.auth.token?.dict === true || context.auth.token?.admin === true;
+  const hasOversightRole = ['cicto', 'admin'].includes(data?.role) || context.auth.token?.cicto === true || context.auth.token?.admin === true;
   if (!isActive || !hasOversightRole) {
-    throw new functions.https.HttpsError('permission-denied', 'Active DICT or CENRO administrator access is required.');
+    throw new functions.https.HttpsError('permission-denied', 'Active CICTO or CENRO administrator access is required.');
   }
   return { uid: context.auth.uid, role: data?.role };
 }
@@ -93,7 +93,7 @@ async function provisionDriver(data, context) {
         truckRef ? transaction.get(truckRef) : Promise.resolve(null),
       ]);
       const existingProfile = profileSnapshot.data();
-      if (input.mode === 'upgrade' && ['admin', 'dict'].includes(existingProfile?.role)) {
+      if (input.mode === 'upgrade' && ['admin', 'cicto'].includes(existingProfile?.role)) {
         throw new functions.https.HttpsError('failed-precondition', 'Elevated administrator accounts cannot be converted to drivers.');
       }
       if (employeeSnapshot.exists && employeeSnapshot.data()?.userId !== targetUser.uid) {
@@ -159,7 +159,7 @@ async function provisionDriver(data, context) {
       });
     });
     const existingClaims = targetUser.customClaims || {};
-    await admin.auth().setCustomUserClaims(targetUser.uid, { ...existingClaims, admin: false, dict: false, driver: true, role: 'driver' });
+    await admin.auth().setCustomUserClaims(targetUser.uid, { ...existingClaims, admin: false, cicto: false, driver: true, role: 'driver' });
     await admin.auth().revokeRefreshTokens(targetUser.uid);
     return { uid: targetUser.uid, email: targetUser.email, mode: input.mode, truckId: input.truckId };
   } catch (error) {
@@ -183,7 +183,7 @@ exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
   await admin.auth().setCustomUserClaims(user.uid, {
     ...existingClaims,
     admin: !!makeAdmin,
-    dict: false,
+    cicto: false,
     driver: false,
     role: makeAdmin ? 'admin' : 'user',
   });
@@ -206,13 +206,13 @@ exports.setAdminByEmail = functions.https.onCall(async (data, context) => {
 
 // Admin-only callable to set a user's role
 exports.setUserRole = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+  const actor = await requireCictoOversight(context);
   const userId = (data?.userId || '').toString();
   const role = (data?.role || '').toString();
-  if (!userId || !role || !['user', 'driver', 'admin', 'dict', 'coordinator'].includes(role)) {
+  if (!userId || !role || !['user', 'driver', 'admin', 'cicto', 'coordinator'].includes(role)) {
     throw new functions.https.HttpsError('invalid-argument', 'Valid userId and role are required');
   }
-  if (userId === actor.uid && !['admin', 'dict'].includes(role)) {
+  if (userId === actor.uid && !['admin', 'cicto'].includes(role)) {
     throw new functions.https.HttpsError('failed-precondition', 'You cannot remove your own portal access.');
   }
   const target = await admin.auth().getUser(userId);
@@ -220,7 +220,7 @@ exports.setUserRole = functions.https.onCall(async (data, context) => {
   await admin.auth().setCustomUserClaims(userId, {
     ...existingClaims,
     admin: role === 'admin',
-    dict: role === 'dict',
+    cicto: role === 'cicto',
     driver: role === 'driver',
     role,
   });
@@ -254,8 +254,8 @@ const cleanDocument = snapshot => {
   ]));
 };
 
-exports.getDictOversightSnapshot = functions.https.onCall(async (_data, context) => {
-  await requireDictOversight(context);
+exports.getCictoOversightSnapshot = functions.https.onCall(async (_data, context) => {
+  await requireCictoOversight(context);
   const [users, reports, schedules, trucks, locations, auditLogs, errors, activity, expenses, messages, announcements] = await Promise.all([
     db.collection('users').get(),
     db.collection('reports').get(),
@@ -316,8 +316,8 @@ exports.getDictOversightSnapshot = functions.https.onCall(async (_data, context)
   };
 });
 
-exports.sendDictCommand = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+exports.sendCictoCommand = functions.https.onCall(async (data, context) => {
+  const actor = await requireCictoOversight(context);
   const subject = String(data?.subject || '').trim();
   const message = String(data?.message || '').trim();
   const priority = String(data?.priority || 'normal').toLowerCase();
@@ -332,7 +332,7 @@ exports.sendDictCommand = functions.https.onCall(async (data, context) => {
   const batch = db.batch();
   admins.docs.forEach(profile => batch.create(db.collection('userNotifications').doc(), {
     userId: profile.id,
-    title: `DICT: ${subject}`,
+    title: `CICTO: ${subject}`,
     body: message,
     type: 'interagency_command',
     priority,
@@ -340,7 +340,7 @@ exports.sendDictCommand = functions.https.onCall(async (data, context) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   }));
   batch.create(db.collection('audit_logs').doc(), {
-    event: 'dict.command_sent', actorUid: actor.uid, targetType: 'interagency_message', targetId: messageRef.id,
+    event: 'cicto.command_sent', actorUid: actor.uid, targetType: 'interagency_message', targetId: messageRef.id,
     metadata: { priority, recipientCount: admins.size }, source: 'server', createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
   await batch.commit();
@@ -348,12 +348,12 @@ exports.sendDictCommand = functions.https.onCall(async (data, context) => {
 });
 
 exports.getRewardCatalog = functions.https.onCall(async (_data, context) => {
-  await requireDictOversight(context);
+  await requireCictoOversight(context);
   return loadRewardConfig();
 });
 
 exports.redeemReward = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+  const actor = await requireCictoOversight(context);
   const userId = String(data?.userId || '');
   const souvenirId = String(data?.souvenirId || '');
   const rewardConfig = await loadRewardConfig();
@@ -656,7 +656,7 @@ exports.awardReportCompletionTokens = functions.firestore.document('schedules/{s
 });
 
 exports.reconcileRewardAwards = functions.https.onCall(async (_data, context) => {
-  await requireDictOversight(context);
+  await requireCictoOversight(context);
   const rewardConfig = await loadRewardConfig();
   const completed = await db.collection('schedules').where('status', 'in', ['completed', 'done']).limit(200).get();
   const summary = { scanned: completed.size, awarded: 0, alreadyAwarded: 0, ineligible: 0 };
@@ -838,11 +838,11 @@ exports.addDocument = functions.https.onCall(async (data, context) => {
 });
 
 /**
- * Callable Cloud Function for DICT Administrators to permanently delete accounts.
+ * Callable Cloud Function for CICTO Administrators to permanently delete accounts.
  * Deletes the user from Firebase Auth and batched Firestore records with OTP validation.
  */
-exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+exports.cictoConfirmDeleteAccount = functions.https.onCall(async (data, context) => {
+  const actor = await requireCictoOversight(context);
   const { requestId, pin, targetUid } = data || {};
 
   if (!requestId || !pin || !targetUid) {
@@ -850,7 +850,7 @@ exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) 
   }
 
   // 1. Verify OTP
-  const otpRef = db.collection('dict_otp_verifications').doc(requestId);
+  const otpRef = db.collection('cicto_otp_verifications').doc(requestId);
   const otpSnap = await otpRef.get();
 
   if (!otpSnap.exists) {
@@ -875,10 +875,10 @@ exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) 
     throw new functions.https.HttpsError('invalid-argument', 'Target user mismatch.');
   }
 
-  // 2. Prevent deletion of DICT superadmins
+  // 2. Prevent deletion of CICTO superadmins
   const targetUserSnap = await db.collection('users').doc(targetUid).get();
-  if (targetUserSnap.exists && targetUserSnap.data()?.role === 'dict') {
-    throw new functions.https.HttpsError('permission-denied', 'DICT Super Administrator accounts cannot be deleted.');
+  if (targetUserSnap.exists && targetUserSnap.data()?.role === 'cicto') {
+    throw new functions.https.HttpsError('permission-denied', 'CICTO Super Administrator accounts cannot be deleted.');
   }
 
   const targetEmail = otpData.targetEmail || targetUserSnap.data()?.email || 'unknown';
@@ -886,7 +886,7 @@ exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) 
   // 3. Delete from Firebase Authentication
   try {
     await admin.auth().deleteUser(targetUid);
-    console.log(`✅ [DICT] User ${targetUid} (${targetEmail}) deleted from Firebase Auth.`);
+    console.log(`✅ [CICTO] User ${targetUid} (${targetEmail}) deleted from Firebase Auth.`);
   } catch (authError) {
     if (authError.code !== 'auth/user-not-found') {
       console.warn('Firebase Auth deletion note:', authError.message);
@@ -908,7 +908,7 @@ exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) 
   });
 
   // Mark linked notifications used
-  const notifSnap = await db.collection('dict_notifications').where('requestId', '==', requestId).get();
+  const notifSnap = await db.collection('cicto_notifications').where('requestId', '==', requestId).get();
   notifSnap.forEach(doc => batch.update(doc.ref, { status: 'used' }));
 
   // Add audit log
@@ -921,9 +921,9 @@ exports.dictConfirmDeleteAccount = functions.https.onCall(async (data, context) 
     metadata: {
       targetEmail,
       deletedByRole: actor.role,
-      reason: 'DICT Oversight Security Deletion',
+      reason: 'CICTO Oversight Security Deletion',
     },
-    source: 'dict-portal-callable',
+    source: 'cicto-portal-callable',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -995,10 +995,10 @@ exports.deactivateInactiveResidents = functions.pubsub.schedule('every 24 hours'
 });
 
 /**
- * Callable: Enables DICT administrators to trigger an immediate batch deactivation of stale residents.
+ * Callable: Enables CICTO administrators to trigger an immediate batch deactivation of stale residents.
  */
-exports.dictDeactivateInactiveResidents = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+exports.cictoDeactivateInactiveResidents = functions.https.onCall(async (data, context) => {
+  const actor = await requireCictoOversight(context);
   const now = admin.firestore.Timestamp.now();
   const sixMonthsAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 180 * 24 * 60 * 60 * 1000);
 
@@ -1025,7 +1025,7 @@ exports.dictDeactivateInactiveResidents = functions.https.onCall(async (data, co
         status: 'inactive',
         deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
         deactivatedBy: actor.email,
-        deactivationReason: 'DICT 6-Month Inactivity Policy',
+        deactivationReason: 'CICTO 6-Month Inactivity Policy',
       });
       count++;
       deactivatedEmails.push(d.email);
@@ -1040,10 +1040,10 @@ exports.dictDeactivateInactiveResidents = functions.https.onCall(async (data, co
 });
 
 /**
- * Callable: Allows DICT administrators to reactivate a citizen account.
+ * Callable: Allows CICTO administrators to reactivate a citizen account.
  */
-exports.dictReactivateUser = functions.https.onCall(async (data, context) => {
-  const actor = await requireDictOversight(context);
+exports.cictoReactivateUser = functions.https.onCall(async (data, context) => {
+  const actor = await requireCictoOversight(context);
   const { targetUid } = data || {};
   if (!targetUid) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing targetUid.');
@@ -1059,4 +1059,5 @@ exports.dictReactivateUser = functions.https.onCall(async (data, context) => {
 
   return { success: true, message: 'Account has been successfully reactivated.' };
 });
+
 

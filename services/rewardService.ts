@@ -157,10 +157,10 @@ export async function adjustCitizenPoints(
     userId,
     userName,
     tokens: deltaTokens,
-    reason: `dict_adjustment: ${reason.trim()}`,
-    adjustedBy: 'DICT Super Admin',
+    reason: `cicto_adjustment: ${reason.trim()}`,
+    adjustedBy: 'CICTO Super Admin',
     createdByUid: auth.currentUser.uid,
-    actorEmail: auth.currentUser.email || 'dict@trashtrack.gov.ph',
+    actorEmail: auth.currentUser.email || 'cicto@trashtrack.gov.ph',
     awardedAt: timestamp,
     previousBalance: currentBalance,
     newBalance: Math.max(0, currentBalance + deltaTokens),
@@ -170,8 +170,8 @@ export async function adjustCitizenPoints(
   try {
     const { writeAuditLog } = await import('./auditLogService');
     await writeAuditLog('notification.preferences_updated' as any, 'citizen_points', userId, {
-      action: 'dict_adjust_points',
-      actorEmail: auth.currentUser.email || 'dict@trashtrack.gov.ph',
+      action: 'cicto_adjust_points',
+      actorEmail: auth.currentUser.email || 'cicto@trashtrack.gov.ph',
       deltaTokens,
       reason,
       previousBalance: currentBalance,
@@ -189,7 +189,7 @@ export async function adjustCitizenPoints(
 }
 
 export async function redeemRewardFromLedger(userId: string, userName: string, souvenir: RewardSouvenir) {
-  if (!db || !auth.currentUser) throw new Error('An authenticated DICT account is required.');
+  if (!db || !auth.currentUser) throw new Error('An authenticated CICTO account is required.');
   const redemption = await addDoc(collection(db, 'reward_redemptions'), {
     userId,
     userName,

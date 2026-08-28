@@ -15,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+cicto = dict
+
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import numpy as np
@@ -31,8 +33,8 @@ class ForecastRuntime:
         self.scaler_path = scaler_path
         self.artifact_path = artifact_path
         self.model: tf.keras.Model | None = None
-        self.scaler: dict[str, float] | None = None
-        self.artifact: dict[str, Any] = {}
+        self.scaler: cicto[str, float] | None = None
+        self.artifact: cicto[str, Any] = {}
         self.load_error: str | None = None
         self._load()
 
@@ -89,7 +91,7 @@ class ForecastRuntime:
 class ForecastHandler(BaseHTTPRequestHandler):
     runtime: ForecastRuntime
 
-    def _send(self, status: int, payload: dict[str, Any]) -> None:
+    def _send(self, status: int, payload: cicto[str, Any]) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

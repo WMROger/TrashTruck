@@ -20,8 +20,8 @@ export default function AdminSplashScreen() {
     router.replace("/cenro" as any);
   };
 
-  const handleEnterDict = () => {
-    router.replace("/dict" as any);
+  const handleEnterCicto = () => {
+    router.replace("/cicto" as any);
   };
 
   return (
@@ -90,32 +90,32 @@ export default function AdminSplashScreen() {
               </View>
             </TouchableOpacity>
 
-            {/* DICT Portal Card */}
+            {/* CICTO Portal Card */}
             <TouchableOpacity
-              style={[styles.portalCard, styles.dictCard]}
-              onPress={handleEnterDict}
+              style={[styles.portalCard, styles.cictoCard]}
+              onPress={handleEnterCicto}
               activeOpacity={0.88}
             >
               <View style={styles.cardHeader}>
-                <View style={[styles.iconCircle, styles.dictIconCircle]}>
+                <View style={[styles.iconCircle, styles.cictoIconCircle]}>
                   <MaterialIcons name="security" size={26} color="#0F766E" />
                 </View>
                 <View style={styles.badgeWrapper}>
-                  <Text style={[styles.badgeText, styles.dictBadgeText]}>
-                    GOV.PH
+                  <Text style={[styles.badgeText, styles.cictoBadgeText]}>
+                    CICTO
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.cardTitle}>DICT Super Admin</Text>
-              <Text style={styles.cardSub}>Dept. of Information & Communications Tech</Text>
+              <Text style={styles.cardTitle}>CICTO Super Admin</Text>
+              <Text style={styles.cardSub}>City Information & Communications Tech</Text>
 
               <Text style={styles.cardDescription}>
-                National technology governance, system health metrics, cross-agency commands, and data telemetry oversight.
+                Municipal technology governance, system health metrics, cross-agency commands, and data telemetry oversight.
               </Text>
 
-              <View style={[styles.cardButton, styles.dictButton]}>
-                <Text style={styles.cardButtonText}>Enter DICT Portal</Text>
+              <View style={[styles.cardButton, styles.cictoButton]}>
+                <Text style={styles.cardButtonText}>Enter CICTO Portal</Text>
                 <MaterialIcons name="arrow-forward" size={18} color="#FFFFFF" />
               </View>
             </TouchableOpacity>
@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
   cenroCard: {
     borderColor: "#A7F3D0",
   },
-  dictCard: {
+  cictoCard: {
     borderColor: "#99F6E4",
   },
   cardHeader: {
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   cenroIconCircle: {
     backgroundColor: "#ECFDF5",
   },
-  dictIconCircle: {
+  cictoIconCircle: {
     backgroundColor: "#F0FDFA",
   },
   badgeWrapper: {
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
   cenroBadgeText: {
     color: "#065F46",
   },
-  dictBadgeText: {
+  cictoBadgeText: {
     color: "#0F766E",
   },
   cardTitle: {
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   cenroButton: {
     backgroundColor: "#1B4D3E",
   },
-  dictButton: {
+  cictoButton: {
     backgroundColor: "#0F766E",
   },
   cardButtonText: {

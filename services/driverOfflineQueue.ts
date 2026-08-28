@@ -63,8 +63,8 @@ const persist = async (item: QueueItem, imageUrl: string) => {
       await awardVerifiedCompletion(item.scheduleId);
     } catch (error) {
       // Completion evidence is more important than the derived reward ledger.
-      // DICT can safely reconcile a missed deterministic award later.
-      console.warn('Reward award will require DICT reconciliation:', error);
+      // CICTO can safely reconcile a missed deterministic award later.
+      console.warn('Reward award will require CICTO reconciliation:', error);
     }
     await writeAuditLog('pickup.completed', 'schedule', item.scheduleId, { measurement: item.measurement, offline: item.attempts > 0 });
   } else {

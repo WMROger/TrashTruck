@@ -41,8 +41,8 @@ export default function TabLayout() {
             router.replace('/admin/dashboard' as any);
             return;
           }
-          if (userData.role === 'dict') {
-            router.replace('/dict/dashboard' as any);
+          if (userData.role === 'cicto') {
+            router.replace('/cicto/dashboard' as any);
             return;
           }
           setRole(userData.role || null);
