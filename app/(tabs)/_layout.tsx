@@ -36,13 +36,17 @@ export default function TabLayout() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          if (userData.role === 'admin') {
+          if (userData.role === 'admin' || userData.role === 'cenro') {
             setIsAdmin(true);
             router.replace('/admin/dashboard' as any);
             return;
           }
           if (userData.role === 'cicto') {
             router.replace('/cicto/dashboard' as any);
+            return;
+          }
+          if (userData.role === 'driver') {
+            router.replace('/(driver)' as any);
             return;
           }
           setRole(userData.role || null);

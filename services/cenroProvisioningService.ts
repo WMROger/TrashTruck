@@ -103,6 +103,16 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
       assignedAt: timestamp,
     });
 
+    const unifiedIdRef = doc(db, 'identifiers', `cenro_${input.employeeId}`);
+    transaction.set(unifiedIdRef, {
+      id: input.employeeId,
+      type: 'cenro',
+      userId: uid,
+      role: 'admin',
+      department: input.department,
+      assignedAt: timestamp,
+    }, { merge: true });
+
     return {
       uid,
       email: input.email || existingData?.email || '',

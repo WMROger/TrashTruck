@@ -7,14 +7,14 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { useAuthContext } from '@/components/AuthContext';
 import { CustomTabBar } from '@/components/CustomTabBar';
-import { db } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 
 import { locationService } from '@/services/locationService';
 import { syncOfflineDriverActions } from '@/services/driverOfflineQueue';
 
 export default function DriverLayout() {
-  const { user } = useAuthContext();
+  const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -27,14 +27,16 @@ export default function DriverLayout() {
 
   // Check if user has driver role
   useEffect(() => {
-    if (!user || !db) {
+    if (authLoading) return;
+    const activeUid = user?.uid || auth.currentUser?.uid;
+    if (!activeUid || !db) {
       setIsAuthorized(false);
       setIsLoading(false);
       router.replace('/auth');
       return;
     }
 
-    const userRef = doc(db, 'users', user.uid);
+    const userRef = doc(db, 'users', activeUid);
     const unsub = onSnapshot(userRef, (snap) => {
       if (snap.exists()) {
         const userData = snap.data();

@@ -91,10 +91,12 @@ export default function IdentityAccessTab() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const list: UserData[] = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as any),
-        }));
+        const list: UserData[] = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as any),
+          }))
+          .filter((u) => u.role !== 'dict');
         setUsers(list);
         setLoading(false);
       },
@@ -248,14 +250,20 @@ export default function IdentityAccessTab() {
           />
         </View>
         <View style={styles.filterGroup}>
-          {['all', 'user', 'driver', 'admin', 'cicto'].map((r) => (
+          {[
+            { id: 'all', label: 'ALL' },
+            { id: 'user', label: 'RESIDENTS' },
+            { id: 'driver', label: 'DRIVERS' },
+            { id: 'admin', label: 'CENRO' },
+            { id: 'cicto', label: 'CICTO' },
+          ].map((r) => (
             <TouchableOpacity
-              key={r}
-              style={[styles.filterChip, roleFilter === r && styles.filterChipActive]}
-              onPress={() => setRoleFilter(r)}
+              key={r.id}
+              style={[styles.filterChip, roleFilter === r.id && styles.filterChipActive]}
+              onPress={() => setRoleFilter(r.id)}
             >
-              <Text style={[styles.filterChipText, roleFilter === r && styles.filterChipTextActive]}>
-                {r.toUpperCase()}
+              <Text style={[styles.filterChipText, roleFilter === r.id && styles.filterChipTextActive]}>
+                {r.label}
               </Text>
             </TouchableOpacity>
           ))}
@@ -279,6 +287,7 @@ export default function IdentityAccessTab() {
           filteredUsers.map((user) => {
             const isProtected = user.role === 'cicto' || isCictoEmail(user.email);
             const isInactive = isUserInactive6Months(user) || user.disabled === true || user.status === 'inactive';
+            const isCenroAdmin = user.role === 'admin' || user.role === 'cenro';
 
             return (
               <View key={user.id} style={styles.tableRow}>
@@ -296,7 +305,7 @@ export default function IdentityAccessTab() {
                       styles.roleBadge,
                       isProtected
                         ? styles.roleBadgeCicto
-                        : user.role === 'admin'
+                        : isCenroAdmin
                         ? styles.roleBadgeAdmin
                         : user.role === 'driver'
                         ? styles.roleBadgeDriver
@@ -308,14 +317,14 @@ export default function IdentityAccessTab() {
                         styles.roleBadgeText,
                         isProtected
                           ? styles.roleBadgeTextCicto
-                          : user.role === 'admin'
+                          : isCenroAdmin
                           ? styles.roleBadgeTextAdmin
                           : user.role === 'driver'
                           ? styles.roleBadgeTextDriver
                           : styles.roleBadgeTextUser,
                       ]}
                     >
-                      {isProtected ? 'CICTO ADMIN' : user.role ? user.role.toUpperCase() : 'RESIDENT'}
+                      {isProtected ? 'CICTO ADMIN' : isCenroAdmin ? 'CENRO' : user.role ? user.role.toUpperCase() : 'RESIDENT'}
                     </Text>
                   </View>
                 </View>

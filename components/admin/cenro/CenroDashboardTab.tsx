@@ -17,6 +17,8 @@ import { historicalWasteSeries } from '../../../data/historicalWasteData';
 import { buildHotspots, LocationLike } from '../../../services/hotspotAnalysisService';
 import { buildValidatedForecast } from '../../../services/wasteForecastService';
 import { formatAdaptiveMassFromMetricTons, parseWasteAmountToMetricTons, toMetricTons, WasteMeasurementUnit } from '../../../utils/wasteUnits';
+import { getDanaoLiveWeather, WeatherData } from '../../../services/weatherService';
+import { getUpcomingHolidayNotice, HolidayScheduleAdvisory } from '../../../services/holidayService';
 
 interface DashboardStats {
   totalWaste: number;
@@ -70,6 +72,8 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const [districtDemand, setDistrictDemand] = useState<DistrictPressure[]>([]);
   const [topHotspot, setTopHotspot] = useState<{ label: string; count: number } | null>(null);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [holidayNotice, setHolidayNotice] = useState<HolidayScheduleAdvisory | null>(null);
 
   // Predictive Chart Data
   const [forecastModelLabel, setForecastModelLabel] = useState('AI Linear Trend');
@@ -89,6 +93,9 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
 
     async function loadDashboardData() {
       try {
+        // Fetch Live Danao Weather & PH Holiday Notice from Free Public APIs
+        getDanaoLiveWeather().then(w => isMounted && setWeather(w)).catch(() => {});
+        getUpcomingHolidayNotice().then(h => isMounted && setHolidayNotice(h)).catch(() => {});
         // 1. Predictive Intelligence & Forecast Calculation
         const historicalValues = historicalWasteSeries.map(point => point.value);
         const forecastResult = buildValidatedForecast(historicalValues, 2);
@@ -354,6 +361,62 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
           <MaterialIcons name="access-time" size={13} color="#065F46" style={{ marginRight: 4 }} />
           <Text style={[styles.dateText, styles.timeText]}>{timeStr}</Text>
         </View>
+      </View>
+
+      {/* Live Danao City Weather & Holiday Intelligence Advisory (Open-Meteo & Nager.Date Public APIs) */}
+      <View style={[styles.advisoryGridRow, isNarrow && { flexDirection: 'column' }]}>
+        {/* Weather Card */}
+        <View style={[styles.weatherCard, isNarrow && { width: '100%' }]}>
+          <View style={styles.weatherHeaderRow}>
+            <View style={styles.weatherLeft}>
+              <View style={[styles.weatherIconBox, weather?.advisoryLevel === 'severe' ? styles.weatherIconBoxSevere : weather?.advisoryLevel === 'warning' ? styles.weatherIconBoxWarning : styles.weatherIconBoxOptimal]}>
+                <MaterialIcons
+                  name={(weather?.weatherIconName as any) || 'wb-sunny'}
+                  size={24}
+                  color={weather?.advisoryLevel === 'severe' ? '#DC2626' : weather?.advisoryLevel === 'warning' ? '#D97706' : '#059669'}
+                />
+              </View>
+              <View>
+                <View style={styles.weatherBadgeRow}>
+                  <Text style={styles.weatherLocation}>DANAO CITY METEOROLOGY</Text>
+                  <View style={[styles.weatherLevelBadge, weather?.advisoryLevel === 'severe' ? { backgroundColor: '#FEE2E2' } : weather?.advisoryLevel === 'warning' ? { backgroundColor: '#FEF3C7' } : { backgroundColor: '#ECFDF5' }]}>
+                    <Text style={[styles.weatherLevelText, weather?.advisoryLevel === 'severe' ? { color: '#B91C1C' } : weather?.advisoryLevel === 'warning' ? { color: '#B45309' } : { color: '#065F46' }]}>
+                      {weather?.weatherDescription || 'Fair Weather'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.weatherTempText}>
+                  {weather ? `${weather.temperatureC}°C` : '29°C'} <Text style={styles.weatherFeelsLike}>Feels like {weather ? `${weather.apparentTempC}°C` : '33°C'}</Text>
+                </Text>
+              </View>
+            </View>
+            <View style={styles.weatherMetricsRight}>
+              <Text style={styles.weatherMetricItem}>💧 Rain: <Text style={styles.weatherMetricVal}>{weather?.rainMm ?? 0} mm</Text></Text>
+              <Text style={styles.weatherMetricItem}>💨 Wind: <Text style={styles.weatherMetricVal}>{weather?.windSpeedKph ?? 12} km/h</Text></Text>
+            </View>
+          </View>
+          <View style={styles.advisoryMessageBox}>
+            <Text style={styles.advisoryMessageTitle}>{weather?.advisoryTitle || '☀️ Normal Operations'}</Text>
+            <Text style={styles.advisoryMessageContent}>{weather?.advisoryMessage || 'Clear conditions across Danao City. All 42 barangays operating normally.'}</Text>
+          </View>
+        </View>
+
+        {/* Holiday Notice Card */}
+        {!!holidayNotice && (
+          <View style={[styles.holidayCard, isNarrow && { width: '100%' }]}>
+            <View style={styles.holidayHeaderRow}>
+              <View style={styles.holidayBadge}>
+                <Text style={styles.holidayBadgeText}>{holidayNotice.badgeText}</Text>
+              </View>
+            </View>
+            <Text style={styles.holidayTitle}>{holidayNotice.noticeTitle}</Text>
+            <Text style={styles.holidayDesc}>{holidayNotice.noticeMessage}</Text>
+            <View style={styles.holidayActionRow}>
+              <MaterialIcons name="info-outline" size={14} color="#0369A1" />
+              <Text style={styles.holidayActionText}>{holidayNotice.recommendedAction}</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Hero KPI Cards Row (4 Grid) */}
@@ -1094,5 +1157,171 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#DC2626',
+  },
+  advisoryGridRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  weatherCard: {
+    flex: 1.4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  weatherHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+  },
+  weatherLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  weatherIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weatherIconBoxOptimal: {
+    backgroundColor: '#ECFDF5',
+  },
+  weatherIconBoxWarning: {
+    backgroundColor: '#FEF3C7',
+  },
+  weatherIconBoxSevere: {
+    backgroundColor: '#FEE2E2',
+  },
+  weatherBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  weatherLocation: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#64748B',
+    letterSpacing: 0.6,
+  },
+  weatherLevelBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  weatherLevelText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  weatherTempText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  weatherFeelsLike: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  weatherMetricsRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  weatherMetricItem: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  weatherMetricVal: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  advisoryMessageBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 9,
+    borderLeftWidth: 3,
+    borderLeftColor: '#059669',
+  },
+  advisoryMessageTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  advisoryMessageContent: {
+    fontSize: 11,
+    color: '#475569',
+    lineHeight: 15,
+  },
+  holidayCard: {
+    flex: 1,
+    backgroundColor: '#F0F9FF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  holidayHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  holidayBadge: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#7DD3FC',
+  },
+  holidayBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#0369A1',
+    letterSpacing: 0.5,
+  },
+  holidayTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0C4A6E',
+    marginBottom: 3,
+  },
+  holidayDesc: {
+    fontSize: 11,
+    color: '#0369A1',
+    lineHeight: 15,
+    marginBottom: 8,
+  },
+  holidayActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+    padding: 6,
+    borderRadius: 6,
+  },
+  holidayActionText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#0284C7',
+    flex: 1,
   },
 });

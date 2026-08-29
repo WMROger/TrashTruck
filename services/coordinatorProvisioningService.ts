@@ -69,7 +69,20 @@ async function writeCoordinatorRecords(uid: string, input: ReturnType<typeof nor
       updatedAt: timestamp,
       ...(profile.exists() ? {} : { createdAt: timestamp, provider: 'password' }),
     }, { merge: true });
+
     transaction.set(employeeRef, { userId: uid, assignedAt: timestamp });
+
+    const unifiedIdRef = doc(db, 'identifiers', `coord_${input.employeeId}`);
+    transaction.set(unifiedIdRef, {
+      id: input.employeeId,
+      type: 'coordinator',
+      userId: uid,
+      barangay: input.barangay,
+      zone: input.zone,
+      role: 'coordinator',
+      assignedAt: timestamp,
+    }, { merge: true });
+
     return { uid, email: input.email || profile.data()?.email || '' };
   });
 }

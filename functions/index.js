@@ -256,7 +256,7 @@ const cleanDocument = snapshot => {
 
 exports.getCictoOversightSnapshot = functions.https.onCall(async (_data, context) => {
   await requireCictoOversight(context);
-  const [users, reports, schedules, trucks, locations, auditLogs, errors, activity, expenses, messages, announcements] = await Promise.all([
+  const [users, reports, schedules, trucks, locations, auditLogs, errors, activity, fuelExp, laborExp, maintExp, dispExp, otherExp, itemExp, messages, announcements] = await Promise.all([
     db.collection('users').get(),
     db.collection('reports').get(),
     db.collection('schedules').get(),
@@ -265,13 +265,26 @@ exports.getCictoOversightSnapshot = functions.https.onCall(async (_data, context
     db.collection('audit_logs').orderBy('createdAt', 'desc').limit(20).get(),
     db.collection('error_logs').orderBy('createdAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
     db.collection('client_activity').orderBy('createdAt', 'desc').limit(250).get(),
-    db.collection('analytics').doc('expense_records').collection('items').orderBy('period', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('fuel').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('labor').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('maintenance').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('disposal').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('other').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
+    db.collection('analytics').doc('expense_records').collection('items').orderBy('period', 'desc').limit(50).get().catch(() => ({ docs: [] })),
     db.collection('interagency_messages').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
     db.collection('announcements').get(),
   ]);
   const reportRows = reports.docs.map(cleanDocument);
   const scheduleRows = schedules.docs.map(cleanDocument);
   const locationRows = locations.docs.map(cleanDocument);
+  const expenseDocs = [
+    ...fuelExp.docs,
+    ...laborExp.docs,
+    ...maintExp.docs,
+    ...dispExp.docs,
+    ...otherExp.docs,
+    ...itemExp.docs,
+  ];
   const now = Date.now();
   const activeFleet = locationRows.filter(item => {
     const timestamp = item.lastUpdate ? new Date(item.lastUpdate).getTime() : 0;
@@ -286,7 +299,7 @@ exports.getCictoOversightSnapshot = functions.https.onCall(async (_data, context
       schedules: schedules.size,
       trucks: trucks.size,
       announcements: announcements.size,
-      expenses: expenses.docs.length,
+      expenses: expenseDocs.length,
       auditEvents: auditLogs.size,
       errorEvents: errors.docs.length,
     },

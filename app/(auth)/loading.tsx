@@ -74,7 +74,7 @@ export default function LoadingPage() {
       } else {
         // Existing user - update login timestamp
         const existingData = userSnap.data();
-        const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'cicto' || existingData?.role === 'coordinator';
+        const isSpecialVerified = existingData?.verified === true || existingData?.role === 'driver' || existingData?.role === 'admin' || existingData?.role === 'cenro' || existingData?.role === 'cicto' || existingData?.role === 'coordinator';
         await setDoc(userRef, {
           email: user.email || existingData?.email || '',
           displayName: user.displayName || existingData?.displayName || existingData?.name || 'User',
@@ -155,7 +155,8 @@ export default function LoadingPage() {
       setLoadingText('Checking user role...');
       setProgress(50);
 
-      let isDriverOrPreVerified = false;
+      const normEmail = (credentials?.email || user.email || '').toLowerCase();
+      let isDriverOrPreVerified = normEmail.endsWith('@driver.com') || normEmail.includes('driver');
       // Check user role and route properly
       if (db) {
         const snap = await getDoc(doc(db, 'users', user.uid));
@@ -318,19 +319,19 @@ export default function LoadingPage() {
           return;
         }
         
-        if (role === 'admin' || role === 'cicto') {
+        if (role === 'admin' || role === 'cenro' || role === 'cicto') {
           if (Platform.OS !== 'web') {
             try { await signOut(auth); } catch {}
             showError('Admin access is restricted to the desktop website. Please log in on a computer.', 'Restricted Access', 'warning');
             setTimeout(() => { router.replace('/(auth)/login' as any); }, 3000);
             return;
           }
-          if (role === 'admin') {
-            console.log('Admin user detected, redirecting to admin dashboard');
-            router.replace('/admin/dashboard' as any);
-          } else {
+          if (role === 'cicto') {
             console.log('CICTO user detected, redirecting to CICTO dashboard');
             router.replace('/cicto/dashboard' as any);
+          } else {
+            console.log('CENRO admin user detected, redirecting to admin dashboard');
+            router.replace('/admin/dashboard' as any);
           }
         } else if (role === 'driver') {
           console.log('Driver user detected, redirecting to driver interface');

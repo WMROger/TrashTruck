@@ -198,7 +198,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           const userSnap = await getDoc(userRef);
 
           if (!userSnap.exists()) {
-            if (isKnownAdmin) {
+            if (isKnownAdmin || portal === 'cenro') {
               await ensureCenroProfileInFirestore(user.uid, user.email || email);
               router.replace('/admin/dashboard' as any);
               return;
@@ -212,25 +212,9 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           const userData = userSnap.data();
           let userRole = userData.role;
 
-          if ((!userRole || userRole === 'user') && isKnownAdmin) {
+          if ((!userRole || userRole === 'user') && (isKnownAdmin || portal === 'cenro')) {
             await ensureCenroProfileInFirestore(user.uid, user.email || email);
             userRole = 'admin';
-          }
-
-          // Check if temporary access code/password has expired (5-minute limit)
-          const nowMillis = Date.now();
-          const expiresAtMillis = userData.temporaryPasswordExpiresAt?.toMillis
-            ? userData.temporaryPasswordExpiresAt.toMillis()
-            : (userData.temporaryPasswordExpiresAt ? new Date(userData.temporaryPasswordExpiresAt).getTime() : null);
-
-          if (userData.mustChangePassword === true && expiresAtMillis && nowMillis > expiresAtMillis) {
-            await signOut(auth);
-            showError(
-              'Your temporary access code/password has expired (valid for 5 minutes). Please contact your CICTO administrator to re-provision credentials.',
-              'Access Code Expired',
-              'error'
-            );
-            return;
           }
 
           const isCenroAdmin = userRole === 'admin' || userRole === 'cenro' || userRole === 'coordinator' || userRole === 'cenro_officer';
@@ -245,10 +229,6 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           } else if (userRole === 'driver') {
             await signOut(auth);
             showError('Driver accounts must use the driver portal.', 'Wrong Portal', 'warning');
-            return;
-          } else if (userRole === 'user') {
-            await signOut(auth);
-            showError('This account is registered as a Resident. To access CENRO, create or elevate the account in the CICTO User Management dashboard.', 'Resident Account', 'warning');
             return;
           } else {
             await signOut(auth);

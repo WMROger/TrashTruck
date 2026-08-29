@@ -483,6 +483,9 @@ class LocationService {
 
     try {
       await addDoc(collection(db, 'client_activity'), payload);
+      try {
+        await addDoc(collection(db, 'audit_logs'), { ...payload, type: 'client' });
+      } catch {}
     } catch (err) {
       console.warn('Error writing trip point to client_activity:', err);
     }
@@ -521,7 +524,8 @@ class LocationService {
     const now = Date.now();
     if (now - (this.lastAlertAt[type] || 0) < 5 * 60 * 1000) return;
     try {
-      await addDoc(collection(db, 'client_activity'), {
+      const alertPayload = {
+        type: 'client',
         event: 'fleet.alert',
         alertType: type,
         severity: type === 'route-deviation' ? 'high' : 'medium',
@@ -533,7 +537,11 @@ class LocationService {
         source: 'driver-gps',
         recordedAtClient: new Date(now).toISOString(),
         createdAt: serverTimestamp(),
-      });
+      };
+      await addDoc(collection(db, 'client_activity'), alertPayload);
+      try {
+        await addDoc(collection(db, 'audit_logs'), alertPayload);
+      } catch {}
       this.lastAlertAt[type] = now;
     } catch (err) {
       console.warn('Error writing fleet alert to client_activity:', err);

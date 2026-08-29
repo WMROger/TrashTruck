@@ -49,7 +49,7 @@ const safeGet = async (reference: any) => getDocs(reference).catch(() => ({ docs
 
 export async function getCictoOversightSnapshot(): Promise<CictoOversightSnapshot> {
   if (!db) throw new Error('Firestore is unavailable.');
-  const [users, reports, schedules, trucks, locations, audit, errors, activity, expenses, messages, announcements] = await Promise.all([
+  const [users, reports, schedules, trucks, locations, audit, errors, activity, fuelExp, laborExp, maintExp, dispExp, otherExp, itemExp, messages, announcements] = await Promise.all([
     safeGet(collection(db, 'users')),
     safeGet(collection(db, 'reports')),
     safeGet(collection(db, 'schedules')),
@@ -58,7 +58,12 @@ export async function getCictoOversightSnapshot(): Promise<CictoOversightSnapsho
     safeGet(query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(20))),
     safeGet(query(collection(db, 'error_logs'), orderBy('createdAt', 'desc'), limit(12))),
     safeGet(query(collection(db, 'client_activity'), orderBy('createdAt', 'desc'), limit(250))),
-    safeGet(query(collection(db, 'analytics', 'expense_records', 'items'), orderBy('period', 'desc'), limit(100))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'fuel'), orderBy('period', 'desc'), limit(50))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'labor'), orderBy('period', 'desc'), limit(50))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'maintenance'), orderBy('period', 'desc'), limit(50))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'disposal'), orderBy('period', 'desc'), limit(50))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'other'), orderBy('period', 'desc'), limit(50))),
+    safeGet(query(collection(db, 'analytics', 'expense_records', 'items'), orderBy('period', 'desc'), limit(50))),
     safeGet(query(collection(db, 'interagency_messages'), orderBy('createdAt', 'desc'), limit(30))),
     safeGet(collection(db, 'announcements')),
   ]);
@@ -67,7 +72,15 @@ export async function getCictoOversightSnapshot(): Promise<CictoOversightSnapsho
   const reportRows = rows(reports);
   const scheduleRows = rows(schedules);
   const locationRows = rows(locations);
-  const expenseRows = rows(expenses);
+  const expenseRows = [
+    ...rows(fuelExp),
+    ...rows(laborExp),
+    ...rows(maintExp),
+    ...rows(dispExp),
+    ...rows(otherExp),
+    ...rows(itemExp),
+  ];
+  const expenseCount = fuelExp.size + laborExp.size + maintExp.size + dispExp.size + otherExp.size + itemExp.size;
   const now = Date.now();
   const activeFleet = locationRows.filter((item: any) => (
     item.status === 'active' && now - new Date(item.lastUpdate || 0).getTime() <= 2 * 60 * 1000
@@ -81,12 +94,14 @@ export async function getCictoOversightSnapshot(): Promise<CictoOversightSnapsho
       schedules: schedules.size,
       trucks: trucks.size,
       announcements: announcements.size,
-      expenses: expenses.size,
+      expenses: expenseCount,
       auditEvents: audit.size,
       errorEvents: errors.size,
     },
     roles: userRows.reduce((summary: Record<string, number>, item: any) => {
-      const role = String(item.role || 'user');
+      let role = String(item.role || 'user').toLowerCase();
+      if (role === 'dict') return summary; // Exclude obsolete DICT role
+      if (role === 'admin') role = 'cenro';
       summary[role] = (summary[role] || 0) + 1;
       return summary;
     }, {}),

@@ -122,54 +122,64 @@ function RootLayoutNav() {
 
   // Resolve user role for access control
   useEffect(() => {
-    const checkUserRole = async () => {
-      if (!user || !db) {
-        setUserRole(null);
-        setRoleResolvedForUid(null);
-        setRoleLoading(false);
-        return;
-      }
+    let isMounted = true;
+    if (!user || !db) {
+      setUserRole(null);
+      setRoleResolvedForUid(null);
+      setRoleLoading(false);
+      return;
+    }
 
-      setRoleLoading(true);
-      try {
-        if (isCictoEmail(user.email)) {
-          await ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
-          setUserRole('cicto');
-        } else {
-          const userRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userRef);
-          setUserRole(userSnap.exists() ? String(userSnap.data().role || 'user') : 'user');
-        }
-      } catch (error) {
-        console.error('Error checking user role:', error);
-        setUserRole(isCictoEmail(user.email) ? 'cicto' : 'user');
-      } finally {
-        setRoleResolvedForUid(user.uid);
-        setRoleLoading(false);
+    setRoleLoading(true);
+    const userRef = doc(db, 'users', user.uid);
+    const unsub = onSnapshot(userRef, (userSnap) => {
+      if (!isMounted) return;
+      if (isCictoEmail(user.email)) {
+        setUserRole('cicto');
+      } else if (userSnap.exists()) {
+        const r = String(userSnap.data()?.role || 'user');
+        setUserRole(r);
+      } else {
+        const isKnownAdmin = user.email?.toLowerCase().startsWith('admin@') || user.email?.toLowerCase().startsWith('cenro@');
+        setUserRole(isKnownAdmin ? 'admin' : 'user');
       }
+      setRoleResolvedForUid(user.uid);
+      setRoleLoading(false);
+    }, (error) => {
+      if (!isMounted) return;
+      console.warn('Error checking user role:', error);
+      setUserRole(isCictoEmail(user.email) ? 'cicto' : 'user');
+      setRoleResolvedForUid(user.uid);
+      setRoleLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      unsub();
     };
-
-    checkUserRole();
-  }, [user]);
+  }, [user?.uid]);
 
   useEffect(() => {
-    if (loading || (isAuthenticated && (roleLoading || roleResolvedForUid !== user?.uid))) return;
+    if (loading || (user && (roleLoading || roleResolvedForUid !== user?.uid))) return;
     const currentSegment = segments[0];
 
     const segmentStr = String(currentSegment || '');
     if (!isAuthenticated) {
       // Unauthenticated access
       if (
+        !currentSegment ||
         segmentStr === 'admin' ||
         segmentStr.toLowerCase() === 'cenro' ||
-        segmentStr.toLowerCase() === 'cicto'
+        segmentStr.toLowerCase() === 'cicto' ||
+        segmentStr === 'splash' ||
+        segmentStr === 'auth' ||
+        segmentStr === '(auth)' ||
+        segmentStr === 'driver-login'
       ) {
         // Allow unauthenticated portal access to login screens
       } else {
-        // Regular user portal: redirect to /auth if not on allowed entry routes
-        if (currentSegment !== 'splash' && currentSegment !== 'auth' && currentSegment !== '(auth)' && currentSegment !== 'driver-login') {
-          router.replace('/auth' as any);
-        }
+        // Regular user portal: redirect to /auth if on a protected route
+        router.replace('/auth' as any);
       }
     } else if (isAuthenticated) {
       const isCenroAdmin =

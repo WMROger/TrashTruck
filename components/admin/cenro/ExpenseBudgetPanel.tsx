@@ -23,14 +23,39 @@ export default function ExpenseBudgetPanel({ forecastTons, contingencyPercent }:
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const recordsRef = collection(db, 'analytics', 'expense_records', 'items');
-    return onSnapshot(query(recordsRef, orderBy('period', 'desc')), snapshot => {
-      setRecords(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ExpenseRecord)));
-      setLoading(false);
-    }, error => {
-      console.warn('Expense records could not be loaded:', error);
-      setLoading(false);
+    if (!db) return;
+    const subcollections = ['fuel', 'labor', 'maintenance', 'disposal', 'other', 'items'];
+    const bucket: Record<string, ExpenseRecord[]> = {};
+
+    const unsubs = subcollections.map(sub => {
+      const recordsRef = collection(db, 'analytics', 'expense_records', sub);
+      return onSnapshot(query(recordsRef, orderBy('period', 'desc')), snapshot => {
+        bucket[sub] = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ExpenseRecord));
+        
+        // Merge all buckets, deduplicate by id
+        const mergedMap = new Map<string, ExpenseRecord>();
+        Object.values(bucket).flat().forEach(rec => {
+          if (rec.id) mergedMap.set(rec.id, rec);
+        });
+        const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
+          const pComp = (b.period || '').localeCompare(a.period || '');
+          if (pComp !== 0) return pComp;
+          const tA = typeof (a.createdAt as any)?.toMillis === 'function' ? (a.createdAt as any).toMillis() : (a.createdAt ? new Date(String(a.createdAt)).getTime() : 0);
+          const tB = typeof (b.createdAt as any)?.toMillis === 'function' ? (b.createdAt as any).toMillis() : (b.createdAt ? new Date(String(b.createdAt)).getTime() : 0);
+          return tB - tA;
+        });
+
+        setRecords(mergedList);
+        setLoading(false);
+      }, error => {
+        bucket[sub] = [];
+        setLoading(false);
+      });
     });
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
   }, []);
 
   const validation = useMemo(
@@ -51,7 +76,8 @@ export default function ExpenseBudgetPanel({ forecastTons, contingencyPercent }:
     }
     setSaving(true);
     try {
-      await addDoc(collection(db, 'analytics', 'expense_records', 'items'), {
+      const categorySubcollection = (category || 'fuel').trim().toLowerCase();
+      await addDoc(collection(db, 'analytics', 'expense_records', categorySubcollection), {
         period,
         category,
         amount: numericAmount,

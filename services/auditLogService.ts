@@ -12,9 +12,8 @@ export async function writeAuditLog(event: AuditEvent, targetType: string, targe
   const user = auth.currentUser;
   if (!user || !db) return;
   try {
-    // Client activity is useful diagnostic evidence, but it is not an authoritative
-    // audit trail. Server triggers write the protected audit_logs collection.
-    await addDoc(collection(db, 'client_activity'), {
+    const logPayload = {
+      type: 'client',
       event,
       targetType,
       targetId,
@@ -22,7 +21,11 @@ export async function writeAuditLog(event: AuditEvent, targetType: string, targe
       actorEmail: user.email || null,
       metadata,
       createdAt: serverTimestamp(),
-    });
+    };
+    await addDoc(collection(db, 'client_activity'), logPayload);
+    try {
+      await addDoc(collection(db, 'audit_logs'), logPayload);
+    } catch {}
   } catch (error) {
     // Auditing should be observable but must not discard a completed field operation.
     console.warn('Unable to write audit log:', error);

@@ -72,7 +72,7 @@ export async function awardVerifiedCompletion(
     if (error?.code !== 'permission-denied' && error?.code !== 'unavailable') throw error;
   }
   try {
-    await setDoc(awardRef, {
+    const payload = {
       userId,
       reportId,
       scheduleId,
@@ -80,7 +80,11 @@ export async function awardVerifiedCompletion(
       reason: 'verified-collection-completed',
       createdByUid: auth.currentUser?.uid || schedule.completedByUid,
       awardedAt: serverTimestamp(),
-    });
+    };
+    await setDoc(awardRef, payload);
+    try {
+      await setDoc(doc(db, 'rewards', 'ledger', 'items', `report_${reportId}`), payload, { merge: true });
+    } catch {}
   } catch (error: any) {
     // A deterministic award ID turns a second create into a denied update.
     if (error?.code === 'permission-denied') return 'already-awarded';
@@ -132,6 +136,9 @@ export async function addRewardCatalogItem(item: {
   };
 
   await setDoc(doc(db, 'reward_catalog', id), newItem);
+  try {
+    await setDoc(doc(db, 'rewards', 'catalog', 'items', id), newItem, { merge: true });
+  } catch {}
   return newItem;
 }
 
@@ -139,6 +146,9 @@ export async function deleteRewardCatalogItem(id: string) {
   if (!db) throw new Error('Firestore is unavailable.');
   const { deleteDoc } = await import('firebase/firestore');
   await deleteDoc(doc(db, 'reward_catalog', id));
+  try {
+    await deleteDoc(doc(db, 'rewards', 'catalog', 'items', id));
+  } catch {}
 }
 
 export async function adjustCitizenPoints(
@@ -153,7 +163,7 @@ export async function adjustCitizenPoints(
   const awardDocRef = doc(collection(db, 'reward_awards'));
   const timestamp = serverTimestamp();
 
-  await setDoc(awardDocRef, {
+  const awardPayload = {
     userId,
     userName,
     tokens: deltaTokens,
@@ -164,7 +174,12 @@ export async function adjustCitizenPoints(
     awardedAt: timestamp,
     previousBalance: currentBalance,
     newBalance: Math.max(0, currentBalance + deltaTokens),
-  });
+  };
+
+  await setDoc(awardDocRef, awardPayload);
+  try {
+    await setDoc(doc(db, 'rewards', 'ledger', 'items', awardDocRef.id), awardPayload, { merge: true });
+  } catch {}
 
   // Record into client activity audit trail
   try {

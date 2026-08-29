@@ -256,6 +256,10 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
 
+    match /identifiers/{document=**} {
+      allow read, write: if isAdmin() || isCicto();
+    }
+
     match /employee_ids/{employeeId} {
       allow read: if isAdmin() || isCicto();
       allow write: if isAdmin() || isCicto();
@@ -266,7 +270,7 @@ service cloud.firestore {
     }
 
     match /coordinator_employee_ids/{employeeId} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAdmin() || isCicto();
     }
 
     match /user_settings/{userId} {
@@ -428,6 +432,11 @@ service cloud.firestore {
 
     match /history/{historyId} {
       allow read, write: if isAdmin();
+    }
+
+    match /rewards/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isCicto();
     }
 
     match /reward_catalog/{catalogId} {

@@ -8,7 +8,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebase';
 import { useAuthContext } from '../../components/AuthContext';
 import CictoSidebar from '../../components/admin/CictoSidebar';
-import { CenroCommandTab, DataManagementTab, CictoDashboardTab, FleetOpsTab, RewardsTab, IdentityAccessTab, CictoLogoutModal, CictoNotificationDropdown } from '../../components/admin/cicto';
+import {
+  CenroCommandTab,
+  DataManagementTab,
+  CictoDashboardTab,
+  FleetOpsTab,
+  RewardsTab,
+  IdentityAccessTab,
+  CictoAuditTrailTab,
+  CictoLogoutModal,
+  CictoNotificationDropdown,
+} from '../../components/admin/cicto';
 import { isCictoEmail, ensureCictoProfileInFirestore } from '../../constants/cictoConfig';
 import { CictoNotification, subscribeToCictoNotifications } from '../../services/cictoAccountService';
 
@@ -114,15 +124,20 @@ export default function CictoDashboard() {
       case 'identity-access':
         return <IdentityAccessTab />;
       case 'dashboard':
-        return <CictoDashboardTab />;
+        return <CictoDashboardTab onNavigateTab={setActiveTab} />;
       case 'data-management':
+      case 'data-mgmt':
         return <DataManagementTab />;
       case 'fleet-ops':
         return <FleetOpsTab />;
       case 'cenro-command':
         return <CenroCommandTab />;
+      case 'activity-logs':
+      case 'audit-trail':
+      case 'activity':
+        return <CictoAuditTrailTab />;
       default:
-        return <CictoDashboardTab />;
+        return <CictoDashboardTab onNavigateTab={setActiveTab} />;
     }
   };
 
@@ -149,7 +164,7 @@ export default function CictoDashboard() {
           collapsed={sidebarCollapsed}
         />
         
-        <View style={[styles.mainContent, Platform.OS === 'web' ? { marginLeft: sidebarCollapsed ? 80 : 280 } : null]}>
+        <View style={styles.mainContent}>
           {/* Header Bar */}
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>TrashTrack CICTO Oversight Portal</Text>

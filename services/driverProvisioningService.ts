@@ -142,6 +142,29 @@ async function writeDriverRecords(uid: string, input: ReturnType<typeof normaliz
       updatedAt: timestamp,
     }, { merge: true });
 
+    const unifiedDriverIdRef = doc(db, 'identifiers', `driver_${input.employeeId}`);
+    transaction.set(unifiedDriverIdRef, {
+      id: input.employeeId,
+      type: 'driver',
+      userId: uid,
+      licenseNumber: input.licenseNumber,
+      driverName: input.fullName || profile.data()?.displayName || '',
+      assignedBarangay: assignedBarangay,
+      role: 'driver',
+      assignedAt: timestamp,
+    }, { merge: true });
+
+    if (input.licenseNumber) {
+      const unifiedLicRef = doc(db, 'identifiers', `lic_${input.licenseNumber}`);
+      transaction.set(unifiedLicRef, {
+        id: input.licenseNumber,
+        type: 'license',
+        employeeId: input.employeeId,
+        userId: uid,
+        assignedAt: timestamp,
+      }, { merge: true });
+    }
+
     if (truckRef) transaction.update(truckRef, {
       assignedDriverId: uid,
       assignedDriverName: input.fullName,

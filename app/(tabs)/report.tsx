@@ -33,6 +33,7 @@ import {
 import MapView, { Marker } from "@/components/MapView";
 import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
 import { formatWasteAmount } from '@/utils/wasteUnits';
+import { reverseGeocodeCoords } from '@/services/geocodingService';
 
 export default function ReportScreen() {
   const router = useRouter();
@@ -526,35 +527,54 @@ export default function ReportScreen() {
             lat: loc.coords.latitude,
             lng: loc.coords.longitude,
           });
-          const geocode = await Location.reverseGeocodeAsync({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
-          if (geocode && geocode.length > 0) {
-            const place = geocode[0];
-            const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
-            setLocationAddress(addressStr || "Unknown Location");
 
-            // Auto-detect barangay from photo's GPS geolocation
-            const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
-            if (matchedBgry) {
-              setBarangay(matchedBgry);
-            } else if (place.district || place.subregion || place.city) {
-              setBarangay(place.district || place.subregion || place.city || '');
-            } else if (userProfileBarangay) {
-              setBarangay(userProfileBarangay);
-            } else {
-              setBarangay('Unknown Area');
+          // 1. First attempt OpenStreetMap Nominatim Reverse Geocoding (Works on Web, iOS, and Android)
+          let resolved = false;
+          try {
+            const nominatimPlace = await reverseGeocodeCoords(loc.coords.latitude, loc.coords.longitude);
+            if (nominatimPlace && (nominatimPlace.street || nominatimPlace.barangay)) {
+              setLocationAddress(nominatimPlace.fullAddress);
+              if (nominatimPlace.barangay) {
+                setBarangay(nominatimPlace.barangay);
+              } else if (userProfileBarangay) {
+                setBarangay(userProfileBarangay);
+              }
+              setStreet(nominatimPlace.street || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
+              resolved = true;
             }
-            setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
-          } else {
-            setLocationAddress("Unknown Location");
-            if (userProfileBarangay) {
-              setBarangay(userProfileBarangay);
+          } catch (osmErr) {
+            console.warn('Nominatim reverse geocode note:', osmErr);
+          }
+
+          // 2. Fallback to Expo Native reverse geocode if needed
+          if (!resolved) {
+            const geocode = await Location.reverseGeocodeAsync({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            });
+            if (geocode && geocode.length > 0) {
+              const place = geocode[0];
+              const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
+              setLocationAddress(addressStr || "Unknown Location");
+
+              const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
+              if (matchedBgry) {
+                setBarangay(matchedBgry);
+              } else if (place.district || place.subregion || place.city) {
+                setBarangay(place.district || place.subregion || place.city || '');
+              } else if (userProfileBarangay) {
+                setBarangay(userProfileBarangay);
+              } else {
+                setBarangay('Unknown Area');
+              }
+              setStreet(place.street || place.name || `${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
             } else {
-              setBarangay('Unknown Area');
+              setLocationAddress("Danao City, Cebu");
+              if (userProfileBarangay) {
+                setBarangay(userProfileBarangay);
+              }
+              setStreet(`${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
             }
-            setStreet(`${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
           }
         } catch (locErr) {
           console.warn("Failed to get current location, trying last known:", locErr);
@@ -565,28 +585,16 @@ export default function ReportScreen() {
                 lat: loc.coords.latitude,
                 lng: loc.coords.longitude,
               });
-              const geocode = await Location.reverseGeocodeAsync({
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude,
-              });
-              if (geocode && geocode.length > 0) {
-                const place = geocode[0];
-                const addressStr = [place.street, place.city, place.region].filter(Boolean).join(', ');
-                setLocationAddress(addressStr || "Unknown Location");
-                const matchedBgry = matchBarangayFromGeocode(geocode, availableBarangays);
-                if (matchedBgry) {
-                  setBarangay(matchedBgry);
-                } else if (userProfileBarangay) {
-                  setBarangay(userProfileBarangay);
-                } else {
-                  setBarangay(place.district || place.subregion || place.city || '');
+              try {
+                const nominatimPlace = await reverseGeocodeCoords(loc.coords.latitude, loc.coords.longitude);
+                if (nominatimPlace) {
+                  setLocationAddress(nominatimPlace.fullAddress);
+                  if (nominatimPlace.barangay) setBarangay(nominatimPlace.barangay);
+                  setStreet(nominatimPlace.street || '');
                 }
-                setStreet(place.street || place.name || '');
-              } else {
-                setLocationAddress("Unknown Location");
-                if (userProfileBarangay) {
-                  setBarangay(userProfileBarangay);
-                }
+              } catch {
+                setLocationAddress("Danao City, Cebu");
+                if (userProfileBarangay) setBarangay(userProfileBarangay);
               }
             } else {
               throw new Error("No last known location");

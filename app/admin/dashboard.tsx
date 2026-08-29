@@ -30,7 +30,7 @@ import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
 
 export default function AdminDashboard() {
-  const { user, isAuthenticated } = useAuthContext();
+  const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -81,9 +81,12 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     const checkAdminAccess = async () => {
+      if (authLoading) return;
+      const activeUser = user || auth.currentUser;
       // Check if user exists (don't use isAuthenticated for admin access)
-      if (!user) {
+      if (!activeUser) {
         console.log('Admin dashboard: No user found, redirecting to login');
         router.replace('/admin/login');
         return;
@@ -92,9 +95,9 @@ export default function AdminDashboard() {
       // Verify admin role in Firestore
       if (db) {
         try {
-          const userRef = doc(db, 'users', user.uid);
+          const userRef = doc(db, 'users', activeUser.uid);
           const userSnap = await getDoc(userRef);
-          const isKnownAdmin = user.email?.toLowerCase().startsWith('admin@') || user.email?.toLowerCase().startsWith('cenro@');
+          const isKnownAdmin = activeUser.email?.toLowerCase().startsWith('admin@') || activeUser.email?.toLowerCase().startsWith('cenro@');
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
@@ -105,21 +108,23 @@ export default function AdminDashboard() {
             }
             const isCenroAdmin = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
             if (isCenroAdmin || isKnownAdmin) {
-              console.log('Admin dashboard: Admin role confirmed for:', user.email);
-              setIsAdmin(true);
-              setIsLoading(false);
+              console.log('Admin dashboard: Admin role confirmed for:', activeUser.email);
+              if (isMounted) {
+                setIsAdmin(true);
+                setIsLoading(false);
+              }
             } else {
-              console.log('Admin dashboard: User does not have admin role:', user.email);
+              console.log('Admin dashboard: User does not have admin role:', activeUser.email);
               Alert.alert('Access Denied', 'You do not have admin privileges.');
               await signOut(auth);
               router.replace('/admin/login');
             }
           } else if (isKnownAdmin) {
             await setDoc(userRef, {
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName || 'CENRO Admin',
-              name: user.displayName || 'CENRO Admin',
+              uid: activeUser.uid,
+              email: activeUser.email,
+              displayName: activeUser.displayName || 'CENRO Admin',
+              name: activeUser.displayName || 'CENRO Admin',
               role: 'admin',
               status: 'active',
               verified: true,
@@ -128,8 +133,10 @@ export default function AdminDashboard() {
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             }, { merge: true });
-            setIsAdmin(true);
-            setIsLoading(false);
+            if (isMounted) {
+              setIsAdmin(true);
+              setIsLoading(false);
+            }
           } else {
             console.log('Admin dashboard: User document not found in Firestore');
             Alert.alert('Access Denied', 'User profile not found.');
@@ -146,12 +153,13 @@ export default function AdminDashboard() {
         Alert.alert('Access Unavailable', 'Admin privileges cannot be verified because Firestore is unavailable.');
         try { await signOut(auth); } catch {}
         router.replace('/admin/login');
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     };
 
     checkAdminAccess();
-  }, [user, router]);
+    return () => { isMounted = false; };
+  }, [user, authLoading, router]);
 
   // Dashboard summaries: latest 3 report images and feedback snapshot
   useEffect(() => {

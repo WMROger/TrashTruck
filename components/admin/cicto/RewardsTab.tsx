@@ -59,9 +59,8 @@ export default function RewardsTab() {
             Audit trail of token distributions, eco-points awards, and souvenir redemptions.
           </Text>
         </View>
-        <TouchableOpacity style={styles.refresh} onPress={loadData}>
-          <MaterialIcons name="refresh" size={18} color="#374151" />
-          <Text style={styles.refreshText}>Refresh ledger</Text>
+        <TouchableOpacity style={styles.refresh} onPress={loadData} activeOpacity={0.7} accessibilityLabel="Refresh">
+          <MaterialIcons name="refresh" size={20} color="#0D9488" />
         </TouchableOpacity>
       </View>
 
@@ -134,17 +133,15 @@ const styles = StyleSheet.create({
   },
   sub: { fontSize: 12, color: '#64748B', marginTop: 5 },
   refresh: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    backgroundColor: '#FFF',
-    borderRadius: 9,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  refreshText: { fontSize: 11, fontWeight: '800', color: '#374151' },
   statsRow: {
     flexDirection: 'row',
     gap: 14,

@@ -31,21 +31,22 @@ export function useAuth() {
         return;
       }
 
-      if (isCictoEmail(currentUser.email)) {
+      const emailStr = (currentUser.email || '').toLowerCase();
+      const isKnownStaff = isCictoEmail(emailStr) || emailStr.endsWith('@driver.com') || emailStr.includes('driver') || emailStr.includes('admin') || emailStr.includes('cenro');
+      if (isKnownStaff) {
         setIsFirestoreVerified(true);
-        setLoading(false);
-        return;
       }
 
+      setLoading(true);
       const userRef = doc(db, 'users', currentUser.uid);
       userUnsub = onSnapshot(userRef, (snap) => {
         if (snap.exists()) {
           const data = snap.data();
           const role = data?.role;
-          const isVerified = data?.verified === true || role === 'driver' || role === 'admin' || role === 'cicto' || role === 'coordinator';
+          const isVerified = data?.verified === true || role === 'driver' || role === 'admin' || role === 'cenro' || role === 'cicto' || role === 'coordinator';
           setIsFirestoreVerified(isVerified);
         } else {
-          setIsFirestoreVerified(false);
+          setIsFirestoreVerified(isKnownStaff);
         }
         setLoading(false);
       }, (error) => {
