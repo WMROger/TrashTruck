@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import { db } from '@/config/firebase';
 import {
   CictoOversightSnapshot,
   getCictoOversightSnapshot,
@@ -44,6 +45,91 @@ export default function DataManagementTab() {
     ['Audit events', data?.counts.auditEvents || 0, 'Latest server audit window'],
   ];
 
+  const [seeding, setSeeding] = useState(false);
+  const [seedSuccess, setSeedSuccess] = useState('');
+
+  const handleBootstrapData = async () => {
+    if (!db) return;
+    setSeeding(true);
+    setSeedSuccess('');
+    try {
+      const { collection, doc, writeBatch, serverTimestamp } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+
+      // 21 Danao Barangays
+      const barangays = [
+        'Poblacion', 'Suba', 'Looc', 'Sabang', 'Guinsay', 'Maslog', 'Taytay',
+        'Tuburan Sur', 'Cogon-Cruz', 'Baliang', 'Cabungahan', 'Cambanay',
+        'Dunggoan', 'Guinacot', 'Ibo', 'Lawaan', 'Malapoc', 'Manlayag',
+        'Mantija', 'Quisol', 'Santican'
+      ];
+
+      for (const bName of barangays) {
+        const slug = bName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        batch.set(doc(db, 'barangays', slug), {
+          name: bName,
+          slug,
+          city: 'Danao City',
+          province: 'Cebu',
+          active: true,
+          createdAt: serverTimestamp(),
+          seededBy: 'CICTO Web Bootstrap',
+        }, { merge: true });
+      }
+
+      // Souvenir Catalog
+      const souvenirs = [
+        { id: 'tumbler', name: 'Eco-Friendly Tumbler', type: 'Matte Green, Double-walled insulation', cost: 1000, stock: 50, category: 'Merchandise' },
+        { id: 'tote', name: 'CENRO Tote Bag', type: 'Canvas, Heavy Duty', cost: 500, stock: 100, category: 'Apparel' },
+        { id: 'kit', name: 'Reusable Utensil Kit', type: 'Bamboo with pouch', cost: 2000, stock: 30, category: 'Eco Kit' },
+        { id: 'seedling_pack', name: 'Native Tree Seedling Pack', type: 'Narra & Mahogany Seedlings', cost: 300, stock: 75, category: 'Eco Initiative' },
+      ];
+
+      for (const item of souvenirs) {
+        batch.set(doc(db, 'reward_catalog', item.id), {
+          ...item,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      batch.set(doc(db, 'app_config', 'rewards'), {
+        updatedAt: serverTimestamp(),
+        items: souvenirs,
+      }, { merge: true });
+
+      // Fleet Trucks
+      const trucks = [
+        { id: 'TRK-01', plateNumber: 'GA-2026-01', model: 'Isuzu Elf 6-Wheeler Compactor (10m³)', capacityKg: 5000, status: 'available', currentBarangay: 'Poblacion', fuelLevelPercent: 95 },
+        { id: 'TRK-02', plateNumber: 'GA-2026-02', model: 'Hino 500 Heavy Compactor (16m³)', capacityKg: 8000, status: 'available', currentBarangay: 'Sabang', fuelLevelPercent: 88 },
+        { id: 'TRK-03', plateNumber: 'GA-2026-03', model: 'Fuso Canter Mini-Compactor (6m³)', capacityKg: 3500, status: 'available', currentBarangay: 'Suba', fuelLevelPercent: 92 },
+      ];
+
+      for (const t of trucks) {
+        batch.set(doc(db, 'trucks', t.id), {
+          ...t,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+
+      // Auto-dispatch settings
+      batch.set(doc(db, 'system_settings', 'auto_dispatch'), {
+        enabled: true,
+        updatedAt: serverTimestamp(),
+        systemMode: 'autonomous_ai_routing',
+        city: 'Danao City',
+      }, { merge: true });
+
+      await batch.commit();
+      setSeedSuccess('✅ 21 Danao Barangays, Souvenir Catalog, and Fleet Trucks successfully seeded!');
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Bootstrap failed.');
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
@@ -56,6 +142,32 @@ export default function DataManagementTab() {
         </View>
         <TouchableOpacity style={styles.refresh} onPress={load} activeOpacity={0.7} accessibilityLabel="Refresh">
           <MaterialIcons name="refresh" size={20} color="#0D9488" />
+        </TouchableOpacity>
+      </View>
+
+      {/* 1-Click Defense Bootstrap Banner */}
+      <View style={styles.bootstrapBanner}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.bootstrapTitle}>Defense Demo Bootstrap</Text>
+          <Text style={styles.bootstrapText}>
+            Quickly seed 21 Danao Barangays, Souvenir Rewards, and Fleet Trucks into Firestore with 1 click.
+          </Text>
+          {!!seedSuccess && <Text style={styles.seedSuccessText}>{seedSuccess}</Text>}
+        </View>
+        <TouchableOpacity
+          style={[styles.bootstrapBtn, seeding && { opacity: 0.6 }]}
+          onPress={handleBootstrapData}
+          disabled={seeding}
+          activeOpacity={0.8}
+        >
+          {seeding ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <MaterialIcons name="auto-fix-high" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.bootstrapBtnText}>Bootstrap Data</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -199,4 +311,34 @@ const styles = StyleSheet.create({
   },
   gateLabel: { fontSize: 11, fontWeight: '900', color: '#334155', marginTop: 8 },
   gateDetail: { fontSize: 9, color: '#64748B', marginTop: 3 },
+  bootstrapBanner: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  bootstrapTitle: { fontSize: 15, fontWeight: '900', color: '#065F46' },
+  bootstrapText: { fontSize: 12, color: '#047857', marginTop: 4, lineHeight: 17 },
+  seedSuccessText: { fontSize: 12, fontWeight: '800', color: '#059669', marginTop: 8 },
+  bootstrapBtn: {
+    backgroundColor: '#059669',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  bootstrapBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 });

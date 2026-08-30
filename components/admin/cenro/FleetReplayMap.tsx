@@ -186,6 +186,12 @@ export default function FleetReplayMap({ points, activeIndex, autoPan = true }: 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
       mapInstanceRef.current = map;
+
+      setTimeout(() => {
+        try {
+          map.invalidateSize();
+        } catch (e) {}
+      }, 250);
     } catch (err) {
       console.warn('Leaflet map initialization error:', err);
     }
@@ -280,7 +286,11 @@ export default function FleetReplayMap({ points, activeIndex, autoPan = true }: 
     }
 
     try {
-      map.fitBounds(fullPolyline.getBounds(), { padding: [45, 45], maxZoom: 16 });
+      if (valid.length > 1) {
+        map.fitBounds(fullPolyline.getBounds(), { padding: [45, 45], maxZoom: 16 });
+      } else if (valid.length === 1) {
+        map.setView([valid[0].latitude, valid[0].longitude], 15);
+      }
     } catch (e) {}
   }, [valid.length, roadCoordinates.length, points[0]?.id, leafletReady]);
 

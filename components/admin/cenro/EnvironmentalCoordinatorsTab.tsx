@@ -382,7 +382,33 @@ export default function EnvironmentalCoordinatorsTab() {
                   <Text style={styles.label}>
                     CONTACT INFORMATION <Text style={styles.requiredAsterisk}>*</Text>
                   </Text>
-                  <TextInput style={styles.input} placeholder="+63 9XX XXX XXXX" value={newContact} onChangeText={setNewContact} />
+                  <View style={styles.phoneInputContainer}>
+                    <View style={styles.countryPickerPill}>
+                      <Text style={{ fontSize: 14 }}>🇵🇭</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#1E293B', marginLeft: 4 }}>+63</Text>
+                    </View>
+                    <TextInput 
+                      style={styles.phoneNumberInput} 
+                      placeholder="9XX XXX XXXX" 
+                      placeholderTextColor="#94A3B8"
+                      value={newContact} 
+                      onChangeText={(text) => {
+                        let digits = text.replace(/\D/g, "");
+                        if (digits.startsWith("63")) digits = digits.slice(2);
+                        if (digits.startsWith("0")) digits = digits.slice(1);
+                        digits = digits.slice(0, 10);
+                        let formatted = digits;
+                        if (digits.length > 6) {
+                          formatted = `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+                        } else if (digits.length > 3) {
+                          formatted = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+                        }
+                        setNewContact(formatted);
+                      }}
+                      keyboardType="phone-pad"
+                      maxLength={13}
+                    />
+                  </View>
                 </View>
               </View>
             )}
@@ -624,4 +650,30 @@ const styles = StyleSheet.create({
   revokeBtnText: { fontSize: 10, color: '#DC2626', fontWeight: 'bold' },
   pickerContainer: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, backgroundColor: '#F9FAFB', overflow: 'hidden' },
   picker: { height: 48, width: '100%', color: '#111827', backgroundColor: 'transparent' },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  countryPickerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    height: '100%',
+    borderRightWidth: 1,
+    borderRightColor: '#E5E7EB',
+  },
+  phoneNumberInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#111827',
+  },
 });

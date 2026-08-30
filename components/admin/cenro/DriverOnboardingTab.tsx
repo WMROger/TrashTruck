@@ -191,7 +191,7 @@ export default function DriverOnboardingTab({
     if (r.currentTruckId) {
       setSelectedTruckId(r.currentTruckId);
     } else {
-      setSelectedTruckId('');
+      setSelectedTruckId('none');
     }
     if (formErrors.foundUser) {
       setFormErrors(prev => {
@@ -387,7 +387,7 @@ export default function DriverOnboardingTab({
         existingUserId: mode === 'upgrade' ? foundUser?.id : undefined,
         employeeId: fullEmployeeId,
         licenseNumber: licenseNumber.trim().toUpperCase(),
-        truckId: selectedTruckId || undefined,
+        truckId: (selectedTruckId && selectedTruckId !== 'none') ? selectedTruckId : undefined,
         assignedBarangay: assignedBarangay.trim(),
       });
 
@@ -398,9 +398,9 @@ export default function DriverOnboardingTab({
         employeeId: fullEmployeeId,
         licenseNumber: licenseNumber.trim().toUpperCase(),
         barangay: assignedBarangay.trim(),
-        truck: selectedTruckId
+        truck: (selectedTruckId && selectedTruckId !== 'none')
           ? availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber
-          : 'Not Assigned',
+          : 'None (Assign Later)',
         mode,
         isDriverUpdate: foundUser?.role === 'driver',
       });
@@ -602,7 +602,7 @@ export default function DriverOnboardingTab({
             <View style={styles.formGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>
-                  DRIVER'S LICENSE NUMBER <Text style={styles.requiredAsterisk}>*</Text>
+                  DRIVER&apos;S LICENSE NUMBER <Text style={styles.requiredAsterisk}>*</Text>
                 </Text>
                 <View style={styles.npdlBadge}>
                   <Text style={styles.npdlBadgeText}>LTO PH</Text>
@@ -1145,7 +1145,7 @@ export default function DriverOnboardingTab({
               {formErrors.assignedBarangay ? (
                 <Text style={styles.errorHelperText}>{formErrors.assignedBarangay}</Text>
               ) : (
-                <Text style={styles.helperText}>Scopes the driver's collection duty to this barangay</Text>
+                <Text style={styles.helperText}>Scopes the driver&apos;s collection duty to this barangay</Text>
               )}
             </View>
 
@@ -1174,11 +1174,25 @@ export default function DriverOnboardingTab({
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.dropdownText, !selectedTruckId && { color: '#9CA3AF' }]}>
-                    {selectedTruckId
-                      ? `${availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber || selectedTruckId} — ${availableTrucks.find(t => t.id === selectedTruckId)?.type || 'Truck'}`
-                      : 'Select available truck unit...'}
-                  </Text>
+                  {selectedTruckId === 'none' ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialIcons name="schedule" size={16} color="#059669" />
+                      <Text style={[styles.dropdownText, { color: '#065F46', fontWeight: '700' }]}>
+                        None (Assign Later)
+                      </Text>
+                    </View>
+                  ) : selectedTruckId ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 6 }}>
+                      <MaterialIcons name="local-shipping" size={16} color="#1B4D3E" />
+                      <Text style={[styles.dropdownText, { flexShrink: 1 }]} numberOfLines={1}>
+                        {availableTrucks.find(t => t.id === selectedTruckId)?.plateNumber || selectedTruckId} — {availableTrucks.find(t => t.id === selectedTruckId)?.type || 'Truck'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.dropdownText, { color: '#9CA3AF' }]}>
+                      Select available truck unit...
+                    </Text>
+                  )}
                   <MaterialIcons
                     name={isDropdownOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
                     size={20}
@@ -1187,37 +1201,63 @@ export default function DriverOnboardingTab({
                 </TouchableOpacity>
 
                 {isDropdownOpen && (
-                  <View style={styles.dropdownMenu}>
-                    <TouchableOpacity
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setSelectedTruckId('');
-                        setIsDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownItemText, !selectedTruckId && { color: '#1B4D3E', fontWeight: '700' }]}>
-                        None (Assign Later)
-                      </Text>
-                    </TouchableOpacity>
-                    {availableTrucks.map(truck => (
+                  <View style={[styles.dropdownMenu, { maxHeight: 220, zIndex: 9999, elevation: 20 }]}>
+                    <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
                       <TouchableOpacity
-                        key={truck.id}
-                        style={styles.dropdownItem}
+                        style={[
+                          styles.dropdownItem,
+                          selectedTruckId === 'none' && { backgroundColor: '#E8F5E9' },
+                        ]}
                         onPress={() => {
-                          setSelectedTruckId(truck.id);
+                          setSelectedTruckId('none');
                           setIsDropdownOpen(false);
                         }}
+                        activeOpacity={0.7}
                       >
-                        <Text style={[styles.dropdownItemText, selectedTruckId === truck.id && { color: '#1B4D3E', fontWeight: '700' }]}>
-                          {truck.plateNumber} — {truck.type}
-                        </Text>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <MaterialIcons name="schedule" size={16} color={selectedTruckId === 'none' ? '#059669' : '#64748B'} />
+                            <Text style={[styles.dropdownItemText, selectedTruckId === 'none' && { color: '#1B4D3E', fontWeight: '700' }]}>
+                              None (Assign Later)
+                            </Text>
+                          </View>
+                          {selectedTruckId === 'none' && (
+                            <MaterialIcons name="check" size={16} color="#059669" />
+                          )}
+                        </View>
                       </TouchableOpacity>
-                    ))}
-                    {availableTrucks.length === 0 && (
-                      <View style={styles.dropdownItem}>
-                        <Text style={{ color: '#9CA3AF', fontSize: 13 }}>No unassigned trucks currently available.</Text>
-                      </View>
-                    )}
+                      {availableTrucks.map(truck => (
+                        <TouchableOpacity
+                          key={truck.id}
+                          style={[
+                            styles.dropdownItem,
+                            selectedTruckId === truck.id && { backgroundColor: '#E8F5E9' },
+                          ]}
+                          onPress={() => {
+                            setSelectedTruckId(truck.id);
+                            setIsDropdownOpen(false);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <MaterialIcons name="local-shipping" size={16} color={selectedTruckId === truck.id ? '#1B4D3E' : '#64748B'} />
+                              <Text style={[styles.dropdownItemText, selectedTruckId === truck.id && { color: '#1B4D3E', fontWeight: '700' }]}>
+                                {truck.plateNumber} — {truck.type}
+                              </Text>
+                            </View>
+                            {selectedTruckId === truck.id && (
+                              <MaterialIcons name="check" size={16} color="#059669" />
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                      {availableTrucks.length === 0 && (
+                        <View style={styles.dropdownItem}>
+                          <Text style={{ color: '#9CA3AF', fontSize: 13 }}>No unassigned trucks currently available.</Text>
+                        </View>
+                      )}
+                    </ScrollView>
                   </View>
                 )}
               </View>

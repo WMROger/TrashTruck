@@ -7,10 +7,9 @@ import {
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 /**
- * Hardcoded CICTO (City Information and Communications Technology Office)
- * Super Administrator Credentials & Configurations.
- * Used to ensure CICTO governance access is never lost even if the Firestore database
- * or Firebase Auth accounts are cleared/reset.
+ * CICTO (City Information and Communications Technology Office)
+ * Governance Configurations.
+ * Used to ensure CICTO governance access is maintained across municipal portals.
  */
 export const CICTO_ADMIN_CONFIG = Object.freeze({
   primaryEmail:
@@ -29,8 +28,6 @@ export const CICTO_ADMIN_CONFIG = Object.freeze({
     "cicto_admin",
     "superadmin",
   ],
-  defaultPassword:
-    process.env.EXPO_PUBLIC_CICTO_ADMIN_PASSWORD || "CictoAdmin2026!",
   displayName: "CICTO Super Administrator",
   role: "cicto" as const,
 });
@@ -60,6 +57,8 @@ export function isCictoIdentifier(identifier?: string | null): boolean {
 
 /**
  * Ensures the CICTO Super Admin profile document exists in Firestore `/users/{uid}`.
+ * Self-healing mechanism: when the master CICTO account logs in after a database wipe,
+ * this function automatically reconstructs the master profile document.
  */
 export async function ensureCictoProfileInFirestore(
   uid: string,
@@ -97,7 +96,7 @@ export async function ensureCictoProfileInFirestore(
       { merge: true },
     );
     console.log(
-      "✅ CICTO Admin profile successfully created in Firestore:",
+      "✅ CICTO Admin profile successfully self-healed in Firestore:",
       email,
     );
   } catch (error) {
@@ -106,7 +105,7 @@ export async function ensureCictoProfileInFirestore(
 }
 
 /**
- * Logs in or bootstraps the CICTO Super Administrator account.
+ * Logs in and self-heals the CICTO Super Administrator account.
  */
 export async function loginOrBootstrapCictoAccount(
   customEmail?: string,
@@ -118,14 +117,15 @@ export async function loginOrBootstrapCictoAccount(
 
   const rawEmail = (customEmail || CICTO_ADMIN_CONFIG.primaryEmail).trim().toLowerCase();
   const emailToUse = rawEmail.includes('@') ? rawEmail : CICTO_ADMIN_CONFIG.primaryEmail;
-  const passwordToUse =
-    customPassword || CICTO_ADMIN_CONFIG.defaultPassword;
+  if (!customPassword) {
+    throw new Error("Password is required to authenticate.");
+  }
 
   try {
     const cred = await signInWithEmailAndPassword(
       auth,
       emailToUse,
-      passwordToUse,
+      customPassword,
     );
     await ensureCictoProfileInFirestore(
       cred.user.uid,
@@ -134,34 +134,6 @@ export async function loginOrBootstrapCictoAccount(
     );
     return { user: cred.user, isNewUser: false };
   } catch (signInError: any) {
-    if (
-      signInError.code === "auth/user-not-found" ||
-      signInError.code === "auth/invalid-credential"
-    ) {
-      try {
-        const newCred = await createUserWithEmailAndPassword(
-          auth,
-          emailToUse,
-          passwordToUse,
-        );
-        await updateProfile(newCred.user, {
-          displayName: CICTO_ADMIN_CONFIG.displayName,
-        });
-        await ensureCictoProfileInFirestore(
-          newCred.user.uid,
-          emailToUse,
-          CICTO_ADMIN_CONFIG.displayName,
-        );
-        return { user: newCred.user, isNewUser: true };
-      } catch (createError: any) {
-        if (createError.code === "auth/email-already-in-use") {
-          throw new Error(
-            "Account exists but password did not match. Please verify your credentials.",
-          );
-        }
-        throw createError;
-      }
-    }
     throw signInError;
   }
 }

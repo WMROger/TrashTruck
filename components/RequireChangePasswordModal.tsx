@@ -121,12 +121,16 @@ export default function RequireChangePasswordModal({
       await updatePassword(currentUser, newPassword);
 
       // 2. Mark mustChangePassword as false and clear snooze in Firestore
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
-        mustChangePassword: false,
-        passwordChangeSnoozedUntil: null,
-        updatedAt: serverTimestamp(),
-      });
+      try {
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          mustChangePassword: false,
+          passwordChangeSnoozedUntil: null,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (firestoreErr) {
+        console.warn('Could not update Firestore mustChangePassword flag:', firestoreErr);
+      }
 
       // 3. Clear local storage snooze
       try {
@@ -424,7 +428,7 @@ export default function RequireChangePasswordModal({
                 ) : (
                   <>
                     <MaterialIcons name="schedule" size={16} color="#64748B" style={{ marginRight: 6 }} />
-                    <Text style={styles.laterButtonText}>I'll do this later (Remind in 1 day)</Text>
+                    <Text style={styles.laterButtonText}>I&apos;ll do this later (Remind in 1 day)</Text>
                   </>
                 )}
               </TouchableOpacity>

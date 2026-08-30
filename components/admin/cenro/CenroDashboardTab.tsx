@@ -524,7 +524,7 @@ export default function CenroDashboardTab({ onTabChange }: { onTabChange?: (tab:
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <MaterialIcons name="event-note" size={20} color="#1B4D3E" />
-                <Text style={styles.cardTitle}>Today's Collection Schedules</Text>
+                <Text style={styles.cardTitle}>Today&apos;s Collection Schedules</Text>
               </View>
               {onTabChange && (
                 <TouchableOpacity onPress={() => onTabChange('collection-scheduler')} style={styles.linkBtn}>

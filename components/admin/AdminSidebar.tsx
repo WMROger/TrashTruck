@@ -18,6 +18,8 @@ interface AdminSidebarProps {
   onTabPress: (tab: string) => void;
   isOpen?: boolean;
   onClose?: () => void;
+  userRole?: string;
+  assignedBarangay?: string;
 }
 
 const SIDEBAR_WIDTH = 256;
@@ -28,13 +30,17 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
   onTabPress,
   isOpen = false,
   onClose,
+  userRole,
+  assignedBarangay,
 }) => {
+  const isCoordinator = userRole === "coordinator";
   const [windowWidth, setWindowWidth] = useState(
     Dimensions.get("window").width,
   );
   const slideAnim = useState(new Animated.Value(-SIDEBAR_WIDTH))[0];
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {
+      "FIELD OPERATIONS": true,
       "OPERATIONS & DISPATCH": true,
       "FLEET & PERSONNEL": true,
       "COMMUNITY & AUDIT": true,
@@ -62,88 +68,131 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
     }).start();
   }, [isOpen, slideAnim]);
 
-  const navigationGroups = [
-    {
-      title: "OPERATIONS & DISPATCH",
-      items: [
+  const navigationGroups = isCoordinator
+    ? [
         {
-          id: "dashboard",
-          label: "DASHBOARD",
-          icon: "grid-view",
+          title: "FIELD OPERATIONS",
+          items: [
+            {
+              id: "collection-scheduler",
+              label: "COLLECTION SCHEDULES",
+              icon: "event-note",
+            },
+            {
+              id: "trash-reports",
+              label: "TRASH REPORTS",
+              icon: "assignment",
+            },
+            {
+              id: "fleet-monitoring",
+              label: "FLEET MONITORING",
+              icon: "location-searching",
+            },
+          ],
         },
         {
-          id: "trash-reports",
-          label: "TRASH REPORTS",
-          icon: "assignment",
+          title: "COMMUNITY & AUDIT",
+          items: [
+            {
+              id: "announcements",
+              label: "ANNOUNCEMENTS",
+              icon: "campaign",
+            },
+            {
+              id: "service-feedback",
+              label: "SERVICE FEEDBACK",
+              icon: "rate-review",
+            },
+            {
+              id: "logs",
+              label: "OPERATIONAL LOGS",
+              icon: "receipt-long",
+            },
+          ],
+        },
+      ]
+    : [
+        {
+          title: "OPERATIONS & DISPATCH",
+          items: [
+            {
+              id: "dashboard",
+              label: "DASHBOARD",
+              icon: "grid-view",
+            },
+            {
+              id: "trash-reports",
+              label: "TRASH REPORTS",
+              icon: "assignment",
+            },
+            {
+              id: "route-optimization",
+              label: "ROUTE & AI DISPATCH",
+              icon: "alt-route",
+            },
+            {
+              id: "collection-scheduler",
+              label: "COLLECTION SCHEDULES",
+              icon: "event-note",
+            },
+          ],
         },
         {
-          id: "route-optimization",
-          label: "ROUTE & AI DISPATCH",
-          icon: "alt-route",
+          title: "FLEET & PERSONNEL",
+          items: [
+            {
+              id: "truck-inventory",
+              label: "FLEET INVENTORY",
+              icon: "local-shipping",
+            },
+            {
+              id: "fleet-monitoring",
+              label: "FLEET MONITORING",
+              icon: "location-searching",
+            },
+            {
+              id: "driver-accounts",
+              label: "ACCOUNTS DIRECTORY",
+              icon: "recent-actors",
+            },
+          ],
         },
         {
-          id: "collection-scheduler",
-          label: "COLLECTION SCHEDULES",
-          icon: "event-note",
-        },
-      ],
-    },
-    {
-      title: "FLEET & PERSONNEL",
-      items: [
-        {
-          id: "truck-inventory",
-          label: "FLEET INVENTORY",
-          icon: "local-shipping",
-        },
-        {
-          id: "fleet-monitoring",
-          label: "FLEET MONITORING",
-          icon: "location-searching",
-        },
-        {
-          id: "driver-accounts",
-          label: "ACCOUNTS DIRECTORY",
-          icon: "recent-actors",
-        },
-      ],
-    },
-    {
-      title: "COMMUNITY & AUDIT",
-      items: [
-        {
-          id: "logs",
-          label: "OPERATIONAL LOGS",
-          icon: "receipt-long",
+          title: "COMMUNITY & AUDIT",
+          items: [
+            {
+              id: "logs",
+              label: "OPERATIONAL LOGS",
+              icon: "receipt-long",
+            },
+            {
+              id: "announcements",
+              label: "ANNOUNCEMENTS",
+              icon: "campaign",
+            },
+            {
+              id: "service-feedback",
+              label: "SERVICE FEEDBACK",
+              icon: "rate-review",
+            },
+            {
+              id: "operational-overrides",
+              label: "SYSTEM OVERRIDES",
+              icon: "report-problem",
+            },
+          ],
         },
         {
-          id: "announcements",
-          label: "ANNOUNCEMENTS",
-          icon: "campaign",
+          title: "INSIGHTS & REPORTING",
+          items: [
+            {
+              id: "analytics",
+              label: "WASTE ANALYTICS",
+              icon: "bar-chart",
+            },
+          ],
         },
-        {
-          id: "service-feedback",
-          label: "SERVICE FEEDBACK",
-          icon: "rate-review",
-        },
-        {
-          id: "operational-overrides",
-          label: "SYSTEM OVERRIDES",
-          icon: "report-problem",
-        },
-      ],
-    },
-    {
-      title: "INSIGHTS & REPORTING",
-      items: [
-        {
-          id: "analytics",
-          label: "WASTE ANALYTICS",
-          icon: "bar-chart",
-        },
-      ],
-    },
-  ];
+      ];
 
   const handleItemPress = (id: string) => {
     onTabPress(id);
@@ -153,7 +202,17 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const sidebarContent = (
     <>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>CENRO Civic Steward</Text>
+        <Text style={styles.headerTitle}>
+          {isCoordinator ? "Barangay Field Steward" : "CENRO Civic Steward"}
+        </Text>
+        {isCoordinator && assignedBarangay ? (
+          <View style={styles.brgyBadgeMini}>
+            <MaterialIcons name="place" size={11} color="#047857" />
+            <Text style={styles.brgyBadgeMiniText} numberOfLines={1}>
+              Brgy. {assignedBarangay}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <ScrollView style={styles.navigation} showsVerticalScrollIndicator={true}>
@@ -338,6 +397,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#15803D",
     letterSpacing: 0.8,
+  },
+  brgyBadgeMini: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#DCFCE7",
+    borderColor: "#BBF7D0",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    marginTop: 6,
+    gap: 4,
+  },
+  brgyBadgeMiniText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#166534",
   },
   navigation: {
     flex: 1,

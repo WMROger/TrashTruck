@@ -13,6 +13,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ImageBackground,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -73,7 +74,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorModal, setErrorModal] = useState({
     visible: false,
@@ -153,10 +154,11 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     try {
       if (isCicto) {
         // --- CICTO PORTAL AUTHENTICATION ---
-        await setPersistence(
-          auth,
-          keepLoggedIn ? browserLocalPersistence : browserSessionPersistence,
-        );
+        if (Platform.OS === 'web' && auth) {
+          try {
+            await setPersistence(auth, browserLocalPersistence);
+          } catch {}
+        }
         const cictoUser = await loginOrBootstrapCictoAccount(username, password);
         console.log('CICTO authentication successful for:', cictoUser.user.email);
         router.replace('/cicto/dashboard' as any);
@@ -174,10 +176,11 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           username.trim().toLowerCase() === 'admin' ||
           username.trim().toLowerCase() === 'cenro';
 
-        await setPersistence(
-          auth,
-          keepLoggedIn ? browserLocalPersistence : browserSessionPersistence,
-        );
+        if (Platform.OS === 'web' && auth) {
+          try {
+            await setPersistence(auth, browserLocalPersistence);
+          } catch {}
+        }
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 

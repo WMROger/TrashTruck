@@ -82,7 +82,14 @@ const SORT_OPTIONS = [
   { id: 'oldest', label: 'Oldest Added' },
 ];
 
-export default function CollectionSchedulerTab() {
+export default function CollectionSchedulerTab({
+  userRole,
+  assignedBarangay,
+}: {
+  userRole?: string;
+  assignedBarangay?: string;
+} = {}) {
+  const isCoordinator = userRole === 'coordinator';
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
   const isNarrow = width < 1024;
@@ -92,7 +99,9 @@ export default function CollectionSchedulerTab() {
   const [loading, setLoading] = useState(true);
 
   // Filter & Search State
-  const [selectedBarangayFilter, setSelectedBarangayFilter] = useState('ALL');
+  const [selectedBarangayFilter, setSelectedBarangayFilter] = useState(
+    isCoordinator && assignedBarangay ? assignedBarangay : 'ALL'
+  );
   const [selectedDayFilter, setSelectedDayFilter] = useState('ALL');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -205,7 +214,7 @@ export default function CollectionSchedulerTab() {
   }, [schedules]);
 
   // List of hardcoded Danao City barangays that DO NOT exist in backend 'barangay_schedules' yet
-  const availableUnregisteredDanaoBarangays = useMemo(() => {
+  const availableUnregisteredDanaoBarangays: string[] = useMemo(() => {
     const existingLower = new Set(
       dynamicBarangays.map((b) => b.trim().toLowerCase())
     );
@@ -220,16 +229,31 @@ export default function CollectionSchedulerTab() {
     });
   }, [dynamicBarangays, editingScheduleId, schedules]);
 
-  // Suggested unadded barangays matching typed text
-  const suggestedUnregisteredBarangays = useMemo(() => {
+  // Matching Danao City barangays (all 42), with unassigned ones sorted first
+  const matchingDanaoBarangays = useMemo(() => {
     const queryText = barangayName.trim().toLowerCase();
-    if (!queryText) {
-      return availableUnregisteredDanaoBarangays.slice(0, 10);
+    const existingSet = new Set(dynamicBarangays.map((b) => b.trim().toLowerCase()));
+    
+    let list: string[] = [...DANAO_CITY_BARANGAYS];
+    if (queryText) {
+      list = list.filter((b) => b.toLowerCase().includes(queryText));
     }
-    return availableUnregisteredDanaoBarangays.filter((b) =>
-      b.toLowerCase().includes(queryText)
-    );
-  }, [availableUnregisteredDanaoBarangays, barangayName]);
+    
+    // Sort: unassigned first, then alphabetical
+    return list.sort((a, b) => {
+      const aRegistered = existingSet.has(a.toLowerCase());
+      const bRegistered = existingSet.has(b.toLowerCase());
+      if (aRegistered === bRegistered) return a.localeCompare(b);
+      return aRegistered ? 1 : -1;
+    });
+  }, [barangayName, dynamicBarangays]);
+
+  // Check if typed barangay name exists exactly in Danao City list
+  const isExactDanaoMatch = useMemo(() => {
+    const queryText = barangayName.trim().toLowerCase();
+    if (!queryText) return true;
+    return DANAO_CITY_BARANGAYS.some((b) => b.toLowerCase() === queryText);
+  }, [barangayName]);
 
   // Check if current typed barangay name is already registered
   const isAlreadyRegistered = useMemo(() => {
@@ -417,7 +441,7 @@ export default function CollectionSchedulerTab() {
   // Open modal for Create New Barangay & Schedule
   const handleOpenAddModal = (presetBarangayName?: string) => {
     setEditingScheduleId(null);
-    setBarangayName(presetBarangayName || '');
+    setBarangayName(isCoordinator && assignedBarangay ? assignedBarangay : (presetBarangayName || ''));
     setZone('');
     setStreetName('');
     const defaultDays = ['MON', 'WED', 'FRI'];
@@ -441,6 +465,13 @@ export default function CollectionSchedulerTab() {
 
   // Open modal for Editing an existing schedule
   const handleOpenEditModal = (schedule: any) => {
+    if (isCoordinator && assignedBarangay && schedule.barangayName?.toLowerCase() !== assignedBarangay.toLowerCase()) {
+      Alert.alert(
+        'Permission Scoped',
+        `As Barangay Environmental Coordinator, you can only modify schedules for your assigned barangay (Brgy. ${assignedBarangay}).`
+      );
+      return;
+    }
     setEditingScheduleId(schedule.id);
     setBarangayName(schedule.barangayName || '');
     setZone(schedule.zone || '');
@@ -539,6 +570,14 @@ export default function CollectionSchedulerTab() {
 
   // Delete Schedule
   const handleDeleteSchedule = async (scheduleId: string) => {
+    const targetSchedule = schedules.find(s => s.id === scheduleId);
+    if (isCoordinator && assignedBarangay && targetSchedule?.barangayName?.toLowerCase() !== assignedBarangay.toLowerCase()) {
+      Alert.alert(
+        'Permission Scoped',
+        `As Barangay Environmental Coordinator, you can only delete schedules for your assigned barangay (Brgy. ${assignedBarangay}).`
+      );
+      return;
+    }
     const doDelete = async () => {
       setIsDeleting(true);
       try {
@@ -1024,15 +1063,17 @@ export default function CollectionSchedulerTab() {
           </View>
         </View>
 
-        {/* Action Button: Add New Barangay */}
+        {/* Action Button: Add New Barangay / Route */}
         <View style={styles.buttonsRow}>
           <TouchableOpacity
             style={[styles.primaryBtn, isMobile && { width: '100%', justifyContent: 'center' }]}
-            onPress={() => handleOpenAddModal()}
+            onPress={() => handleOpenAddModal(isCoordinator && assignedBarangay ? assignedBarangay : undefined)}
             activeOpacity={0.8}
           >
             <MaterialIcons name="add" size={18} color="#fff" />
-            <Text style={styles.primaryBtnText}>Add New Barangay</Text>
+            <Text style={styles.primaryBtnText}>
+              {isCoordinator && assignedBarangay ? `Add Route for Brgy. ${assignedBarangay}` : 'Add New Barangay'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1468,53 +1509,124 @@ export default function CollectionSchedulerTab() {
 
                 {/* Barangay Name Input */}
                 <View style={{ marginBottom: 14 }}>
-                  <Text style={styles.inputLabel}>
-                    BARANGAY NAME <Text style={styles.requiredAsterisk}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.textInput,
-                      formErrors.barangayName && styles.inputErrorBorder,
-                    ]}
-                    placeholder="e.g., Poblacion, Maslog, Guinsay, Suba"
-                    placeholderTextColor="#94A3B8"
-                    value={barangayName}
-                    onChangeText={(t) => {
-                      setBarangayName(t);
-                      setBarangaySuggestionsOpen(t.trim().length > 0);
-                      if (formErrors.barangayName) {
-                        setFormErrors((prev) => {
-                          const next = { ...prev };
-                          delete next.barangayName;
-                          return next;
-                        });
-                      }
-                    }}
-                  />
-                  {formErrors.barangayName ? (
-                    <Text style={styles.fieldError}>{formErrors.barangayName}</Text>
-                  ) : null}
-
-                  {/* Suggestions from unadded Danao City Barangays */}
-                  {barangaySuggestionsOpen && (
-                    <View style={styles.suggestionsContainer}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <Text style={styles.suggestionsLabel}>
-                          Available Danao City Barangays ({availableUnregisteredDanaoBarangays.length} unassigned):
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={[styles.inputLabel, { marginBottom: 0 }]}>
+                      BARANGAY NAME <Text style={styles.requiredAsterisk}>*</Text>
+                    </Text>
+                    {!isCoordinator && (
+                      <TouchableOpacity
+                        onPress={() => setBarangaySuggestionsOpen(!barangaySuggestionsOpen)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#059669' }}>
+                          {barangaySuggestionsOpen ? 'Hide List' : 'Browse Danao Barangays (42)'}
                         </Text>
-                        <TouchableOpacity onPress={() => setBarangaySuggestionsOpen(false)}>
-                          <MaterialIcons name="close" size={14} color="#64748B" />
+                        <MaterialIcons
+                          name={barangaySuggestionsOpen ? 'expand-less' : 'expand-more'}
+                          size={16}
+                          color="#059669"
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {isCoordinator && assignedBarangay ? (
+                    <View
+                      style={[
+                        styles.textInput,
+                        {
+                          backgroundColor: '#F0FDF4',
+                          borderColor: '#86EFAC',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          height: 44,
+                          paddingHorizontal: 12,
+                        },
+                      ]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <MaterialIcons name="lock" size={16} color="#059669" />
+                        <Text style={{ fontSize: 13.5, fontWeight: '800', color: '#065F46' }}>
+                          Brgy. {assignedBarangay}
+                        </Text>
+                      </View>
+                      <View style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#166534' }}>YOUR BARANGAY</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <View
+                        style={[
+                          styles.textInput,
+                          {
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 10,
+                            paddingVertical: 0,
+                            height: 46,
+                          },
+                          formErrors.barangayName ? styles.inputErrorBorder : null,
+                        ]}
+                      >
+                        <MaterialIcons name="location-city" size={18} color="#059669" style={{ marginRight: 8 }} />
+                        <TextInput
+                          style={{ flex: 1, fontSize: 14, color: '#1E293B', height: '100%' }}
+                          placeholder="Type or select barangay name..."
+                          placeholderTextColor="#94A3B8"
+                          value={barangayName}
+                          onFocus={() => setBarangaySuggestionsOpen(true)}
+                          onChangeText={(t) => {
+                            setBarangayName(t);
+                            setBarangaySuggestionsOpen(true);
+                            if (formErrors.barangayName) {
+                              setFormErrors((prev) => {
+                                const next = { ...prev };
+                                delete next.barangayName;
+                                return next;
+                              });
+                            }
+                          }}
+                        />
+                        {barangayName.length > 0 && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              setBarangayName('');
+                              setBarangaySuggestionsOpen(true);
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <MaterialIcons name="cancel" size={16} color="#94A3B8" />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => setBarangaySuggestionsOpen(!barangaySuggestionsOpen)}
+                          style={{ padding: 4, marginLeft: 2 }}
+                        >
+                          <MaterialIcons
+                            name={barangaySuggestionsOpen ? 'arrow-drop-up' : 'arrow-drop-down'}
+                            size={22}
+                            color="#64748B"
+                          />
                         </TouchableOpacity>
                       </View>
-                      {suggestedUnregisteredBarangays.length > 0 ? (
-                        <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                          {suggestedUnregisteredBarangays.map((b) => (
+
+                      {formErrors.barangayName ? (
+                        <Text style={styles.fieldError}>{formErrors.barangayName}</Text>
+                      ) : null}
+
+                      {/* Quick Chips when suggestions are closed */}
+                      {!barangaySuggestionsOpen && availableUnregisteredDanaoBarangays.length > 0 && (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                          <Text style={{ fontSize: 11, color: '#64748B', fontWeight: '600', alignSelf: 'center', marginRight: 2 }}>
+                            Quick pick:
+                          </Text>
+                          {availableUnregisteredDanaoBarangays.slice(0, 5).map((b) => (
                             <TouchableOpacity
                               key={b}
-                              style={styles.suggestionItem}
                               onPress={() => {
                                 setBarangayName(b);
-                                setBarangaySuggestionsOpen(false);
                                 if (formErrors.barangayName) {
                                   setFormErrors((prev) => {
                                     const next = { ...prev };
@@ -1523,25 +1635,142 @@ export default function CollectionSchedulerTab() {
                                   });
                                 }
                               }}
+                              style={{
+                                backgroundColor: '#F0FDF4',
+                                borderWidth: 1,
+                                borderColor: '#BBF7D0',
+                                paddingHorizontal: 8,
+                                paddingVertical: 3.5,
+                                borderRadius: 12,
+                              }}
                             >
-                              <MaterialIcons name="add-location-alt" size={14} color="#059669" />
-                              <Text style={styles.suggestionItemText}>{b}</Text>
-                              <Text style={{ fontSize: 10, color: '#059669', fontWeight: '800', marginLeft: 'auto' }}>
-                                Select
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#166534' }}>
+                                + {b}
                               </Text>
                             </TouchableOpacity>
                           ))}
-                        </ScrollView>
-                      ) : (
-                        <View style={{ paddingVertical: 6 }}>
-                          <Text style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>
-                            {isAlreadyRegistered
-                              ? `Barangay '${barangayName.trim()}' already exists in collection schedules.`
-                              : 'No matching unassigned Danao City barangays.'}
-                          </Text>
                         </View>
                       )}
-                    </View>
+
+                      {/* IntelliSense Dropdown Container */}
+                      {barangaySuggestionsOpen && (
+                        <View style={styles.suggestionsContainer}>
+                          <View style={styles.suggestionsHeader}>
+                            <Text style={styles.suggestionsLabel}>
+                              {barangayName.trim()
+                                ? `Results for "${barangayName.trim()}" (${matchingDanaoBarangays.length})`
+                                : `All Danao City Barangays (${DANAO_CITY_BARANGAYS.length})`}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => setBarangaySuggestionsOpen(false)}
+                              style={{ padding: 2 }}
+                            >
+                              <MaterialIcons name="close" size={16} color="#64748B" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <ScrollView
+                            style={{ maxHeight: 210 }}
+                            nestedScrollEnabled={true}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={true}
+                          >
+                            {/* Option to create / use custom barangay if not an exact match */}
+                            {barangayName.trim().length > 0 && !isExactDanaoMatch && (
+                              <TouchableOpacity
+                                style={styles.customBarangayItem}
+                                onPress={() => {
+                                  setBarangaySuggestionsOpen(false);
+                                  if (formErrors.barangayName) {
+                                    setFormErrors((prev) => {
+                                      const next = { ...prev };
+                                      delete next.barangayName;
+                                      return next;
+                                    });
+                                  }
+                                }}
+                              >
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                  <MaterialIcons name="add-circle" size={18} color="#7C3AED" />
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#6D28D9' }}>
+                                      Use Custom: &quot;{barangayName.trim()}&quot;
+                                    </Text>
+                                    <Text style={{ fontSize: 10.5, color: '#7C3AED' }}>
+                                      Not in preset Danao list — click to create custom route
+                                    </Text>
+                                  </View>
+                                </View>
+                                <View style={{ backgroundColor: '#EDE9FE', paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 4 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: '#6D28D9' }}>CUSTOM</Text>
+                                </View>
+                              </TouchableOpacity>
+                            )}
+
+                            {matchingDanaoBarangays.map((b) => {
+                              const isUnassigned = availableUnregisteredDanaoBarangays.includes(b);
+                              const isSelected = barangayName.trim().toLowerCase() === b.toLowerCase();
+                              return (
+                                <TouchableOpacity
+                                  key={b}
+                                  style={[
+                                    styles.suggestionItem,
+                                    isSelected ? styles.suggestionItemSelected : null,
+                                  ]}
+                                  onPress={() => {
+                                    setBarangayName(b);
+                                    setBarangaySuggestionsOpen(false);
+                                    if (formErrors.barangayName) {
+                                      setFormErrors((prev) => {
+                                        const next = { ...prev };
+                                        delete next.barangayName;
+                                        return next;
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <MaterialIcons
+                                      name={isSelected ? 'check-circle' : isUnassigned ? 'add-location' : 'location-on'}
+                                      size={16}
+                                      color={isSelected ? '#059669' : isUnassigned ? '#059669' : '#64748B'}
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.suggestionItemText,
+                                        isSelected ? { color: '#065F46', fontWeight: '800' } : null,
+                                      ]}
+                                    >
+                                      {b}
+                                    </Text>
+                                  </View>
+
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    {isUnassigned ? (
+                                      <View style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#166534' }}>NEW ROUTE</Text>
+                                      </View>
+                                    ) : (
+                                      <View style={{ backgroundColor: '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                        <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#64748B' }}>EXISTS</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                </TouchableOpacity>
+                              );
+                            })}
+
+                            {matchingDanaoBarangays.length === 0 && (
+                              <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                                <Text style={{ fontSize: 12, color: '#64748B' }}>
+                                  No predefined Danao City barangays matched.
+                                </Text>
+                              </View>
+                            )}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </>
                   )}
 
                   {/* Warning if typed barangay is already registered */}
@@ -1549,7 +1778,7 @@ export default function CollectionSchedulerTab() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 }}>
                       <MaterialIcons name="error-outline" size={14} color="#EF4444" />
                       <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700' }}>
-                        Barangay '{barangayName.trim()}' already has a collection schedule registered.
+                        Barangay &apos;{barangayName.trim()}&apos; already has a collection schedule registered.
                       </Text>
                     </View>
                   )}
@@ -2858,30 +3087,63 @@ const styles = StyleSheet.create({
 
   suggestionsContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
     marginTop: 6,
     padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+    zIndex: 9999,
+  },
+  suggestionsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 6,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   suggestionsLabel: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
-    marginBottom: 4,
   },
   suggestionItem: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginBottom: 3,
+    backgroundColor: '#F8FAFC',
+  },
+  suggestionItemSelected: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
   },
   suggestionItemText: {
-    fontSize: 12,
-    color: '#0F172A',
+    fontSize: 13,
     fontWeight: '600',
+    color: '#1E293B',
+  },
+  customBarangayItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
 
   modalDaysRow: {

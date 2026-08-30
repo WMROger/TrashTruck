@@ -5,7 +5,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => auth?.currentUser || null);
   const [loading, setLoading] = useState(true);
   const [isFirestoreVerified, setIsFirestoreVerified] = useState(false);
 
@@ -32,7 +32,13 @@ export function useAuth() {
       }
 
       const emailStr = (currentUser.email || '').toLowerCase();
-      const isKnownStaff = isCictoEmail(emailStr) || emailStr.endsWith('@driver.com') || emailStr.includes('driver') || emailStr.includes('admin') || emailStr.includes('cenro');
+      const isKnownStaff =
+        isCictoEmail(emailStr) ||
+        emailStr.endsWith('@driver.com') ||
+        emailStr.includes('driver') ||
+        emailStr.includes('admin') ||
+        emailStr.includes('cenro') ||
+        emailStr.includes('coord');
       if (isKnownStaff) {
         setIsFirestoreVerified(true);
       }

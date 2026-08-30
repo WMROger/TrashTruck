@@ -101,31 +101,18 @@ function RootLayoutNav() {
       return;
     }
 
-    const evaluatePasswordRequirement = async (data: any) => {
+    const evaluatePasswordRequirement = (data: any) => {
       if (data?.mustChangePassword === true) {
         const now = Date.now();
         let isSnoozed = false;
 
-        // 1. Check Firestore snooze timestamp
+        // Verified Firestore server-side snooze timestamp
         const firestoreSnooze = typeof data?.passwordChangeSnoozedUntil === 'number'
           ? data.passwordChangeSnoozedUntil
           : (data?.passwordChangeSnoozedUntil?.toMillis ? data.passwordChangeSnoozedUntil.toMillis() : null);
 
         if (firestoreSnooze && now < firestoreSnooze) {
           isSnoozed = true;
-        }
-
-        // 2. Check local device snooze fallback
-        if (!isSnoozed) {
-          try {
-            const localSnoozeStr = await AsyncStorage.getItem(`@trashtrack_pwd_snooze_${user.uid}`);
-            if (localSnoozeStr) {
-              const localSnooze = parseInt(localSnoozeStr, 10);
-              if (localSnooze && now < localSnooze) {
-                isSnoozed = true;
-              }
-            }
-          } catch {}
         }
 
         setMustChangePassword(!isSnoozed);
@@ -150,11 +137,14 @@ function RootLayoutNav() {
     return () => unsub();
   }, [user?.uid]);
 
+  const [driverHasShift, setDriverHasShift] = useState(false);
+
   // Resolve user role for access control
   useEffect(() => {
     let isMounted = true;
     if (!user || !db) {
       setUserRole(null);
+      setDriverHasShift(false);
       setRoleResolvedForUid(null);
       setRoleLoading(false);
       return;
@@ -166,12 +156,16 @@ function RootLayoutNav() {
       if (!isMounted) return;
       if (isCictoEmail(user.email)) {
         setUserRole('cicto');
+        setDriverHasShift(false);
         if (!userSnap.exists()) {
           ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
         }
       } else if (userSnap.exists()) {
-        const r = String(userSnap.data()?.role || 'user');
+        const data = userSnap.data();
+        const r = String(data?.role || 'user');
         setUserRole(r);
+        const hasShift = data?.dutyStatus === 'on_duty' || data?.status === 'on_duty' || !!data?.currentTruckId;
+        setDriverHasShift(hasShift);
       } else {
         const emailLower = (user.email || '').toLowerCase();
         const isKnownAdmin = emailLower.startsWith('admin@') || emailLower.startsWith('cenro@') || emailLower.includes('admin') || emailLower.includes('cenro');
@@ -181,6 +175,7 @@ function RootLayoutNav() {
         } else {
           setUserRole('user');
         }
+        setDriverHasShift(false);
       }
       setRoleResolvedForUid(user.uid);
       setRoleLoading(false);
@@ -188,6 +183,7 @@ function RootLayoutNav() {
       if (!isMounted) return;
       console.warn('Error checking user role:', error);
       setUserRole(isCictoEmail(user.email) ? 'cicto' : 'user');
+      setDriverHasShift(false);
       setRoleResolvedForUid(user.uid);
       setRoleLoading(false);
     });
@@ -228,7 +224,10 @@ function RootLayoutNav() {
         userRole === 'coordinator' ||
         userRole === 'cenro_officer' ||
         emailLower.startsWith('admin@') ||
-        emailLower.startsWith('cenro@');
+        emailLower.startsWith('cenro@') ||
+        emailLower.includes('admin') ||
+        emailLower.includes('cenro') ||
+        emailLower.includes('coord');
       const isCictoAdmin =
         userRole === 'cicto' ||
         userRole === 'cicto_admin' ||
@@ -261,7 +260,11 @@ function RootLayoutNav() {
             currentSegment === 'driver-login' ||
             !currentSegment
           ) {
-            router.replace('/(driver)' as any);
+            if (driverHasShift) {
+              router.replace('/(driver)' as any);
+            } else {
+              router.replace('/(tabs)/home' as any);
+            }
           }
         } else if (isCenroAdmin) {
           if (
@@ -289,12 +292,12 @@ function RootLayoutNav() {
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login'
           ) {
-            router.replace('/home' as any);
+            router.replace('/(tabs)/home' as any);
           }
         }
       }
     }
-  }, [userRole, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
+  }, [userRole, driverHasShift, isAuthenticated, loading, roleLoading, roleResolvedForUid, segments, router, user?.uid]);
 
   // Route-scoped global font: Poppins on admin/cicto/cenro, Plus Jakarta Sans & Inter elsewhere
   useEffect(() => {
@@ -434,13 +437,6 @@ function RootLayoutNav() {
           ...getTransitionConfig('admin'),
         }} 
       />
-      <Stack.Screen 
-        name="CENRO" 
-        options={{ 
-          headerShown: false,
-          ...getTransitionConfig('admin'),
-        }} 
-      />
       <Stack.Screen
         name="rewards"
         options={{
@@ -450,13 +446,6 @@ function RootLayoutNav() {
       />
       <Stack.Screen
         name="cicto"
-        options={{
-          headerShown: false,
-          ...getTransitionConfig('admin'),
-        }}
-      />
-      <Stack.Screen
-        name="CICTO"
         options={{
           headerShown: false,
           ...getTransitionConfig('admin'),

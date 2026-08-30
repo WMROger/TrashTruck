@@ -32,12 +32,23 @@ import { sendTestNotification as sendTestNotificationHelper } from '../../servic
 export default function AdminDashboard() {
   const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialActiveUser = user || auth?.currentUser;
+  const initialEmail = (initialActiveUser?.email || '').toLowerCase();
+  const isKnownAdminInitial =
+    initialEmail.startsWith('admin@') ||
+    initialEmail.startsWith('cenro@') ||
+    initialEmail.includes('admin') ||
+    initialEmail.includes('cenro') ||
+    initialEmail.includes('coord');
+
+  const [isAdmin, setIsAdmin] = useState(isKnownAdminInitial);
+  const [isLoading, setIsLoading] = useState(!isKnownAdminInitial);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showProfileSettingsModal, setShowProfileSettingsModal] = useState(false);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [userRole, setUserRole] = useState<string>('admin');
+  const [assignedBarangay, setAssignedBarangay] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isTabLoading, setIsTabLoading] = useState(false);
   const spinValue = new Animated.Value(0);
@@ -84,20 +95,32 @@ export default function AdminDashboard() {
     let isMounted = true;
     const checkAdminAccess = async () => {
       if (authLoading) return;
-      const activeUser = user || auth.currentUser;
+      const activeUser = user || auth?.currentUser;
       // Check if user exists (don't use isAuthenticated for admin access)
       if (!activeUser) {
-        console.log('Admin dashboard: No user found, redirecting to login');
-        router.replace('/admin/login');
-        return;
+        // Wait a short grace period on web refresh for Firebase Auth hydration
+        const timer = setTimeout(() => {
+          if (!auth?.currentUser && !user && isMounted) {
+            console.log('Admin dashboard: No user found after hydration grace, redirecting to login');
+            router.replace('/admin/login');
+          }
+        }, 800);
+        return () => clearTimeout(timer);
       }
+
+      const emailLower = (activeUser.email || '').toLowerCase();
+      const isKnownAdmin =
+        emailLower.startsWith('admin@') ||
+        emailLower.startsWith('cenro@') ||
+        emailLower.includes('admin') ||
+        emailLower.includes('cenro') ||
+        emailLower.includes('coord');
 
       // Verify admin role in Firestore
       if (db) {
         try {
           const userRef = doc(db, 'users', activeUser.uid);
           const userSnap = await getDoc(userRef);
-          const isKnownAdmin = activeUser.email?.toLowerCase().startsWith('admin@') || activeUser.email?.toLowerCase().startsWith('cenro@');
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
@@ -109,6 +132,12 @@ export default function AdminDashboard() {
             const isCenroAdmin = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
             if (isCenroAdmin || isKnownAdmin) {
               console.log('Admin dashboard: Admin role confirmed for:', activeUser.email);
+              const brgy = userData.assignedBarangay || userData.barangay || '';
+              setUserRole(role || 'admin');
+              setAssignedBarangay(brgy);
+              if (role === 'coordinator') {
+                setActiveTab('collection-scheduler');
+              }
               if (isMounted) {
                 setIsAdmin(true);
                 setIsLoading(false);
@@ -116,8 +145,8 @@ export default function AdminDashboard() {
             } else {
               console.log('Admin dashboard: User does not have admin role:', activeUser.email);
               Alert.alert('Access Denied', 'You do not have admin privileges.');
-              await signOut(auth);
-              router.replace('/admin/login');
+              if (isMounted) setIsLoading(false);
+              router.replace('/cenro' as any);
             }
           } else if (isKnownAdmin) {
             await setDoc(userRef, {
@@ -159,15 +188,25 @@ export default function AdminDashboard() {
           }
         } catch (error) {
           console.error('Admin dashboard: Error checking admin role:', error);
-          Alert.alert('Error', 'Failed to verify admin privileges.');
-          await signOut(auth);
+          if (isKnownAdmin || (activeUser.email && (activeUser.email.toLowerCase().includes('admin') || activeUser.email.toLowerCase().includes('cenro')))) {
+            if (isMounted) {
+              setIsAdmin(true);
+              setIsLoading(false);
+            }
+            return;
+          }
+          if (isMounted) {
+            setIsLoading(false);
+          }
           router.replace('/admin/login');
         }
       } else {
-        Alert.alert('Access Unavailable', 'Admin privileges cannot be verified because Firestore is unavailable.');
-        try { await signOut(auth); } catch {}
-        router.replace('/admin/login');
         if (isMounted) setIsLoading(false);
+        if (isKnownAdmin) {
+          setIsAdmin(true);
+        } else {
+          router.replace('/admin/login');
+        }
       }
     };
 
@@ -519,28 +558,57 @@ export default function AdminDashboard() {
     fetchHistoryData(historyType, newPage);
   };
 
-  // Show loading while checking admin access
+  // Show loading while checking admin access on cold boot
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Verifying admin access...</Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: '#064E3B', justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={{ alignItems: 'center', gap: 14 }}>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={{ width: 80, height: 80, resizeMode: 'contain', borderRadius: 16 }}
+          />
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>
+            CENRO Portal
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
   // Show loading or redirect if not authenticated or not admin
-  if (!user || !isAdmin) {
+  const currentActiveUser = user || auth?.currentUser;
+  if (!currentActiveUser || !isAdmin) {
     return null; // Will redirect to login
   }
 
-    const renderContent = () => {
+  const renderContent = () => {
+    const isCoordinator = userRole === 'coordinator';
+
+    // If coordinator tries to access a restricted tab, guard and fallback
+    if (isCoordinator) {
       switch (activeTab) {
-        case 'dashboard':
-          return <CenroDashboardTab onTabChange={handleTabPress} />;
+        case 'collection-scheduler':
+          return <CollectionSchedulerTab userRole={userRole} assignedBarangay={assignedBarangay} />;
+        case 'trash-reports':
+          return <TrashReportsTab userRole={userRole} assignedBarangay={assignedBarangay} />;
+        case 'fleet-monitoring':
+          return <FleetMonitoringTab />;
+        case 'announcements':
+          return <AnnouncementsTab />;
+        case 'service-feedback':
+          return <ServiceFeedbackTab />;
+        case 'logs':
+          return <OperationalLogsTab />;
+        default:
+          return <CollectionSchedulerTab userRole={userRole} assignedBarangay={assignedBarangay} />;
+      }
+    }
+
+    switch (activeTab) {
+      case 'dashboard':
+        return <CenroDashboardTab onTabChange={handleTabPress} />;
       case 'trash-reports':
-        return <TrashReportsTab />;
+        return <TrashReportsTab userRole={userRole} assignedBarangay={assignedBarangay} />;
       case 'service-feedback':
         return <ServiceFeedbackTab />;
       case 'route-optimization':
@@ -553,7 +621,7 @@ export default function AdminDashboard() {
       case 'driver-accounts':
         return <DriverAccountsTab initialOpenOnboarding={activeTab === 'driver-onboarding'} />;
       case 'collection-scheduler':
-        return <CollectionSchedulerTab />;
+        return <CollectionSchedulerTab userRole={userRole} assignedBarangay={assignedBarangay} />;
       case 'operational-overrides':
         return <OperationalOverridesTab onNavigateToLogs={() => handleTabPress('logs')} />;
       case 'logs':
@@ -637,8 +705,14 @@ export default function AdminDashboard() {
           <View style={styles.topBarDivider} />
           {!isNarrow && (
             <View style={styles.topBarUser}>
-              <Text style={styles.topBarRole}>Admin Panel</Text>
-              <Text style={styles.topBarSubrole}>FLEET SUPERVISOR</Text>
+              <Text style={styles.topBarRole}>
+                {userRole === 'coordinator' ? 'Barangay Coordinator' : 'Admin Panel'}
+              </Text>
+              <Text style={styles.topBarSubrole}>
+                {userRole === 'coordinator'
+                  ? (assignedBarangay ? `BRGY. ${assignedBarangay.toUpperCase()}` : 'FIELD COORDINATOR')
+                  : 'FLEET SUPERVISOR'}
+              </Text>
             </View>
           )}
           <View>
@@ -667,6 +741,8 @@ export default function AdminDashboard() {
           onTabPress={handleTabPress} 
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
+          userRole={userRole}
+          assignedBarangay={assignedBarangay}
         />
         <View style={[styles.contentContainer, isNarrow && styles.contentContainerNarrow]}>
           {isTabLoading ? (

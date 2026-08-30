@@ -1125,7 +1125,7 @@ export default function RouteOptimizationTab() {
                 Insert Verified Citizen Reports into Brgy. {selectedBarangay} Route
               </Text>
               <Text style={styles.reportDispatchIntroSubtitle}>
-                Select verified waste clusters reported by residents. The AI optimizer will slot them into the driver's
+                Select verified waste clusters reported by residents. The AI optimizer will slot them into the driver&apos;s
                 collection route at the lowest detour and traffic cost.
               </Text>
             </View>
@@ -1343,7 +1343,7 @@ export default function RouteOptimizationTab() {
 
             <Text style={styles.confirmModalTitle}>Confirm Route Dispatch</Text>
             <Text style={styles.confirmModalSubtitle}>
-              You are dispatching an AI traffic-optimized collection route directly to the driver's terminal.
+              You are dispatching an AI traffic-optimized collection route directly to the driver&apos;s terminal.
             </Text>
 
             <View style={styles.confirmSummaryBox}>

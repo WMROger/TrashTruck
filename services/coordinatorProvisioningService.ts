@@ -65,7 +65,8 @@ async function writeCoordinatorRecords(uid: string, input: ReturnType<typeof nor
       role: 'coordinator',
       status: 'active',
       disabled: false,
-      verified: input.mode === 'upgrade' ? profile.data()?.verified === true : false,
+      verified: true,
+      mustChangePassword: input.mode === 'create' ? true : (profile.data()?.mustChangePassword === true),
       updatedAt: timestamp,
       ...(profile.exists() ? {} : { createdAt: timestamp, provider: 'password' }),
     }, { merge: true });
@@ -77,6 +78,7 @@ async function writeCoordinatorRecords(uid: string, input: ReturnType<typeof nor
       barangay: input.barangay,
       zone: input.zone,
       role: 'coordinator',
+      status: 'active',
       assignedAt: timestamp,
     }, { merge: true });
 
@@ -95,7 +97,6 @@ export async function provisionCoordinatorOnSpark(raw: CoordinatorProvisionInput
     const credential = await createUserWithEmailAndPassword(secondaryAuth, input.email, input.password);
     createdUser = credential.user;
     await updateProfile(createdUser, { displayName: input.fullName });
-    await sendEmailVerification(createdUser);
     return await writeCoordinatorRecords(createdUser.uid, input);
   } catch (error) {
     if (createdUser) await deleteUser(createdUser).catch(() => undefined);

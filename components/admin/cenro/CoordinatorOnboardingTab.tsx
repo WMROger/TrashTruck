@@ -196,18 +196,28 @@ export default function CoordinatorOnboardingTab({
 
   const fullEmployeeId = `CENRO-COORD-${employeeSuffix.trim() || "001"}`;
 
-  const formatPhoneNumber = (text: string) => {
-    const digits = text.replace(/\D/g, "");
-    let clean = digits;
-    if (clean.startsWith("63")) clean = clean.substring(2);
-    if (clean.startsWith("0")) clean = clean.substring(1);
-    clean = clean.substring(0, 10);
-    if (!clean) return "";
-    let formatted = "+63 ";
-    if (clean.length > 0) formatted += clean.substring(0, 3);
-    if (clean.length >= 4) formatted += " " + clean.substring(3, 6);
-    if (clean.length >= 7) formatted += " " + clean.substring(6, 10);
-    return formatted.trim();
+  // Philippine Mobile Phone Formatter (10-digits: 9XX XXX XXXX)
+  const handlePhoneChange = (text: string) => {
+    let digits = text.replace(/\D/g, "");
+    if (digits.startsWith("63")) digits = digits.slice(2);
+    if (digits.startsWith("0")) digits = digits.slice(1);
+    digits = digits.slice(0, 10);
+
+    let formatted = digits;
+    if (digits.length > 6) {
+      formatted = `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+    } else if (digits.length > 3) {
+      formatted = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+    }
+    setPhoneNumber(formatted);
+
+    if (formErrors.phoneNumber) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.phoneNumber;
+        return next;
+      });
+    }
   };
 
   const generateSecurePassword = () => {
@@ -265,7 +275,9 @@ export default function CoordinatorOnboardingTab({
       }
       const digits = phoneNumber.replace(/\D/g, "");
       if (!phoneNumber.trim() || digits.length < 10) {
-        errors.phoneNumber = "A valid 10-digit contact number is required.";
+        errors.phoneNumber = "A valid 10-digit contact number is required (e.g. 9XX XXX XXXX).";
+      } else if (!digits.startsWith("9")) {
+        errors.phoneNumber = "Philippine mobile numbers must start with 9.";
       }
       if (!newPassword || newPassword.length < 8) {
         errors.newPassword = "Password must be at least 8 characters.";
@@ -297,12 +309,13 @@ export default function CoordinatorOnboardingTab({
       mode === "create" ? newEmail.trim() : foundUser?.email || "";
 
     try {
+      const fullContact = phoneNumber.trim() ? `+63 ${phoneNumber.trim()}` : "";
       await provisionCoordinatorOnSpark({
         mode,
         email: resolvedEmail,
         password: newPassword,
         fullName: resolvedFullName,
-        contactInfo: phoneNumber,
+        contactInfo: fullContact,
         existingUserId: mode === "upgrade" ? foundUser.id : undefined,
         employeeId: fullEmployeeId,
         barangay: assignedBarangay,
@@ -406,7 +419,7 @@ export default function CoordinatorOnboardingTab({
               1 Coordinator per Barangay Policy
             </Text>
             <Text style={styles.policyCardText}>
-              Each of Danao City's {availableBarangays.length} barangays is
+              Each of Danao City&apos;s {availableBarangays.length} barangays is
               assigned exactly 1 official Environmental Coordinator. Currently,{" "}
               <Text style={{ fontWeight: "800", color: "#065F46" }}>
                 {existingCoordinators.length}
@@ -887,7 +900,7 @@ export default function CoordinatorOnboardingTab({
                       {filteredBarangays.length === 0 && (
                         <View style={{ padding: 14, alignItems: "center" }}>
                           <Text style={{ fontSize: 12, color: "#94A3B8" }}>
-                            No barangays matching "{barangaySearchQuery}"
+                            No barangays matching &quot;{barangaySearchQuery}&quot;
                           </Text>
                         </View>
                       )}
@@ -1068,29 +1081,53 @@ export default function CoordinatorOnboardingTab({
                 <Text style={styles.label}>
                   CONTACT NUMBER <Text style={styles.requiredAsterisk}>*</Text>
                 </Text>
-                <TextInput
+                <View
                   style={[
-                    styles.input,
-                    formErrors.phoneNumber && styles.inputErrorBorder,
+                    styles.phPhoneContainer,
+                    formErrors.phoneNumber ? styles.inputErrorBorder : null,
                   ]}
-                  placeholder="+63 9XX XXX XXXX"
-                  placeholderTextColor="#94A3B8"
-                  value={phoneNumber}
-                  onChangeText={(t) => {
-                    setPhoneNumber(formatPhoneNumber(t));
-                    if (formErrors.phoneNumber) {
-                      setFormErrors((prev) => {
-                        const next = { ...prev };
-                        delete next.phoneNumber;
-                        return next;
-                      });
-                    }
-                  }}
-                  keyboardType="phone-pad"
-                  maxLength={17}
-                />
-                {formErrors.phoneNumber && (
+                >
+                  {/* Permanent Philippine +63 Box */}
+                  <View style={styles.phPrefixBadge}>
+                    <Text style={{ fontSize: 16 }}>🇵🇭</Text>
+                    <Text style={styles.phPrefixText}>+63</Text>
+                  </View>
+
+                  {/* Empty text box for typing numbers starting with 9 */}
+                  <TextInput
+                    style={styles.phPhoneInput}
+                    placeholder="9XX XXX XXXX"
+                    placeholderTextColor="#94A3B8"
+                    value={phoneNumber}
+                    onChangeText={handlePhoneChange}
+                    keyboardType="phone-pad"
+                    maxLength={13}
+                  />
+
+                  {phoneNumber.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setPhoneNumber("");
+                        if (formErrors.phoneNumber) {
+                          setFormErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.phoneNumber;
+                            return next;
+                          });
+                        }
+                      }}
+                      style={{ padding: 8, marginRight: 4 }}
+                    >
+                      <MaterialIcons name="cancel" size={16} color="#94A3B8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {formErrors.phoneNumber ? (
                   <Text style={styles.fieldError}>{formErrors.phoneNumber}</Text>
+                ) : (
+                  <Text style={{ fontSize: 11, color: "#64748B", marginTop: 4 }}>
+                    Type 9 immediately (e.g. 9XX XXX XXXX)
+                  </Text>
                 )}
               </View>
             </View>
@@ -1943,5 +1980,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: "#FFFFFF",
+  },
+  phPhoneContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 46,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  phPrefixBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 12,
+    height: "100%",
+    borderRightWidth: 1,
+    borderRightColor: "#CBD5E1",
+    gap: 6,
+  },
+  phPrefixText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1E293B",
+  },
+  phPhoneInput: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0F172A",
+    backgroundColor: "#FFFFFF",
+    ...Platform.select({
+      web: { outlineStyle: "none" } as any,
+    }),
   },
 });

@@ -83,7 +83,7 @@ export function buildCenroWelcomeEmailHtml(params: CenroWelcomeEmailParams): str
                 <tr>
                   <td width="40%" style="font-size: 13px; color: #64748b; font-weight: 600;">Access Portal:</td>
                   <td width="60%" style="font-size: 13px; font-weight: 700; color: #0f172a;">
-                    <a href="http://localhost:8081/cenro" style="color: #1B4D3E; text-decoration: none;">/cenro</a> (CENRO Admin Portal)
+                    <span style="color: #1B4D3E; font-family: monospace; font-weight: bold;">/cenro</span> (Official CENRO Admin Portal)
                   </td>
                 </tr>
                 <tr>

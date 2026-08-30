@@ -52,10 +52,13 @@ let storage: any = null;
   if (app) {
     try {
       // Use initializeFirestore with memoryLocalCache (in-memory only, no stale disk caching)
+      // On mobile (React Native), enable long polling to prevent WebChannel chunked stream memory leaks
       db = initializeFirestore(app, {
         localCache: memoryLocalCache(),
+        experimentalForceLongPolling: Platform.OS !== 'web',
+        experimentalAutoDetectLongPolling: true,
       });
-      console.log('Firebase: Firestore ready (memory cache / non-persistent)');
+      console.log('Firebase: Firestore ready (memory cache / optimized polling)');
     } catch {
       // Fallback to getFirestore if initializeFirestore throws (e.g. unsupported environment)
       try {

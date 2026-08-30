@@ -46,10 +46,15 @@ export default function TabLayout() {
             return;
           }
           if (userData.role === 'driver') {
-            router.replace('/(driver)' as any);
-            return;
+            const hasActiveShift = userData.dutyStatus === 'on_duty' || userData.status === 'on_duty' || !!userData.currentTruckId;
+            if (hasActiveShift) {
+              router.replace('/(driver)' as any);
+              return;
+            }
+            setRole('driver');
+          } else {
+            setRole(userData.role || null);
           }
-          setRole(userData.role || null);
         }
         setIsAdmin(false);
       } catch (error) {

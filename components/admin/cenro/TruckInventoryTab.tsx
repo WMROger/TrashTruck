@@ -28,6 +28,7 @@ export default function TruckInventoryTab() {
   const [capacity, setCapacity] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [plateError, setPlateError] = useState<string | null>(null);
   
   // History Modal State
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
@@ -41,6 +42,16 @@ export default function TruckInventoryTab() {
   const [truckToUnassign, setTruckToUnassign] = useState<Truck | null>(null);
   const [isUnassigning, setIsUnassigning] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const handlePlateChange = (text: string) => {
+    const cleaned = text.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 8);
+    setPlateNumber(cleaned);
+    if (cleaned.length > 0 && cleaned.length < 6) {
+      setPlateError('Plate number must be 6–8 characters (e.g. ABC-1234)');
+    } else {
+      setPlateError(null);
+    }
+  };
 
   useEffect(() => {
     if (!db) return;
@@ -59,23 +70,46 @@ export default function TruckInventoryTab() {
   }, []);
 
   const handleAddTruck = async () => {
-    if (!plateNumber.trim() || !capacity.trim()) {
+    const normalizedPlate = plateNumber.toUpperCase().trim();
+    const normalizedCapacity = capacity.trim();
+
+    if (!normalizedPlate || !normalizedCapacity) {
       Alert.alert('Missing Fields', 'Please fill in the plate number and capacity.');
+      return;
+    }
+
+    if (normalizedPlate.length < 6 || normalizedPlate.length > 8) {
+      Alert.alert('Invalid Plate Number', 'Standard vehicle plate numbers must be 6 to 8 characters long (e.g. ABC-1234).');
+      return;
+    }
+
+    const isDuplicate = trucks.some(
+      t => t.plateNumber?.toUpperCase().replace(/\s+/g, '') === normalizedPlate.replace(/\s+/g, '')
+    );
+    if (isDuplicate) {
+      Alert.alert('Duplicate Plate Number', `A truck unit with plate number "${normalizedPlate}" already exists in the fleet inventory.`);
+      return;
+    }
+
+    const capNum = parseFloat(normalizedCapacity);
+    if (isNaN(capNum) || capNum <= 0 || capNum > 100) {
+      Alert.alert('Invalid Capacity', 'Please enter a valid capacity in tons (between 0.5 and 100).');
       return;
     }
 
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'trucks'), {
-        plateNumber: plateNumber.toUpperCase().trim(),
+        plateNumber: normalizedPlate,
         type: truckType,
-        capacity: capacity.trim(),
+        capacity: normalizedCapacity,
         status: 'active',
         createdAt: serverTimestamp(),
       });
       
       setPlateNumber('');
       setCapacity('');
+      setPlateError(null);
       setShowAddForm(false);
       Alert.alert('Success', 'Truck added to the inventory.');
     } catch (e) {
@@ -368,14 +402,31 @@ export default function TruckInventoryTab() {
           <Text style={styles.cardTitle}>Register New Truck</Text>
           <View style={styles.formGrid}>
             <View style={styles.formGroup}>
-              <Text style={styles.label}>PLATE NUMBER</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={[styles.label, { marginBottom: 0 }]}>PLATE NUMBER</Text>
+                <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600' }}>
+                  {plateNumber.length}/8
+                </Text>
+              </View>
               <TextInput 
-                style={styles.input} 
+                style={[styles.input, plateError ? { borderColor: '#EF4444' } : null]} 
                 placeholder="e.g. ABC-1234" 
                 value={plateNumber}
-                onChangeText={setPlateNumber}
-                placeholderTextColor="#9CA3AF" 
+                onChangeText={handlePlateChange}
+                placeholderTextColor="#9CA3AF"
+                maxLength={8}
+                autoCapitalize="characters"
+                autoCorrect={false}
               />
+              {plateError ? (
+                <Text style={{ color: '#EF4444', fontSize: 11, marginTop: 4, fontWeight: '500' }}>
+                  {plateError}
+                </Text>
+              ) : (
+                <Text style={{ color: '#6B7280', fontSize: 11, marginTop: 4 }}>
+                  Philippine standard format (6–8 chars, e.g. ABC-1234)
+                </Text>
+              )}
             </View>
             
             <View style={styles.formGroup}>

@@ -1,11 +1,11 @@
 import { useAuthContext } from '@/components/AuthContext';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { MaterialIcons } from '@expo/vector-icons';
 import { UPLOAD_PRESETS } from '@/config/cloudinary';
 import { auth, db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { DANAO_CITY_BARANGAYS, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { useTheme } from '@/hooks/useTheme';
-import DropDownPicker from 'react-native-dropdown-picker';
 import { cloudinaryService, UPLOAD_FOLDERS } from '@/services/cloudinaryService';
 import { writeAuditLog } from '@/services/auditLogService';
 import { setFcmPushEnabled } from '@/services/pushTokenService';
@@ -51,7 +51,7 @@ export default function SettingsPage() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showBarangayModal, setShowBarangayModal] = useState(false);
   const [editBarangay, setEditBarangay] = useState('');
-  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [barangaySearch, setBarangaySearch] = useState('');
   const [availableBarangays, setAvailableBarangays] = useState<string[]>([...DANAO_CITY_BARANGAYS]);
   const [feedbackSelected, setFeedbackSelected] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
@@ -716,6 +716,7 @@ export default function SettingsPage() {
             style={styles.settingsRow} 
             onPress={() => {
               setEditBarangay(userProfile?.barangay || '');
+              setBarangaySearch('');
               setShowBarangayModal(true);
             }}
           >
@@ -1233,52 +1234,129 @@ export default function SettingsPage() {
           animationType="fade"
           onRequestClose={() => setShowBarangayModal(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.passwordModalContainer, { backgroundColor: colors.background }]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.modalOverlay}
+          >
+            <View style={[styles.barangayModalCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              {/* Modal Header */}
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Select Barangay</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalTitle, { color: colors.text, textAlign: 'left', marginBottom: 2 }]}>
+                    Select Barangay
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.icon }}>
+                    Danao City, Cebu ({availableBarangays.length} areas)
+                  </Text>
+                </View>
                 <TouchableOpacity onPress={() => setShowBarangayModal(false)} style={styles.closeButton}>
-                  <IconSymbol name="xmark" size={24} color={colors.icon} />
+                  <IconSymbol name="xmark" size={22} color={colors.icon} />
                 </TouchableOpacity>
               </View>
-              
-              <View style={[styles.passwordInputContainer, { zIndex: 1000 }]}>
-                <Text style={[styles.passwordLabel, { color: colors.text }]}>Barangay (Danao City)</Text>
-                <View style={[styles.passwordInputWrapper, { borderColor: 'transparent', padding: 0, height: 50 }]}>
-                  <DropDownPicker
-                    open={barangayOpen}
-                    value={editBarangay}
-                    items={availableBarangays.map(b => ({ label: b, value: b }))}
-                    setOpen={setBarangayOpen}
-                    setValue={setEditBarangay}
-                    placeholder="Select a barangay"
-                    placeholderStyle={{ color: colors.icon }}
-                    maxHeight={200}
-                    style={{
-                      backgroundColor: colors.background,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      minHeight: 50,
-                      borderRadius: 8,
-                    }}
-                    dropDownContainerStyle={{
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      borderRadius: 8,
-                      maxHeight: 200,
-                    }}
-                    textStyle={{
-                      fontSize: 15,
-                      color: colors.text
-                    }}
-                    zIndex={1000}
-                    listMode={Platform.OS === 'web' ? 'FLATLIST' : 'SCROLLVIEW'}
-                    scrollViewProps={{
-                      nestedScrollEnabled: true,
-                    }}
-                  />
-                </View>
+
+              {/* Search Box */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme === 'dark' ? '#1E293B' : '#F1F5F9',
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  height: 44,
+                  marginTop: 12,
+                  marginBottom: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <MaterialIcons name="search" size={20} color={colors.icon} style={{ marginRight: 8 }} />
+                <TextInput
+                  value={barangaySearch}
+                  onChangeText={setBarangaySearch}
+                  placeholder="Search Danao City barangay..."
+                  placeholderTextColor={colors.icon}
+                  style={{
+                    flex: 1,
+                    fontSize: 14,
+                    color: colors.text,
+                    paddingVertical: 0,
+                  }}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+                {barangaySearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setBarangaySearch('')} style={{ padding: 4 }}>
+                    <MaterialIcons name="cancel" size={18} color={colors.icon} />
+                  </TouchableOpacity>
+                )}
               </View>
+
+              {/* Scrollable Barangay List */}
+              <View style={{ maxHeight: 260, minHeight: 180, marginBottom: 12 }}>
+                <ScrollView
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={true}
+                  style={{ flexGrow: 0 }}
+                >
+                  {availableBarangays
+                    .filter((b) => b.toLowerCase().includes(barangaySearch.toLowerCase().trim()))
+                    .map((b) => {
+                      const isSelected = editBarangay.toLowerCase().trim() === b.toLowerCase().trim();
+                      return (
+                        <TouchableOpacity
+                          key={b}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            paddingVertical: 11,
+                            paddingHorizontal: 14,
+                            borderRadius: 8,
+                            marginBottom: 6,
+                            backgroundColor: isSelected
+                              ? theme === 'dark' ? '#064E3B' : '#ECFDF5'
+                              : theme === 'dark' ? '#1E293B' : '#F8FAFC',
+                            borderWidth: 1,
+                            borderColor: isSelected ? '#10B981' : colors.border,
+                          }}
+                          onPress={() => setEditBarangay(b)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <MaterialIcons
+                              name="location-on"
+                              size={18}
+                              color={isSelected ? '#10B981' : colors.icon}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                fontWeight: isSelected ? '700' : '500',
+                                color: isSelected ? (theme === 'dark' ? '#A7F3D0' : '#065F46') : colors.text,
+                              }}
+                            >
+                              {b}
+                            </Text>
+                          </View>
+                          {isSelected && (
+                            <MaterialIcons name="check-circle" size={20} color="#10B981" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {availableBarangays.filter((b) => b.toLowerCase().includes(barangaySearch.toLowerCase().trim())).length === 0 && (
+                    <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                      <MaterialIcons name="location-off" size={30} color={colors.icon} />
+                      <Text style={{ fontSize: 13, color: colors.icon, marginTop: 6 }}>
+                        No barangays matching &quot;{barangaySearch}&quot;
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+
+              {/* Lock Notice */}
               {getBarangayLockStatus().isLocked && (
                 <View style={{ backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, marginBottom: 12 }}>
                   <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
@@ -1287,19 +1365,29 @@ export default function SettingsPage() {
                 </View>
               )}
 
+              {/* Save Button */}
               <TouchableOpacity 
-                style={[styles.saveButton, { backgroundColor: colors.primary }]}
+                style={[
+                  styles.saveButton, 
+                  { 
+                    backgroundColor: colors.primary,
+                    marginTop: 4,
+                    opacity: (getBarangayLockStatus().isLocked && editBarangay !== userProfile?.barangay) || isSaving ? 0.6 : 1,
+                  }
+                ]}
                 onPress={handleSaveBarangay}
                 disabled={isSaving}
               >
                 {isSaving ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>Save Preferences</Text>
+                  <Text style={[styles.saveButtonText, { color: colors.surface }]}>
+                    {editBarangay ? `Confirm Brgy. ${editBarangay}` : 'Select a Barangay'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
       </ScrollView>
@@ -1687,6 +1775,19 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  barangayModalCard: {
+    width: '92%',
+    maxWidth: 420,
+    borderRadius: 16,
+    padding: 20,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
   },
   passwordModalContainer: {
     width: '90%',

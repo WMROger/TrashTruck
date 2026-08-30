@@ -42,7 +42,12 @@ export default function DriverLoginScreen() {
         } catch {}
       }
 
-      router.replace('/(driver)');
+      const hasActiveShift = profile?.dutyStatus === 'on_duty' || profile?.status === 'on_duty' || !!profile?.currentTruckId;
+      if (hasActiveShift) {
+        router.replace('/(driver)');
+      } else {
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
       const invalidCredentials = error?.code === 'auth/invalid-credential' ||
         error?.code === 'auth/user-not-found' || error?.code === 'auth/wrong-password';

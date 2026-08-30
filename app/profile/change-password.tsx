@@ -1,9 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { auth } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -30,6 +32,22 @@ export default function ChangePasswordScreen() {
     try {
       await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
       await updatePassword(user, newPassword);
+
+      if (db && user.uid) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), {
+            mustChangePassword: false,
+            passwordChangeSnoozedUntil: null,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (dbErr) {
+          console.warn('Could not reset mustChangePassword in Firestore:', dbErr);
+        }
+        try {
+          await AsyncStorage.removeItem(`@trashtrack_pwd_snooze_${user.uid}`);
+        } catch {}
+      }
+
       Alert.alert('Password Updated', 'Your new password is now active.', [{ text: 'Done', onPress: () => router.back() }]);
     } catch (error: any) {
       const message = ['auth/invalid-credential', 'auth/wrong-password'].includes(error?.code)

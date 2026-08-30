@@ -91,7 +91,14 @@ service cloud.firestore {
       'reportedByEmail',
       'reportedByUid',
       'reportedByName',
-      'updatedAt'
+      'updatedAt',
+      'street',
+      'wasteCategory',
+      'stops',
+      'routeOptimization',
+      'isLiveDispatch',
+      'truckId',
+      'truckPlate'
     ]);
   }
 
@@ -131,13 +138,16 @@ service cloud.firestore {
 
   function regularProfileUpdateOnly() {
     return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-      'displayName', 'photoURL', 'barangay', 'contactInfo', 'phoneNumber', 'phone',
+      'displayName', 'photoURL', 'barangay', 'barangayUpdatedAt', 'contactInfo', 'phoneNumber', 'phone',
       'firstName', 'lastName', 'middleInitial', 'name', 'gender', 'dateOfBirth', 'dob', 'verified',
-      'provider', 'email', 'lastLogin', 'updatedAt'
+      'provider', 'email', 'lastLogin', 'updatedAt', 'mustChangePassword', 'passwordChangeSnoozedUntil'
     ])
     && request.resource.data.get('role', '') == resource.data.get('role', '')
     && request.resource.data.get('uid', '') == resource.data.get('uid', '')
-    && request.resource.data.get('email', '') == request.auth.token.get('email', '')
+    && (
+      !request.resource.data.diff(resource.data).affectedKeys().hasAny(['email'])
+      || request.resource.data.get('email', '') == request.auth.token.get('email', '')
+    )
     && (
       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified'])
       || request.resource.data.get('verified', false) == request.auth.token.get('email_verified', false)
@@ -207,12 +217,7 @@ service cloud.firestore {
       allow update: if isAdmin() || isCicto()
         || (
           isAssignedDriver(resource.data)
-          && (
-            driverCompletionUpdateOnly()
-            || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'street', 'wasteCategory', 'stops', 'routeOptimization', 'updatedAt', 'status', 'timeText', 'dateText'
-            ])
-          )
+          && driverCompletionUpdateOnly()
         );
     }
 
@@ -221,10 +226,22 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /fleet_trips/{tripId} {
+      allow read, write: if true;
+    }
+
+    match /client_activity/{activityId} {
+      allow read, write: if true;
+    }
+
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
     // SEC-06 FIX: Only verified drivers can write their own truck location.
     match /truck_locations/{driverId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin() || isCicto() || (hasRole('driver') && driverId == request.auth.uid);
+      allow create, update, delete: if isAdmin() || isCicto() || (hasRole('driver') && driverId == request.auth.uid) || (isAuthenticated() && driverId == request.auth.uid);
     }
 
     match /trucks/{truckId} {
@@ -298,12 +315,18 @@ service cloud.firestore {
         && request.resource.data.status == 'pending';
       allow read: if isAdmin() || isCicto()
         || (isAuthenticated() && resource.data.userId == request.auth.uid)
-        || (hasRole('driver') && resource.data.get('assignedDriverId', '') == request.auth.uid);
+        || hasRole('driver');
       allow update: if isAdmin() || isCicto()
         || (hasRole('driver') && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'assignedDriverId', 'assignedDriverName', 'assignedTruckPlate', 'queuedForDriver', 'dispatchedAt', 'updatedAt', 'collectedAt'
         ]));
       allow delete: if isAdmin() || isCicto();
+    }
+
+    match /client_activity/{activityId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin() || isCicto();
+      allow update, delete: if isAdmin() || isCicto();
     }
 
     match /user_reports/{reportId} {
@@ -451,8 +474,8 @@ service cloud.firestore {
 
     match /reward_redemptions/{redemptionId} {
       allow read: if isAdmin() || isCicto() || isOwner(resource.data.userId);
-      allow create: if isAuthenticated();
-      allow update: if isCicto() || isAdmin();
+      allow create: if (isAdmin() || isCicto()) && validRewardRedemption();
+      allow update: if false;
       allow delete: if false;
     }
 

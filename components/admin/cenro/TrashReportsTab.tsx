@@ -37,13 +37,21 @@ interface Report {
 
 const ITEMS_PER_PAGE = 5;
 
-export default function TrashReportsTab() {
+export default function TrashReportsTab({
+  userRole,
+  assignedBarangay,
+}: {
+  userRole?: string;
+  assignedBarangay?: string;
+} = {}) {
+  const isCoordinator = userRole === 'coordinator';
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [brgyFilterOnly, setBrgyFilterOnly] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   
   // Modal state
@@ -86,13 +94,18 @@ export default function TrashReportsTab() {
   const inProgressCount = reports.filter(r => r.status === 'in-progress' || r.status === 'acknowledged').length;
   const resolvedCount = reports.filter(r => r.status === 'resolved').length;
 
-  const activeReports = reports.filter(r => r.status !== 'resolved' && (
+  const matchesBrgy = (r: Report) => {
+    if (!isCoordinator || !assignedBarangay || !brgyFilterOnly) return true;
+    return (r.barangay || '').toLowerCase().includes(assignedBarangay.toLowerCase());
+  };
+
+  const activeReports = reports.filter(r => r.status !== 'resolved' && matchesBrgy(r) && (
     r.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
     r.barangay?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.street?.toLowerCase().includes(searchQuery.toLowerCase())
   ));
 
-  const historyReports = reports.filter(r => r.status === 'resolved' && (
+  const historyReports = reports.filter(r => r.status === 'resolved' && matchesBrgy(r) && (
     r.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
     r.barangay?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     r.street?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -332,7 +345,41 @@ export default function TrashReportsTab() {
       <View style={[styles.headerRow, isMobile && { flexDirection: 'column', gap: 12 }]}>
         <View>
           <Text style={styles.headerTitle}>Trash Reports</Text>
-          <Text style={styles.headerDesc}>Manage and track citizen-reported waste issues.</Text>
+          <Text style={styles.headerDesc}>
+            {isCoordinator && assignedBarangay
+              ? `Review, inspect, and track waste reports for Brgy. ${assignedBarangay}.`
+              : 'Manage and track citizen-reported waste issues.'}
+          </Text>
+          {isCoordinator && assignedBarangay && (
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                backgroundColor: brgyFilterOnly ? '#DCFCE7' : '#F1F5F9',
+                borderColor: brgyFilterOnly ? '#86EFAC' : '#CBD5E1',
+                borderWidth: 1,
+                borderRadius: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                marginTop: 8,
+                alignSelf: 'flex-start',
+              }}
+              onPress={() => setBrgyFilterOnly(!brgyFilterOnly)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={brgyFilterOnly ? 'check-circle' : 'radio-button-unchecked'}
+                size={15}
+                color={brgyFilterOnly ? '#059669' : '#64748B'}
+              />
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: brgyFilterOnly ? '#065F46' : '#475569' }}>
+                {brgyFilterOnly
+                  ? `Filtered: Brgy. ${assignedBarangay} (Click to show all)`
+                  : `Showing all Danao barangays (Click to filter Brgy. ${assignedBarangay})`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.outlineBtn} onPress={exportCsv}>

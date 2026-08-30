@@ -65,6 +65,18 @@ class LocationService {
   // Simulation state
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
   private simulationListeners: Array<(state: SimulationState) => void> = [];
+  private currentActiveTripId: string | null = null;
+  private activeTripPoints: Array<{
+    id: string;
+    step: number;
+    latitude: number;
+    longitude: number;
+    speedKph: number;
+    heading: number;
+    locationName: string;
+    timestampMs: number;
+    recordedAt: string;
+  }> = [];
   private simulationState: SimulationState = {
     isActive: false,
     currentStep: 0,
@@ -304,6 +316,9 @@ class LocationService {
     }
 
     const effectiveTruckId = truckId || 'TRUCK-DANAO-01';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    this.currentActiveTripId = `${effectiveTruckId}-${driverId}-${dateStr}`;
+    this.activeTripPoints = [];
     let currentIndex = 0;
 
     this.simulationState = {
@@ -320,18 +335,20 @@ class LocationService {
     this.notifySimulationListeners();
 
     // Emit first point immediately
-    await this.emitSimulationPoint(driverId, effectiveTruckId, route[0], route[1] || route[0], context, targetBarangay);
+    await this.emitSimulationPoint(driverId, effectiveTruckId, route[0], route[1] || route[0], context, targetBarangay, route.length);
 
     // Step every 3.5 seconds
     this.simulationInterval = setInterval(async () => {
       currentIndex += 1;
       if (currentIndex >= route.length) {
-        // Loop or complete
-        currentIndex = 0;
+        // Full route completed! Stop interval and record completion
+        console.log(`🎉 GPS Simulation completed all ${route.length} route waypoints for driver: ${driverId}`);
+        await this.completeSimulation(driverId, effectiveTruckId, targetBarangay, route.length);
+        return;
       }
 
       const currentPoint = route[currentIndex];
-      const nextPoint = route[(currentIndex + 1) % route.length];
+      const nextPoint = route[Math.min(currentIndex + 1, route.length - 1)];
       const speed = currentPoint.speed || Math.floor(Math.random() * 12) + 25;
 
       this.simulationState = {
@@ -347,19 +364,94 @@ class LocationService {
       };
       this.notifySimulationListeners();
 
-      await this.emitSimulationPoint(driverId, effectiveTruckId, currentPoint, nextPoint, context, targetBarangay);
+      await this.emitSimulationPoint(driverId, effectiveTruckId, currentPoint, nextPoint, context, targetBarangay, route.length);
     }, 3500);
 
     console.log(`🚀 Started GPS movement simulation for Driver: ${driverId} in Brgy. ${targetBarangay} (Truck: ${effectiveTruckId})`);
   }
 
-  public async stopSimulation(driverId?: string) {
+  public async completeSimulation(driverId: string, truckId: string, barangay: string, totalSteps: number) {
+    if (this.simulationInterval) {
+      clearInterval(this.simulationInterval);
+      this.simulationInterval = null;
+    }
+
+    this.simulationState = {
+      isActive: false,
+      currentStep: totalSteps,
+      totalSteps,
+      currentSpeedKph: 0,
+      currentCoordinate: null,
+      locationName: 'Route Completed',
+      truckId,
+      driverId,
+    };
+    this.notifySimulationListeners();
+
+    if (db) {
+      try {
+        const truckRef = doc(db, 'truck_locations', driverId);
+        await setDoc(truckRef, {
+          status: 'completed',
+          lastUpdate: serverTimestamp(),
+          isSimulation: false,
+        }, { merge: true });
+
+        // Update persistent fleet_trips document
+        if (this.currentActiveTripId) {
+          const tripRef = doc(db, 'fleet_trips', this.currentActiveTripId);
+          await setDoc(tripRef, {
+            id: this.currentActiveTripId,
+            tripId: this.currentActiveTripId,
+            driverId,
+            truckId,
+            barangay,
+            status: 'completed',
+            completedSteps: totalSteps,
+            totalSteps,
+            completionPercentage: 100,
+            endTime: new Date().toISOString(),
+            points: this.activeTripPoints,
+            totalPoints: this.activeTripPoints.length,
+            lastUpdate: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        }
+
+        // Record completed trip event in client_activity
+        await addDoc(collection(db, 'client_activity'), {
+          type: 'client',
+          event: 'fleet.trip_completed',
+          tripId: this.currentActiveTripId || dailyTripId(driverId, truckId),
+          driverId,
+          truckId,
+          barangay,
+          totalSteps,
+          completedSteps: totalSteps,
+          completionPercentage: 100,
+          status: 'completed',
+          recordedAtClient: new Date().toISOString(),
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        console.warn('Error completing simulation in Firestore:', err);
+      }
+    }
+  }
+
+  public async stopSimulation(driverId?: string, reason = 'manual_stop') {
     if (this.simulationInterval) {
       clearInterval(this.simulationInterval);
       this.simulationInterval = null;
     }
 
     const targetDriver = driverId || this.simulationState.driverId;
+    const prevStep = this.simulationState.currentStep;
+    const totalSteps = this.simulationState.totalSteps;
+    const truckId = this.simulationState.truckId;
+    const barangay = this.simulationState.barangay || 'Poblacion';
+    const lastCoord = this.simulationState.currentCoordinate;
+    const lastLocName = this.simulationState.locationName;
 
     this.simulationState = {
       isActive: false,
@@ -377,6 +469,49 @@ class LocationService {
       try {
         const truckRef = doc(db, 'truck_locations', targetDriver);
         await setDoc(truckRef, { status: 'inactive', lastUpdate: serverTimestamp() }, { merge: true });
+
+        // Update persistent fleet_trips document
+        if (this.currentActiveTripId) {
+          const tripRef = doc(db, 'fleet_trips', this.currentActiveTripId);
+          await setDoc(tripRef, {
+            id: this.currentActiveTripId,
+            tripId: this.currentActiveTripId,
+            driverId: targetDriver,
+            truckId,
+            barangay,
+            status: prevStep >= totalSteps && totalSteps > 0 ? 'completed' : 'stopped_early',
+            completedSteps: prevStep,
+            totalSteps,
+            completionPercentage: totalSteps > 0 ? Math.round((prevStep / totalSteps) * 100) : 0,
+            endTime: new Date().toISOString(),
+            reason,
+            points: this.activeTripPoints,
+            totalPoints: this.activeTripPoints.length,
+            lastUpdate: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        }
+
+        if (prevStep > 0 && prevStep < totalSteps) {
+          // Record stopped early trip event in client_activity
+          await addDoc(collection(db, 'client_activity'), {
+            type: 'client',
+            event: 'fleet.trip_interrupted',
+            tripId: this.currentActiveTripId || dailyTripId(targetDriver, truckId),
+            driverId: targetDriver,
+            truckId,
+            barangay,
+            totalSteps,
+            completedSteps: prevStep,
+            completionPercentage: Math.round((prevStep / Math.max(1, totalSteps)) * 100),
+            status: 'stopped_early',
+            reason,
+            lastLocation: lastCoord,
+            lastLocationName: lastLocName,
+            recordedAtClient: new Date().toISOString(),
+            createdAt: serverTimestamp(),
+          });
+        }
       } catch {}
     }
 
@@ -389,7 +524,8 @@ class LocationService {
     currentPoint: { latitude: number; longitude: number; name?: string; speed?: number; barangay?: string },
     nextPoint: { latitude: number; longitude: number },
     context: FleetTrackingContext,
-    assignedBarangay?: string
+    assignedBarangay?: string,
+    totalStepsCount = 47
   ) {
     if (!db) return;
 
@@ -412,6 +548,20 @@ class LocationService {
       speed: speedMps,
     };
 
+    // Append to in-memory trip points array
+    const ptRecord = {
+      id: `pt-${this.activeTripPoints.length + 1}-${Date.now()}`,
+      step: this.activeTripPoints.length + 1,
+      latitude: currentPoint.latitude,
+      longitude: currentPoint.longitude,
+      speedKph,
+      heading,
+      locationName: currentPoint.name || `Waypoint ${this.activeTripPoints.length + 1}`,
+      timestampMs: Date.now(),
+      recordedAt: new Date().toISOString(),
+    };
+    this.activeTripPoints.push(ptRecord);
+
     // 1. Update live truck marker (isolated try-catch)
     try {
       const truckRef = doc(db, 'truck_locations', driverId);
@@ -425,15 +575,42 @@ class LocationService {
         heading,
         status: 'active',
         barangay: assignedBarangay || currentPoint.barangay || 'Poblacion',
+        locationName: currentPoint.name || `Brgy. ${assignedBarangay || 'Poblacion'} Route`,
+        isSimulation: true,
         lastUpdate: serverTimestamp(),
       }, { merge: true });
     } catch (err) {
       console.warn('Simulation truck_locations update note:', err);
     }
 
-    // 2. Append to client_activity trip points (isolated try-catch)
+    // 2. Persist to fleet_trips document in Firestore
+    if (this.currentActiveTripId) {
+      try {
+        const tripRef = doc(db, 'fleet_trips', this.currentActiveTripId);
+        await setDoc(tripRef, {
+          id: this.currentActiveTripId,
+          tripId: this.currentActiveTripId,
+          driverId,
+          truckId,
+          barangay: assignedBarangay || currentPoint.barangay || 'Poblacion',
+          status: 'in_progress',
+          startTime: this.activeTripPoints[0]?.recordedAt || new Date().toISOString(),
+          totalSteps: totalStepsCount,
+          completedSteps: this.activeTripPoints.length,
+          completionPercentage: Math.round((this.activeTripPoints.length / Math.max(1, totalStepsCount)) * 100),
+          points: this.activeTripPoints,
+          totalPoints: this.activeTripPoints.length,
+          lastUpdate: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (err) {
+        console.warn('Simulation fleet_trips write note:', err);
+      }
+    }
+
+    // 3. Append to client_activity trip points
     try {
-      await this.writeTripPoint(driverId, truckId, mockCoords, context, true, currentPoint.barangay);
+      await this.writeTripPoint(driverId, truckId, mockCoords, context, true, assignedBarangay || currentPoint.barangay);
     } catch (err) {
       console.warn('Simulation client_activity write note:', err);
     }
@@ -452,8 +629,8 @@ class LocationService {
     const coordinate = { latitude: coords.latitude, longitude: coords.longitude };
     const movedMeters = this.lastHistoryCoordinate ? distanceMeters(this.lastHistoryCoordinate, coordinate) : Number.POSITIVE_INFINITY;
     
-    // Throttle writing permanent trail points to client_activity to at most once every 25 seconds
-    if (now - this.lastHistoryAt < 25_000 && (!isSimulation && movedMeters < 50)) return;
+    // Throttle writing permanent trail points to client_activity only for real GPS (not simulation)
+    if (!isSimulation && (now - this.lastHistoryAt < 20_000 && movedMeters < 30)) return;
     this.lastHistoryAt = now;
     this.lastHistoryCoordinate = coordinate;
 
@@ -473,6 +650,7 @@ class LocationService {
       accuracyMeters: coords.accuracy || 5,
       deviationMeters: deviationMeters === null ? null : Math.round(deviationMeters),
       source: isSimulation ? 'driver-gps-simulator' : 'driver-gps',
+      isSimulation: !!isSimulation,
       recordedAtClient: new Date(now).toISOString(),
       createdAt: serverTimestamp(),
     };
@@ -482,9 +660,9 @@ class LocationService {
     }
 
     try {
-      await addDoc(collection(db, 'audit_logs'), { ...payload, type: 'client' });
+      await addDoc(collection(db, 'client_activity'), { ...payload, type: 'client' });
     } catch (err) {
-      console.warn('Error writing trip point to audit_logs:', err);
+      console.warn('Error writing trip point to client_activity:', err);
     }
 
     this.lastHistoryAt = now;
@@ -535,10 +713,10 @@ class LocationService {
         recordedAtClient: new Date(now).toISOString(),
         createdAt: serverTimestamp(),
       };
-      await addDoc(collection(db, 'audit_logs'), alertPayload);
+      await addDoc(collection(db, 'client_activity'), alertPayload);
       this.lastAlertAt[type] = now;
     } catch (err) {
-      console.warn('Error writing fleet alert to audit_logs:', err);
+      console.warn('Error writing fleet alert to client_activity:', err);
     }
   }
 
