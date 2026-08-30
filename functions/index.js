@@ -405,24 +405,37 @@ exports.createDriverAccount = functions.https.onCall(async (data, context) => {
   }, context);
 });
 
-// Delete users who remain unverified for more than 10 minutes
-exports.deleteStaleUnverifiedUsers = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+// SEC-07 FIX: Delete users who remain unverified for more than 24 hours.
+// Also deletes the Firebase Auth record to prevent orphaned auth/email-already-in-use conflicts.
+exports.deleteStaleUnverifiedUsers = functions.pubsub.schedule('every 60 minutes').onRun(async (context) => {
   const now = admin.firestore.Timestamp.now();
-  const tenMinutesAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 10 * 60 * 1000);
+  const oneDayAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
 
-  const batch = db.batch();
   const staleSnap = await db
     .collection('users')
     .where('verified', '==', false)
-    .where('createdAt', '<=', tenMinutesAgo)
+    .where('createdAt', '<=', oneDayAgo)
     .get();
 
+  let deletedCount = 0;
   for (const docSnap of staleSnap.docs) {
-    batch.delete(docSnap.ref);
+    const uid = docSnap.id;
+    try {
+      // Delete Firebase Auth record first to free the email address
+      await admin.auth().deleteUser(uid);
+    } catch (authErr) {
+      // auth/user-not-found is acceptable (already cleaned up)
+      if (authErr.code !== 'auth/user-not-found') {
+        console.warn(`Failed to delete Auth user ${uid}:`, authErr.message);
+      }
+    }
+    // Delete Firestore profile
+    await docSnap.ref.delete().catch(err => console.warn(`Failed to delete Firestore profile ${uid}:`, err.message));
+    deletedCount++;
   }
 
-  if (!staleSnap.empty) {
-    await batch.commit();
+  if (deletedCount > 0) {
+    console.log(`✅ Cleaned up ${deletedCount} stale unverified accounts (Auth + Firestore).`);
   }
 
   return null;

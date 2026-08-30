@@ -35,61 +35,82 @@ export default function CictoDashboard() {
   const sidebarCollapsed = Platform.OS === 'web' && width < 980;
   
   useEffect(() => {
+    let isMounted = true;
     const checkCictoAccess = async () => {
       if (authLoading) return;
-      if (!user) {
-        console.log('CICTO dashboard: No user found, redirecting to login');
-        router.replace('/cicto' as any);
-        return;
+      const activeUser = user || auth.currentUser;
+      if (!activeUser) {
+        // Wait a short grace period on web refresh for Firebase Auth hydration
+        const timer = setTimeout(() => {
+          if (!auth.currentUser && isMounted) {
+            console.log('CICTO dashboard: No user found, redirecting to login');
+            router.replace('/cicto' as any);
+          }
+        }, 600);
+        return () => clearTimeout(timer);
       }
 
       // Check if user has recognized CICTO email
-      if (isCictoEmail(user.email)) {
-        console.log('CICTO dashboard: Hardcoded CICTO identity recognized for:', user.email);
-        await ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
-        setIsCictoAdmin(true);
-        setIsLoading(false);
+      if (isCictoEmail(activeUser.email)) {
+        console.log('CICTO dashboard: Hardcoded CICTO identity recognized for:', activeUser.email);
+        if (isMounted) {
+          setIsCictoAdmin(true);
+          setIsLoading(false);
+        }
+        ensureCictoProfileInFirestore(activeUser.uid, activeUser.email || 'cicto@trashtrack.gov.ph', activeUser.displayName || 'CICTO Super Admin').catch(() => {});
         return;
       }
 
       if (db) {
         try {
-          const userRef = doc(db, 'users', user.uid);
+          const userRef = doc(db, 'users', activeUser.uid);
           const userSnap = await getDoc(userRef);
           
           if (userSnap.exists()) {
             const userData = userSnap.data();
             if (userData.role === 'cicto') {
-              console.log('CICTO dashboard: CICTO role confirmed for:', user.email);
-              setIsCictoAdmin(true);
-              setIsLoading(false);
+              console.log('CICTO dashboard: CICTO role confirmed for:', activeUser.email);
+              if (isMounted) {
+                setIsCictoAdmin(true);
+                setIsLoading(false);
+              }
             } else {
-              console.log('CICTO dashboard: User does not have cicto role:', user.email);
+              console.log('CICTO dashboard: User does not have cicto role:', activeUser.email);
               Alert.alert('Access Denied', 'You do not have CICTO admin privileges.');
               await signOut(auth);
               router.replace('/cicto' as any);
             }
           } else {
-            console.log('CICTO dashboard: User document not found');
-            Alert.alert('Access Denied', 'User profile not found.');
-            await signOut(auth);
-            router.replace('/cicto' as any);
+            console.log('CICTO dashboard: User document not found, auto-bootstrapping CICTO profile');
+            await ensureCictoProfileInFirestore(activeUser.uid, activeUser.email || 'cicto@trashtrack.gov.ph', activeUser.displayName || 'CICTO Super Admin');
+            if (isMounted) {
+              setIsCictoAdmin(true);
+              setIsLoading(false);
+            }
+            return;
           }
         } catch (error) {
-          console.error('CICTO dashboard: Error checking role:', error);
+          console.error('CICTO dashboard: Error checking role, applying fallback:', error);
+          if (isCictoEmail(activeUser.email)) {
+            if (isMounted) {
+              setIsCictoAdmin(true);
+              setIsLoading(false);
+            }
+            return;
+          }
           Alert.alert('Error', 'Failed to verify privileges.');
-          await signOut(auth);
           router.replace('/cicto' as any);
         }
       } else {
         Alert.alert('Access Unavailable', 'CICTO clearance cannot be verified because Firestore is unavailable.');
         try { await signOut(auth); } catch {}
         router.replace('/cicto' as any);
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     };
 
     checkCictoAccess();
+    return () => { isMounted = false; };
   }, [authLoading, router, user]);
 
   useEffect(() => {

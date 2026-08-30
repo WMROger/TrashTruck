@@ -26,9 +26,12 @@ service cloud.firestore {
       && userProfile().role == role;
   }
 
+  // SEC-01 FIX: Use custom claims and exact email checks instead of wildcard substring matching.
+  // This prevents any user with 'admin' or 'cenro' in their email from gaining admin access.
   function isAdmin() {
     return isAuthenticated() && (
-      (request.auth.token.keys().hasAny(['email']) && (request.auth.token.email.matches('(?i).*(admin|cenro).*') || request.auth.token.email == 'admin@admin.com'))
+      request.auth.token.get('admin', false) == true
+      || request.auth.token.get('email', '') == 'admin@admin.com'
       || (hasActiveProfile() && (userProfile().role == 'admin' || userProfile().role == 'cenro'))
     );
   }
@@ -36,13 +39,17 @@ service cloud.firestore {
   function validAdminProfileCreate(userId) {
     return isOwner(userId)
       && (request.resource.data.role == 'admin' || request.resource.data.role == 'cenro')
-      && request.auth.token.keys().hasAny(['email'])
-      && (request.auth.token.email.matches('(?i).*(admin|cenro).*') || request.auth.token.email == 'admin@admin.com');
+      && (
+        request.auth.token.get('admin', false) == true
+        || request.auth.token.get('email', '') == 'admin@admin.com'
+      );
   }
 
+  // SEC-01 FIX: Use custom claims and exact email check instead of wildcard substring matching.
   function isCicto() {
     return isAuthenticated() && (
-      (request.auth.token.keys().hasAny(['email']) && (request.auth.token.email.matches('(?i).*cicto.*') || request.auth.token.email == 'cicto@trashtrack.gov.ph'))
+      request.auth.token.get('cicto', false) == true
+      || request.auth.token.get('email', '') == 'cicto@trashtrack.gov.ph'
       || (hasActiveProfile() && userProfile().role == 'cicto')
     );
   }
@@ -50,8 +57,10 @@ service cloud.firestore {
   function validCictoProfileCreate(userId) {
     return isOwner(userId)
       && request.resource.data.role == 'cicto'
-      && request.auth.token.keys().hasAny(['email'])
-      && (request.auth.token.email.matches('(?i).*cicto.*') || request.auth.token.email == 'cicto@trashtrack.gov.ph');
+      && (
+        request.auth.token.get('cicto', false) == true
+        || request.auth.token.get('email', '') == 'cicto@trashtrack.gov.ph'
+      );
   }
 
   function isAssignedDriver(schedule) {
@@ -212,9 +221,10 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    // SEC-06 FIX: Only verified drivers can write their own truck location.
     match /truck_locations/{driverId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin() || isCicto() || (isAuthenticated() && driverId == request.auth.uid);
+      allow create, update, delete: if isAdmin() || isCicto() || (hasRole('driver') && driverId == request.auth.uid);
     }
 
     match /trucks/{truckId} {
@@ -238,10 +248,12 @@ service cloud.firestore {
       );
     }
 
+    // SEC-02 FIX: Removed naked isOwner(userId) from update rule.
+    // Users can only modify their own profile through field-restricted functions.
     match /users/{userId} {
       allow create: if validResidentProfileCreate(userId) || validCictoProfileCreate(userId) || validAdminProfileCreate(userId) || isAdmin() || isCicto();
       allow read: if isOwner(userId) || isAdmin() || isCicto();
-      allow update: if isOwner(userId) || isAdmin() || isCicto() || cictoRoleUpdateOnly(userId)
+      allow update: if isAdmin() || isCicto() || cictoRoleUpdateOnly(userId)
         || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
       allow delete: if isAdmin() || isCicto();
     }
@@ -279,11 +291,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // SEC-05 FIX: Restrict report reads to the creator, assigned driver, or admins.
     match /reports/{reportId} {
       allow create: if hasActiveProfile()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending';
-      allow read: if isAuthenticated();
+      allow read: if isAdmin() || isCicto()
+        || (isAuthenticated() && resource.data.userId == request.auth.uid)
+        || (hasRole('driver') && resource.data.get('assignedDriverId', '') == request.auth.uid);
       allow update: if isAdmin() || isCicto()
         || (hasRole('driver') && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'assignedDriverId', 'assignedDriverName', 'assignedTruckPlate', 'queuedForDriver', 'dispatchedAt', 'updatedAt', 'collectedAt'
@@ -369,16 +384,6 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /audit_logs/{logId} {
-      allow read: if isAdmin() || isCicto();
-      allow create, update, delete: if false;
-    }
-
-    match /client_activity/{logId} {
-      allow create: if isAuthenticated();
-      allow read: if isAdmin() || isCicto() || (isAuthenticated() && (resource.data.get('actorUid', '') == request.auth.uid || resource.data.get('targetId', '') == request.auth.uid));
-      allow update, delete: if false;
-    }
 
     match /proximity_alerts/{alertId} {
       allow read: if isAdmin() || resource.data.userId == request.auth.uid;
@@ -503,14 +508,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // SEC-03 FIX: CICTO notifications and OTP verifications are restricted to CICTO admins only.
     match /cicto_notifications/{notificationId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isCicto();
     }
 
     match /cicto_otp_verifications/{verificationId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isCicto();
     }
 
+    // Merged: audit_logs client-write rule (allows authenticated users to create audit entries)
     match /audit_logs/{logId} {
       allow read: if isAdmin() || isCicto();
       allow create: if isAuthenticated();

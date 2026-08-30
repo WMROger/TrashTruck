@@ -63,28 +63,28 @@ const normalize = (input: DriverProvisionInput) => {
 async function writeDriverRecords(uid: string, input: ReturnType<typeof normalize>) {
   if (!db) throw new Error('Firestore is unavailable.');
   const userRef = doc(db, 'users', uid);
-  const employeeRef = doc(db, 'employee_ids', input.employeeId);
+  const identifierRef = doc(db, 'identifiers', 'driver', 'items', input.employeeId);
   const truckRef = input.truckId ? doc(db, 'trucks', input.truckId) : null;
 
-  // Enforce unique license number in employee_ids collection
+  // Enforce unique license number in identifiers collection
   if (input.licenseNumber) {
-    const licSnap = await getDocs(query(collection(db, 'employee_ids'), where('licenseNumber', '==', input.licenseNumber)));
-    const conflicting = licSnap.docs.find(d => d.data().userId !== uid && d.id !== input.employeeId);
+    const licSnap = await getDocs(query(collection(db, 'identifiers', 'license', 'items'), where('id', '==', input.licenseNumber)));
+    const conflicting = licSnap.docs.find(d => d.data().userId !== uid && d.data().employeeId !== input.employeeId);
     if (conflicting) {
-      throw new Error(`LTO License Number "${input.licenseNumber}" is already registered to employee ${conflicting.id}.`);
+      throw new Error(`LTO License Number "${input.licenseNumber}" is already registered to employee ${conflicting.data().employeeId || conflicting.id}.`);
     }
   }
 
   return runTransaction(db, async transaction => {
-    const [profile, employee, truck] = await Promise.all([
+    const [profile, identifierDoc, truck] = await Promise.all([
       transaction.get(userRef),
-      transaction.get(employeeRef),
+      transaction.get(identifierRef),
       truckRef ? transaction.get(truckRef) : Promise.resolve(null),
     ]);
     if (input.mode === 'upgrade' && (!profile.exists() || !['user', 'driver'].includes(String(profile.data()?.role)))) {
       throw new Error('Only an existing resident or driver account can be modified.');
     }
-    if (employee.exists() && employee.data()?.userId !== uid) throw new Error('This employee ID is already assigned.');
+    if (identifierDoc.exists() && identifierDoc.data()?.userId !== uid) throw new Error('This employee ID is already assigned.');
     if (truckRef && (!truck?.exists() || truck.data()?.status !== 'active' || (truck.data()?.assignedDriverId && truck.data()?.assignedDriverId !== uid))) {
       throw new Error('The selected truck is no longer available.');
     }
@@ -127,11 +127,11 @@ async function writeDriverRecords(uid: string, input: ReturnType<typeof normaliz
       ...(profile.exists() ? {} : { createdAt: timestamp }),
     }, { merge: true });
 
-    transaction.set(employeeRef, {
-      employeeId: input.employeeId,
+    transaction.set(identifierRef, {
+      id: input.employeeId,
+      type: 'driver',
       userId: uid,
       licenseNumber: input.licenseNumber,
-      email: input.email || profile.data()?.email || '',
       driverName: input.fullName || profile.data()?.displayName || '',
       assignedBarangay: assignedBarangay,
       assignedTruckId: input.truckId || null,
@@ -142,20 +142,8 @@ async function writeDriverRecords(uid: string, input: ReturnType<typeof normaliz
       updatedAt: timestamp,
     }, { merge: true });
 
-    const unifiedDriverIdRef = doc(db, 'identifiers', `driver_${input.employeeId}`);
-    transaction.set(unifiedDriverIdRef, {
-      id: input.employeeId,
-      type: 'driver',
-      userId: uid,
-      licenseNumber: input.licenseNumber,
-      driverName: input.fullName || profile.data()?.displayName || '',
-      assignedBarangay: assignedBarangay,
-      role: 'driver',
-      assignedAt: timestamp,
-    }, { merge: true });
-
     if (input.licenseNumber) {
-      const unifiedLicRef = doc(db, 'identifiers', `lic_${input.licenseNumber}`);
+      const unifiedLicRef = doc(db, 'identifiers', 'license', 'items', input.licenseNumber);
       transaction.set(unifiedLicRef, {
         id: input.licenseNumber,
         type: 'license',

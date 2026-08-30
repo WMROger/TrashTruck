@@ -22,10 +22,7 @@ export async function writeAuditLog(event: AuditEvent, targetType: string, targe
       metadata,
       createdAt: serverTimestamp(),
     };
-    await addDoc(collection(db, 'client_activity'), logPayload);
-    try {
-      await addDoc(collection(db, 'audit_logs'), logPayload);
-    } catch {}
+    await addDoc(collection(db, 'audit_logs'), logPayload);
   } catch (error) {
     // Auditing should be observable but must not discard a completed field operation.
     console.warn('Unable to write audit log:', error);

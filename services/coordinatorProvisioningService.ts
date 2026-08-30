@@ -43,16 +43,16 @@ const normalize = (raw: CoordinatorProvisionInput) => {
 async function writeCoordinatorRecords(uid: string, input: ReturnType<typeof normalize>) {
   if (!db) throw new Error('Firestore is unavailable.');
   const profileRef = doc(db, 'users', uid);
-  const employeeRef = doc(db, 'coordinator_employee_ids', input.employeeId);
+  const identifierRef = doc(db, 'identifiers', 'coordinator', 'items', input.employeeId);
   return runTransaction(db, async transaction => {
-    const [profile, employee] = await Promise.all([
+    const [profile, identifierDoc] = await Promise.all([
       transaction.get(profileRef),
-      transaction.get(employeeRef),
+      transaction.get(identifierRef),
     ]);
     if (input.mode === 'upgrade' && (!profile.exists() || profile.data()?.role !== 'user')) {
       throw new Error('Only an existing resident account can be upgraded.');
     }
-    if (employee.exists() && employee.data()?.userId !== uid) throw new Error('This coordinator employee ID is already assigned.');
+    if (identifierDoc.exists() && identifierDoc.data()?.userId !== uid) throw new Error('This coordinator employee ID is already assigned.');
     const timestamp = serverTimestamp();
     transaction.set(profileRef, {
       uid,
@@ -70,10 +70,7 @@ async function writeCoordinatorRecords(uid: string, input: ReturnType<typeof nor
       ...(profile.exists() ? {} : { createdAt: timestamp, provider: 'password' }),
     }, { merge: true });
 
-    transaction.set(employeeRef, { userId: uid, assignedAt: timestamp });
-
-    const unifiedIdRef = doc(db, 'identifiers', `coord_${input.employeeId}`);
-    transaction.set(unifiedIdRef, {
+    transaction.set(identifierRef, {
       id: input.employeeId,
       type: 'coordinator',
       userId: uid,

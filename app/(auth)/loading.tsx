@@ -17,6 +17,37 @@ import {
     View,
 } from 'react-native';
 import ErrorModal from '../../components/ErrorModal';
+import { isCictoEmail, ensureCictoProfileInFirestore } from '@/constants/cictoConfig';
+
+async function ensureCenroProfileInFirestore(
+  uid: string,
+  email: string,
+  displayName: string = 'CENRO Admin',
+): Promise<void> {
+  if (!db) return;
+  try {
+    const userRef = doc(db, 'users', uid);
+    await setDoc(
+      userRef,
+      {
+        uid,
+        email,
+        displayName,
+        name: displayName,
+        role: 'admin',
+        verified: true,
+        status: 'active',
+        department: 'City Environment and Natural Resources Office (CENRO Danao)',
+        agency: 'CENRO Danao City',
+        updatedAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (error) {
+    console.warn('Could not auto-heal CENRO profile in loading page:', error);
+  }
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -156,7 +187,9 @@ export default function LoadingPage() {
       setProgress(50);
 
       const normEmail = (credentials?.email || user.email || '').toLowerCase();
-      let isDriverOrPreVerified = normEmail.endsWith('@driver.com') || normEmail.includes('driver');
+      const isKnownStaff = isCictoEmail(normEmail) || normEmail.endsWith('@driver.com') || normEmail.includes('driver') || normEmail.startsWith('admin@') || normEmail.startsWith('cenro@') || normEmail.includes('admin') || normEmail.includes('cenro');
+      let isDriverOrPreVerified = isKnownStaff;
+      
       // Check user role and route properly
       if (db) {
         const snap = await getDoc(doc(db, 'users', user.uid));
@@ -188,6 +221,16 @@ export default function LoadingPage() {
               }, 3000);
               return;
             }
+          }
+        } else if (isKnownStaff) {
+          if (isCictoEmail(normEmail)) {
+            await ensureCictoProfileInFirestore(user.uid, normEmail, user.displayName || 'CICTO Super Admin');
+            router.replace('/cicto/dashboard' as any);
+            return;
+          } else if (normEmail.startsWith('admin@') || normEmail.startsWith('cenro@') || normEmail.includes('admin') || normEmail.includes('cenro')) {
+            await ensureCenroProfileInFirestore(user.uid, normEmail, user.displayName || 'CENRO Admin');
+            router.replace('/admin/dashboard' as any);
+            return;
           }
         }
       }

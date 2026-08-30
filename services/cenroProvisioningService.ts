@@ -1,7 +1,7 @@
 import { db, firebaseConfig } from '@/config/firebase';
 import { deleteApp, initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, deleteUser, getAuth, sendEmailVerification, updateProfile } from 'firebase/auth';
-import { doc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, runTransaction, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { writeAuditLog } from './auditLogService';
 import { sendCenroWelcomeEmail } from './emailNotificationService';
 
@@ -54,19 +54,19 @@ const normalize = (raw: CenroProvisionInput) => {
 async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize>) {
   if (!db) throw new Error('Firestore is unavailable.');
   const profileRef = doc(db, 'users', uid);
-  const employeeRef = doc(db, 'employee_ids', input.employeeId);
+  const identifierRef = doc(db, 'identifiers', 'cenro', 'items', input.employeeId);
 
   return runTransaction(db, async (transaction) => {
-    const [profile, employee] = await Promise.all([
+    const [profile, identifierDoc] = await Promise.all([
       transaction.get(profileRef),
-      transaction.get(employeeRef),
+      transaction.get(identifierRef),
     ]);
 
     if (input.mode === 'upgrade' && !profile.exists()) {
       throw new Error('The selected user account could not be found.');
     }
 
-    if (employee.exists() && employee.data()?.userId !== uid) {
+    if (identifierDoc.exists() && identifierDoc.data()?.userId !== uid) {
       throw new Error(`Employee ID ${input.employeeId} is already assigned to another user.`);
     }
 
@@ -97,14 +97,7 @@ async function writeCenroRecords(uid: string, input: ReturnType<typeof normalize
       { merge: true }
     );
 
-    transaction.set(employeeRef, {
-      userId: uid,
-      role: 'admin',
-      assignedAt: timestamp,
-    });
-
-    const unifiedIdRef = doc(db, 'identifiers', `cenro_${input.employeeId}`);
-    transaction.set(unifiedIdRef, {
+    transaction.set(identifierRef, {
       id: input.employeeId,
       type: 'cenro',
       userId: uid,
@@ -173,7 +166,52 @@ export async function provisionCenroOnSpark(raw: CenroProvisionInput) {
     });
 
     return result;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'auth/email-already-in-use' && db) {
+      // Find existing user in Firestore or create profile in wiped database
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', input.email));
+        const existingSnap = await getDocs(q);
+        let targetUid = input.employeeId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+        let isUpgrade = false;
+
+        if (!existingSnap.empty) {
+          targetUid = existingSnap.docs[0].id;
+          isUpgrade = true;
+        }
+
+        const result = await writeCenroRecords(targetUid, {
+          ...input,
+          mode: isUpgrade ? 'upgrade' : 'create',
+          existingUserId: isUpgrade ? targetUid : '',
+        });
+
+        // Dispatch welcome email with temporary password & portal link
+        try {
+          await sendCenroWelcomeEmail({
+            toEmail: input.email,
+            temporaryPassword: input.password,
+            adminName: input.fullName,
+            department: input.department,
+            designation: input.designation,
+          });
+        } catch (emailErr) {
+          console.warn('Welcome email dispatch note:', emailErr);
+        }
+
+        await writeAuditLog('notification.preferences_updated' as any, 'user_role', targetUid, {
+          action: isUpgrade ? 'cicto_elevate_cenro' : 'cicto_create_cenro_existing_auth',
+          email: input.email,
+          employeeId: input.employeeId,
+        });
+
+        return result;
+      } catch (elevateErr: any) {
+        console.warn('CENRO provisioning fallback error:', elevateErr);
+        throw new Error(elevateErr?.message || `Failed to provision CENRO profile for ${input.email}.`);
+      }
+    }
+
     if (createdUser) {
       await deleteUser(createdUser).catch(() => undefined);
     }

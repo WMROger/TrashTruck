@@ -7,10 +7,40 @@ import { getTransitionConfig } from '@/utils/transitions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { LogBox, Platform } from 'react-native';
 import { isCictoEmail, ensureCictoProfileInFirestore } from '@/constants/cictoConfig';
+
+async function ensureCenroProfileInFirestore(
+  uid: string,
+  email: string,
+  displayName: string = 'CENRO Admin',
+): Promise<void> {
+  if (!db) return;
+  try {
+    const userRef = doc(db, 'users', uid);
+    await setDoc(
+      userRef,
+      {
+        uid,
+        email,
+        displayName,
+        name: displayName,
+        role: 'admin',
+        verified: true,
+        status: 'active',
+        department: 'City Environment and Natural Resources Office (CENRO Danao)',
+        agency: 'CENRO Danao City',
+        updatedAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (error) {
+    console.warn('Could not auto-heal CENRO profile in layout:', error);
+  }
+}
 
 LogBox.ignoreLogs([
   'You are initializing Firebase Auth for React Native without providing AsyncStorage',
@@ -136,12 +166,21 @@ function RootLayoutNav() {
       if (!isMounted) return;
       if (isCictoEmail(user.email)) {
         setUserRole('cicto');
+        if (!userSnap.exists()) {
+          ensureCictoProfileInFirestore(user.uid, user.email || 'cicto@trashtrack.gov.ph', user.displayName || 'CICTO Super Admin');
+        }
       } else if (userSnap.exists()) {
         const r = String(userSnap.data()?.role || 'user');
         setUserRole(r);
       } else {
-        const isKnownAdmin = user.email?.toLowerCase().startsWith('admin@') || user.email?.toLowerCase().startsWith('cenro@');
-        setUserRole(isKnownAdmin ? 'admin' : 'user');
+        const emailLower = (user.email || '').toLowerCase();
+        const isKnownAdmin = emailLower.startsWith('admin@') || emailLower.startsWith('cenro@') || emailLower.includes('admin') || emailLower.includes('cenro');
+        if (isKnownAdmin) {
+          setUserRole('admin');
+          ensureCenroProfileInFirestore(user.uid, user.email || 'admin@admin.com', user.displayName || 'CENRO Admin');
+        } else {
+          setUserRole('user');
+        }
       }
       setRoleResolvedForUid(user.uid);
       setRoleLoading(false);
@@ -182,14 +221,18 @@ function RootLayoutNav() {
         router.replace('/auth' as any);
       }
     } else if (isAuthenticated) {
+      const emailLower = (user?.email || '').toLowerCase();
       const isCenroAdmin =
         userRole === 'admin' ||
         userRole === 'cenro' ||
         userRole === 'coordinator' ||
-        userRole === 'cenro_officer';
+        userRole === 'cenro_officer' ||
+        emailLower.startsWith('admin@') ||
+        emailLower.startsWith('cenro@');
       const isCictoAdmin =
         userRole === 'cicto' ||
-        userRole === 'cicto_admin';
+        userRole === 'cicto_admin' ||
+        isCictoEmail(emailLower);
 
       // Authenticated access
       if (segmentStr === 'admin' || segmentStr.toLowerCase() === 'cenro') {

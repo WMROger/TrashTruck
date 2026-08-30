@@ -69,56 +69,37 @@ export async function ensureCictoProfileInFirestore(
   if (!db) return;
   try {
     const userRef = doc(db, "users", uid);
-    const snap = await getDoc(userRef);
-
-    if (!snap.exists()) {
-      await setDoc(
-        userRef,
-        {
-          uid,
-          email,
-          displayName,
-          name: displayName,
-          role: "cicto",
-          verified: true,
-          status: "active",
-          department:
-            "City Information and Communications Technology Office (CICTO Danao)",
-          agency: "CICTO Danao City",
-          permissions: [
-            "system.oversight",
-            "fleet.audit",
-            "users.manage",
-            "data.export",
-            "cenro.command",
-            "rewards.reconcile",
-          ],
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          lastLogin: serverTimestamp(),
-        },
-        { merge: true },
-      );
-      console.log(
-        "✅ CICTO Admin profile successfully created in Firestore:",
+    await setDoc(
+      userRef,
+      {
+        uid,
         email,
-      );
-    } else {
-      const data = snap.data();
-      if (data?.role !== "cicto") {
-        await setDoc(
-          userRef,
-          {
-            role: "cicto",
-            verified: true,
-            status: "active",
-            agency: "CICTO Danao City",
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
-      }
-    }
+        displayName,
+        name: displayName,
+        role: "cicto",
+        verified: true,
+        status: "active",
+        department:
+          "City Information and Communications Technology Office (CICTO Danao)",
+        agency: "CICTO Danao City",
+        permissions: [
+          "system.oversight",
+          "fleet.audit",
+          "users.manage",
+          "data.export",
+          "cenro.command",
+          "rewards.reconcile",
+        ],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    console.log(
+      "✅ CICTO Admin profile successfully created in Firestore:",
+      email,
+    );
   } catch (error) {
     console.warn("Could not ensure CICTO profile in Firestore:", error);
   }
@@ -135,8 +116,8 @@ export async function loginOrBootstrapCictoAccount(
     throw new Error("Firebase Auth is not initialized.");
   }
 
-  const emailToUse =
-    customEmail || CICTO_ADMIN_CONFIG.primaryEmail;
+  const rawEmail = (customEmail || CICTO_ADMIN_CONFIG.primaryEmail).trim().toLowerCase();
+  const emailToUse = rawEmail.includes('@') ? rawEmail : CICTO_ADMIN_CONFIG.primaryEmail;
   const passwordToUse =
     customPassword || CICTO_ADMIN_CONFIG.defaultPassword;
 

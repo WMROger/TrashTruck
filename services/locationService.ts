@@ -482,12 +482,9 @@ class LocationService {
     }
 
     try {
-      await addDoc(collection(db, 'client_activity'), payload);
-      try {
-        await addDoc(collection(db, 'audit_logs'), { ...payload, type: 'client' });
-      } catch {}
+      await addDoc(collection(db, 'audit_logs'), { ...payload, type: 'client' });
     } catch (err) {
-      console.warn('Error writing trip point to client_activity:', err);
+      console.warn('Error writing trip point to audit_logs:', err);
     }
 
     this.lastHistoryAt = now;
@@ -538,13 +535,10 @@ class LocationService {
         recordedAtClient: new Date(now).toISOString(),
         createdAt: serverTimestamp(),
       };
-      await addDoc(collection(db, 'client_activity'), alertPayload);
-      try {
-        await addDoc(collection(db, 'audit_logs'), alertPayload);
-      } catch {}
+      await addDoc(collection(db, 'audit_logs'), alertPayload);
       this.lastAlertAt[type] = now;
     } catch (err) {
-      console.warn('Error writing fleet alert to client_activity:', err);
+      console.warn('Error writing fleet alert to audit_logs:', err);
     }
   }
 

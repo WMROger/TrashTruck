@@ -183,25 +183,36 @@ export async function sendCenroWelcomeEmail(params: CenroWelcomeEmailParams): Pr
 
   if (webhookUrl && !webhookUrl.includes('localhost:5678')) {
     try {
+      const payload = {
+        action: 'send_admin_welcome_email',
+        from: 'Trash Track <noreply@trashtrack.gov.ph>',
+        to: params.toEmail,
+        toEmail: params.toEmail,
+        email: params.toEmail,
+        subject,
+        html: htmlContent,
+        htmlBody: htmlContent,
+        body: htmlContent,
+        temporaryPassword: params.temporaryPassword,
+        password: params.temporaryPassword,
+        adminName: params.adminName || 'CENRO Administrator',
+        department: params.department || 'City Environment & Natural Resources Office',
+        designation: params.designation || 'CENRO Administrator',
+        credentials: {
+          email: params.toEmail,
+          password: params.temporaryPassword,
+          portal: '/cenro',
+        },
+      };
+
       await fetch(webhookUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'send_admin_welcome_email',
-          from: 'Trash Track <noreply@trashtrack.gov.ph>',
-          to: params.toEmail,
-          subject,
-          html: htmlContent,
-          credentials: {
-            email: params.toEmail,
-            password: params.temporaryPassword,
-            portal: '/cenro',
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
-      console.log('✅ Welcome email dispatched successfully via email webhook');
+      console.log(`✅ Welcome email dispatched successfully via email webhook to ${params.toEmail}`);
       dispatched = true;
     } catch (webhookError) {
       console.warn('Email webhook dispatch warning:', webhookError);
