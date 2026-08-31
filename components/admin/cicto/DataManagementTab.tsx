@@ -14,6 +14,7 @@ import {
   CictoOversightSnapshot,
   getCictoOversightSnapshot,
 } from '@/services/cictoOversightService';
+import { DANAO_CITY_BARANGAYS } from '@/constants/danaoBarangays';
 
 export default function DataManagementTab() {
   const [data, setData] = useState<CictoOversightSnapshot | null>(null);
@@ -56,15 +57,8 @@ export default function DataManagementTab() {
       const { collection, doc, writeBatch, serverTimestamp } = await import('firebase/firestore');
       const batch = writeBatch(db);
 
-      // 21 Danao Barangays
-      const barangays = [
-        'Poblacion', 'Suba', 'Looc', 'Sabang', 'Guinsay', 'Maslog', 'Taytay',
-        'Tuburan Sur', 'Cogon-Cruz', 'Baliang', 'Cabungahan', 'Cambanay',
-        'Dunggoan', 'Guinacot', 'Ibo', 'Lawaan', 'Malapoc', 'Manlayag',
-        'Mantija', 'Quisol', 'Santican'
-      ];
-
-      for (const bName of barangays) {
+      // All 42 Official Danao City Barangays
+      for (const bName of DANAO_CITY_BARANGAYS) {
         const slug = bName.toLowerCase().replace(/[^a-z0-9]/g, '_');
         batch.set(doc(db, 'barangays', slug), {
           name: bName,
@@ -121,7 +115,7 @@ export default function DataManagementTab() {
       }, { merge: true });
 
       await batch.commit();
-      setSeedSuccess('✅ 21 Danao Barangays, Souvenir Catalog, and Fleet Trucks successfully seeded!');
+      setSeedSuccess('✅ All 42 Danao Barangays, Souvenir Catalog, and Fleet Trucks successfully seeded!');
       await load();
     } catch (e: any) {
       setError(e?.message || 'Bootstrap failed.');
