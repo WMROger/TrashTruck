@@ -41,44 +41,55 @@ export default function DriverSchedulePage() {
       where('assignedDriverId', '==', currentUser.uid)
     );
     
-    const unsubscribe = onSnapshot(allSchedulesQuery, (snapshot) => {
-      let todayList: ScheduleItem[] = [];
-      let tomorrowList: ScheduleItem[] = [];
-      
-      const today = new Date();
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      const todayString = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-      const tomorrowString = tomorrow.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
+    const unsubscribe = onSnapshot(
+      allSchedulesQuery,
+      (snapshot) => {
+        let todayList: ScheduleItem[] = [];
+        let tomorrowList: ScheduleItem[] = [];
         
-        if (data.status === 'pending' || !data.status) {
-          const item = {
-            id: doc.id,
-            street: data.street || 'Unknown Street',
-            wasteCategory: data.wasteCategory || 'General',
-            timeText: data.timeText || 'Unknown Time',
-            dateText: data.dateText || 'Unknown Date'
-          };
-
-          if (data.dateText === todayString || data.dateText === 'Today') {
-            todayList.push(item);
-          } else if (data.dateText === tomorrowString || data.dateText === 'Tomorrow') {
-            tomorrowList.push(item);
+        const today = new Date();
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const todayString = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        const tomorrowString = tomorrow.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          if (data.status === 'pending' || !data.status) {
+            const item = {
+              id: doc.id,
+              street: data.street || 'Unknown Street',
+              wasteCategory: data.wasteCategory || 'General',
+              timeText: data.timeText || 'Unknown Time',
+              dateText: data.dateText || 'Unknown Date',
+              status: data.status || 'pending',
+              barangay: data.barangay || 'Unknown Barangay',
+            };
+            
+            if (data.dateText === todayString || data.dateText === 'Today') {
+              todayList.push(item);
+            } else if (data.dateText === tomorrowString || data.dateText === 'Tomorrow') {
+              tomorrowList.push(item);
+            }
           }
+        });
+        
+        todayList.sort((a, b) => a.timeText.localeCompare(b.timeText));
+        tomorrowList.sort((a, b) => a.timeText.localeCompare(b.timeText));
+        
+        setTodaySchedules(todayList);
+        setTomorrowSchedules(tomorrowList);
+        setLoading(false);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverSchedulePage: listener error:', error);
         }
-      });
-      
-      todayList.sort((a, b) => a.timeText.localeCompare(b.timeText));
-      tomorrowList.sort((a, b) => a.timeText.localeCompare(b.timeText));
-      
-      setTodaySchedules(todayList);
-      setTomorrowSchedules(tomorrowList);
-      setLoading(false);
-    });
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);

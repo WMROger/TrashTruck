@@ -33,32 +33,41 @@ export default function DriverHistoryPage() {
       where('status', 'in', ['completed', 'issue'])
     );
 
-    const unsubscribe = onSnapshot(historyQuery, (snapshot) => {
-      const groupedData: Record<string, HistoryItem[]> = {};
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
+    const unsubscribe = onSnapshot(
+      historyQuery,
+      (snapshot) => {
+        const groupedData: Record<string, HistoryItem[]> = {};
         
-        const timestamp = data.completedAt || data.issueReportedAt || new Date();
-          const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
-          const monthKey = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        snapshot.forEach((doc) => {
+          const data = doc.data();
           
-          if (!groupedData[monthKey]) {
-            groupedData[monthKey] = [];
-          }
-          
-        groupedData[monthKey].push({
-            id: doc.id,
-            street: data.street || 'Unknown Street',
-            wasteCategory: data.wasteCategory || 'General',
-            month: monthKey,
-            completionImage: (data.status === 'issue' ? data.issueImage : data.completionImage) || undefined
+          const timestamp = data.completedAt || data.issueReportedAt || new Date();
+            const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+            const monthKey = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            
+            if (!groupedData[monthKey]) {
+              groupedData[monthKey] = [];
+            }
+            
+          groupedData[monthKey].push({
+              id: doc.id,
+              street: data.street || 'Unknown Street',
+              wasteCategory: data.wasteCategory || 'General',
+              month: monthKey,
+              completionImage: (data.status === 'issue' ? data.issueImage : data.completionImage) || undefined
+          });
         });
-      });
-      
-      setHistoryData(groupedData);
-      setLoading(false);
-    });
+        
+        setHistoryData(groupedData);
+        setLoading(false);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverHistoryPage: listener error:', error);
+        }
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);

@@ -31,6 +31,11 @@ export function useAuth() {
         return;
       }
 
+      // Only show loading spinner on initial auth resolution, not on re-subscription.
+      // This prevents isAuthenticated from briefly flickering to false during
+      // Firestore re-subscription, which would cause the routing guard to
+      // redirect authenticated users back to splash/auth.
+
       const emailStr = (currentUser.email || '').toLowerCase();
       const isKnownStaff =
         isCictoEmail(emailStr) ||
@@ -43,7 +48,12 @@ export function useAuth() {
         setIsFirestoreVerified(true);
       }
 
-      setLoading(true);
+      if (loading) {
+        // Keep loading true only during the very first auth resolution
+      } else {
+        // Already resolved once — do NOT reset loading to true.
+        // Re-subscribing to Firestore should not cause a loading flicker.
+      }
       const userRef = doc(db, 'users', currentUser.uid);
       userUnsub = onSnapshot(userRef, (snap) => {
         if (snap.exists()) {

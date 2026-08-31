@@ -17,11 +17,19 @@ export default function DriverInbox() {
   useEffect(() => {
     if (!user?.uid || !db) return;
     const notificationsQuery = query(collection(db, 'userNotifications'), where('userId', '==', user.uid));
-    return onSnapshot(notificationsQuery, snapshot => {
-      const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as DriverNotification));
-      rows.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-      setNotifications(rows);
-    });
+    return onSnapshot(
+      notificationsQuery,
+      (snapshot: any) => {
+        const rows = snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as DriverNotification));
+        rows.sort((a: any, b: any) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        setNotifications(rows);
+      },
+      (error: any) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverInbox: notifications listener error:', error);
+        }
+      }
+    );
   }, [user?.uid]);
 
   const markRead = (id: string) => updateDoc(doc(db, 'userNotifications', id), { read: true, readAt: serverTimestamp() });

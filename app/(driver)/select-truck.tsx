@@ -52,30 +52,39 @@ export default function SelectTruckScreen() {
       return;
     }
 
-    const unsubscribe = onSnapshot(collection(db, 'trucks'), (snapshot) => {
-      const truckList: Truck[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        truckList.push({
-          id: docSnap.id,
-          plateNumber: data.plateNumber || 'N/A',
-          type: data.type || 'Unknown',
-          capacity: data.capacity || '0',
-          status: data.status || 'active',
-          assignedDriverId: data.assignedDriverId || undefined,
-          assignedDriverName: data.assignedDriverName || undefined,
-          shiftStartedAt: data.shiftStartedAt || undefined,
-          createdAt: data.createdAt,
+    const unsubscribe = onSnapshot(
+      collection(db, 'trucks'),
+      (snapshot) => {
+        const truckList: Truck[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          truckList.push({
+            id: docSnap.id,
+            plateNumber: data.plateNumber || 'N/A',
+            type: data.type || 'Unknown',
+            capacity: data.capacity || '0',
+            status: data.status || 'active',
+            assignedDriverId: data.assignedDriverId || undefined,
+            assignedDriverName: data.assignedDriverName || undefined,
+            shiftStartedAt: data.shiftStartedAt || undefined,
+            createdAt: data.createdAt,
+          });
         });
-      });
 
-      // Sort: active first, then maintenance, then out_of_service
-      const statusOrder: Record<string, number> = { active: 0, maintenance: 1, out_of_service: 2 };
-      truckList.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+        // Sort: active first, then maintenance, then out_of_service
+        const statusOrder: Record<string, number> = { active: 0, maintenance: 1, out_of_service: 2 };
+        truckList.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
 
-      setTrucks(truckList);
-      setLoading(false);
-    });
+        setTrucks(truckList);
+        setLoading(false);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('SelectTruck: trucks listener error:', error);
+        }
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);

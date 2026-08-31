@@ -377,14 +377,8 @@ export default function LoadingPage() {
             router.replace('/admin/dashboard' as any);
           }
         } else if (role === 'driver') {
-          const hasActiveShift = userData?.dutyStatus === 'on_duty' || userData?.status === 'on_duty' || !!userData?.currentTruckId;
-          if (hasActiveShift) {
-            console.log('Driver user with active shift detected, redirecting to driver interface');
-            router.replace('/(driver)' as any);
-          } else {
-            console.log('Driver user off-duty, redirecting to resident home');
-            router.replace('/(tabs)/home' as any);
-          }
+          console.log('Driver user detected, redirecting to driver interface');
+          router.replace('/(driver)' as any);
         } else {
           console.log('Regular user detected, redirecting to home');
           router.replace('/(tabs)/home' as any);

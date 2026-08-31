@@ -72,13 +72,21 @@ export default function DriverRouteMap() {
 
   useEffect(() => {
     if (!user?.uid || !db) return;
-    return onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        const u = docSnap.data();
-        const b = (u.assignedBarangay || u.barangay || '').trim();
-        if (b) setDriverAssignedBarangay(b);
+    return onSnapshot(
+      doc(db, 'users', user.uid),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const u = docSnap.data();
+          const b = (u.assignedBarangay || u.barangay || '').trim();
+          if (b) setDriverAssignedBarangay(b);
+        }
+      },
+      (err) => {
+        if (err?.code !== 'permission-denied') {
+          console.warn('RouteMap: user doc listener error:', err);
+        }
       }
-    });
+    );
   }, [user?.uid]);
 
   const handleToggleSimulation = async () => {
@@ -163,14 +171,22 @@ export default function DriverRouteMap() {
 
   useEffect(() => {
     if (!user?.uid || !db) return;
-    return onSnapshot(doc(db, 'truck_locations', user.uid), snapshot => {
-      const data = snapshot.data();
-      const latitude = data?.lat ?? data?.location?.latitude;
-      const longitude = data?.lng ?? data?.location?.longitude;
-      setTruckCoordinate(Number.isFinite(latitude) && Number.isFinite(longitude)
-        ? { latitude: Number(latitude), longitude: Number(longitude) }
-        : null);
-    });
+    return onSnapshot(
+      doc(db, 'truck_locations', user.uid),
+      snapshot => {
+        const data = snapshot.data();
+        const latitude = data?.lat ?? data?.location?.latitude;
+        const longitude = data?.lng ?? data?.location?.longitude;
+        setTruckCoordinate(Number.isFinite(latitude) && Number.isFinite(longitude)
+          ? { latitude: Number(latitude), longitude: Number(longitude) }
+          : null);
+      },
+      error => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('RouteMap: truck_locations listener error:', error);
+        }
+      }
+    );
   }, [user?.uid]);
 
   const selectedStop = stops.find(stop => stop.id === selectedId) || stops[0] || null;

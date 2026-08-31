@@ -196,7 +196,13 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (loading || (user && (roleLoading || roleResolvedForUid !== user?.uid))) return;
+
     const currentSegment = segments[0];
+    const secondSegment = segments[1];
+
+    // Never hijack the (auth)/loading screen — it runs its own sign-in flow
+    // with progress animation and navigates when complete.
+    if (currentSegment === '(auth)' && secondSegment === 'loading') return;
 
     const segmentStr = String(currentSegment || '');
     if (!isAuthenticated) {
@@ -258,13 +264,10 @@ function RootLayoutNav() {
             currentSegment === 'auth' ||
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login' ||
+            currentSegment === '(tabs)' ||
             !currentSegment
           ) {
-            if (driverHasShift) {
-              router.replace('/(driver)' as any);
-            } else {
-              router.replace('/(tabs)/home' as any);
-            }
+            router.replace('/(driver)' as any);
           }
         } else if (isCenroAdmin) {
           if (

@@ -76,17 +76,25 @@ export default function DriverIndex() {
       where('read', '==', false)
     );
 
-    const unsub = onSnapshot(qNotifs, (snap) => {
-      if (!snap.empty) {
-        const firstDoc = snap.docs[0];
-        const data = firstDoc.data();
-        setActiveToastAlert({
-          id: firstDoc.id,
-          title: data.title || '🚨 New Pickup Added to Route',
-          message: data.message || 'A new verified citizen report was slotted into your route.',
-        });
+    const unsub = onSnapshot(
+      qNotifs,
+      (snap) => {
+        if (!snap.empty) {
+          const firstDoc = snap.docs[0];
+          const data = firstDoc.data();
+          setActiveToastAlert({
+            id: firstDoc.id,
+            title: data.title || '🚨 New Pickup Added to Route',
+            message: data.message || 'A new verified citizen report was slotted into your route.',
+          });
+        }
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverIndex: notifs listener error:', error);
+        }
       }
-    });
+    );
 
     return () => unsub();
   }, [user]);
@@ -137,49 +145,57 @@ export default function DriverIndex() {
       collection(db, 'schedules'),
       where('assignedDriverId', '==', currentUser.uid)
     );
-    const unsubscribeNextPickup = onSnapshot(nextPickupQuery, (snapshot) => {
-      let todayPickups: NextPickup[] = [];
-      let liveDispatchesData: NextPickup[] = [];
-      const todayString = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
+    const unsubscribeNextPickup = onSnapshot(
+      nextPickupQuery,
+      (snapshot) => {
+        let todayPickups: NextPickup[] = [];
+        let liveDispatchesData: NextPickup[] = [];
+        const todayString = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
         
-        if (data.status === 'pending' || data.status === 'in_progress' || !data.status) {
-          if (data.barangay && typeof data.barangay === 'string' && data.barangay.trim()) {
-            setAssignedBarangay(data.barangay.trim());
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          if (data.status === 'pending' || data.status === 'in_progress' || !data.status) {
+            if (data.barangay && typeof data.barangay === 'string' && data.barangay.trim()) {
+              setAssignedBarangay(data.barangay.trim());
+            }
+            if (data.isLiveDispatch) {
+              liveDispatchesData.push({
+                id: doc.id,
+                street: data.street || 'Unknown Street',
+                wasteCategory: data.wasteCategory || 'General',
+                timeText: data.timeText || 'ASAP',
+                dateText: data.dateText || 'Unknown Date',
+                status: data.status || 'pending',
+                isLiveDispatch: true,
+                routeOrder: data.routeOrder || 0
+              });
+            } else if (data.dateText === todayString || data.dateText === 'Today') {
+              todayPickups.push({
+                id: doc.id,
+                street: data.street || 'Unknown Street',
+                wasteCategory: data.wasteCategory || 'General',
+                timeText: data.timeText || 'Unknown Time',
+                dateText: data.dateText || 'Unknown Date',
+                status: data.status || 'pending',
+                isLiveDispatch: false,
+              });
+            }
           }
-          if (data.isLiveDispatch) {
-            liveDispatchesData.push({
-              id: doc.id,
-              street: data.street || 'Unknown Street',
-              wasteCategory: data.wasteCategory || 'General',
-              timeText: data.timeText || 'ASAP',
-              dateText: data.dateText || 'Unknown Date',
-              status: data.status || 'pending',
-              isLiveDispatch: true,
-              routeOrder: data.routeOrder || 0
-            });
-          } else if (data.dateText === todayString || data.dateText === 'Today') {
-            todayPickups.push({
-              id: doc.id,
-              street: data.street || 'Unknown Street',
-              wasteCategory: data.wasteCategory || 'General',
-              timeText: data.timeText || 'Unknown Time',
-              dateText: data.dateText || 'Unknown Date',
-              status: data.status || 'pending',
-              isLiveDispatch: false,
-            });
-          }
-        }
-      });
-      
-      todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
-      setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
+        });
+        
+        todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
+        setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
 
-      liveDispatchesData.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
-      setLiveDispatches(liveDispatchesData);
-    });
+        liveDispatchesData.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
+        setLiveDispatches(liveDispatchesData);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverIndex: next pickup listener error:', error);
+        }
+      }
+    );
 
     // Fetch History
     const historyQuery = query(
@@ -188,30 +204,39 @@ export default function DriverIndex() {
       where('status', 'in', ['completed', 'issue'])
     );
 
-    const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
-      const historyList: HistoryItem[] = [];
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
+    const unsubscribeHistory = onSnapshot(
+      historyQuery,
+      (snapshot) => {
+        const historyList: HistoryItem[] = [];
         
-        const isIssue = data.status === 'issue';
-          const combinedTimestamp = data.completedAt || data.issueReportedAt || new Date();
-        historyList.push({
-            id: doc.id,
-            street: data.street || 'Unknown Street',
-            wasteCategory: data.wasteCategory || 'General',
-            completedAt: combinedTimestamp,
-            status: isIssue ? 'issue' : 'completed',
-            completionImage: (isIssue ? data.issueImage : data.completionImage) || null
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          const isIssue = data.status === 'issue';
+            const combinedTimestamp = data.completedAt || data.issueReportedAt || new Date();
+          historyList.push({
+              id: doc.id,
+              street: data.street || 'Unknown Street',
+              wasteCategory: data.wasteCategory || 'General',
+              completedAt: combinedTimestamp,
+              status: isIssue ? 'issue' : 'completed',
+              completionImage: (isIssue ? data.issueImage : data.completionImage) || null
+          });
         });
-      });
-      
-      const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
-      historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
-      
-      setHistoryItems(historyList.slice(0, 5));
-      setLoading(false);
-    });
+        
+        const toMillis = (ts: any) => ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
+        historyList.sort((a, b) => toMillis(b.completedAt) - toMillis(a.completedAt));
+        
+        setHistoryItems(historyList.slice(0, 5));
+        setLoading(false);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverIndex: history listener error:', error);
+        }
+        setLoading(false);
+      }
+    );
 
     return () => {
       unsubscribeNextPickup();
@@ -224,36 +249,52 @@ export default function DriverIndex() {
     const currentUid = auth?.currentUser?.uid || user?.uid;
     if (!db || !currentUid) return;
 
-    const unsubUser = onSnapshot(doc(db, 'users', currentUid), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const b = (data.assignedBarangay || data.barangay || '').trim();
-        if (b) {
-          setAssignedBarangay(b);
+    const unsubUser = onSnapshot(
+      doc(db, 'users', currentUid),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const b = (data.assignedBarangay || data.barangay || '').trim();
+          if (b) {
+            setAssignedBarangay(b);
+          }
+          if (data.currentTruckId) {
+            // Listen to the truck document for real-time info
+            const unsubTruck = onSnapshot(
+              doc(db, 'trucks', data.currentTruckId),
+              (truckSnap) => {
+                if (truckSnap.exists()) {
+                  const truckData = truckSnap.data();
+                  setCurrentTruck({
+                    id: truckSnap.id,
+                    plateNumber: truckData.plateNumber || 'Unknown',
+                    type: truckData.type || 'Truck',
+                  });
+                  setIsShiftActive(true);
+                } else {
+                  setCurrentTruck(null);
+                  setIsShiftActive(false);
+                }
+              },
+              (truckErr) => {
+                if (truckErr?.code !== 'permission-denied') {
+                  console.warn('DriverIndex: truck listener error:', truckErr);
+                }
+              }
+            );
+            return () => unsubTruck();
+          } else {
+            setCurrentTruck(null);
+            setIsShiftActive(false);
+          }
         }
-        if (data.currentTruckId) {
-          // Listen to the truck document for real-time info
-          const unsubTruck = onSnapshot(doc(db, 'trucks', data.currentTruckId), (truckSnap) => {
-            if (truckSnap.exists()) {
-              const truckData = truckSnap.data();
-              setCurrentTruck({
-                id: truckSnap.id,
-                plateNumber: truckData.plateNumber || 'Unknown',
-                type: truckData.type || 'Truck',
-              });
-              setIsShiftActive(true);
-            } else {
-              setCurrentTruck(null);
-              setIsShiftActive(false);
-            }
-          });
-          return () => unsubTruck();
-        } else {
-          setCurrentTruck(null);
-          setIsShiftActive(false);
+      },
+      (userErr) => {
+        if (userErr?.code !== 'permission-denied') {
+          console.warn('DriverIndex: user doc listener error:', userErr);
         }
       }
-    });
+    );
 
     return () => unsubUser();
   }, [user?.uid, auth?.currentUser?.uid]);

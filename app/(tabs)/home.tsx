@@ -147,83 +147,92 @@ export default function HomePage() {
       return;
     }
 
-    const unsub = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
-      const schedules: any[] = [];
-      snap.forEach((d) => {
-        const data = d.data();
-        if (data.barangayName === userBarangay) {
-          schedules.push({ id: d.id, ...data });
-        }
-      });
-
-      if (schedules.length === 0) {
-        setNextCollection(null);
-        return;
-      }
-
-      const DOW_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      let closest: { date: Date; wasteCategory: string; timeText: string } | null = null;
-
-      // Search the next 60 days for the closest scheduled collection
-      for (let offset = 0; offset < 60; offset++) {
-        const checkDate = new Date(today);
-        checkDate.setDate(today.getDate() + offset);
-        const dowStr = DOW_MAP[checkDate.getDay()];
-        const key = `${checkDate.getFullYear()}-${(checkDate.getMonth() + 1).toString().padStart(2, '0')}-${checkDate.getDate().toString().padStart(2, '0')}`;
-
-        for (const s of schedules) {
-          let isMatch = s.days && s.days.includes(dowStr);
-          let category = s.wasteCategory || 'BIODEGRADABLE';
-          let time = (s.dayTimes && s.dayTimes[dowStr]) || s.time || s.timeText || s.collectionTime || '06:00 AM';
-
-          const specificMatch = (s.specificSchedules || []).find((ss: any) => {
-            if (!ss.date) return false;
-            const monthNames = ["January", "February", "March", "April", "May", "June",
-              "July", "August", "September", "October", "November", "December"];
-            const monthName = monthNames[checkDate.getMonth()];
-            const shortMonthName = monthName.substring(0, 3);
-            const monthDD = `${monthName} ${checkDate.getDate()}`;
-            const shortMonthDD = `${shortMonthName} ${checkDate.getDate()}`;
-            const mmdd = `${(checkDate.getMonth() + 1).toString().padStart(2, '0')}/${checkDate.getDate().toString().padStart(2, '0')}`;
-            const dText = ss.date.trim().toLowerCase();
-            return dText === mmdd.toLowerCase() ||
-              dText === key.toLowerCase() ||
-              dText === monthDD.toLowerCase() ||
-              dText === shortMonthDD.toLowerCase();
-          });
-
-          if (specificMatch) {
-            isMatch = true;
-            category = specificMatch.category || category;
-            time = specificMatch.time || time;
+    const unsub = onSnapshot(
+      collection(db, 'barangay_schedules'),
+      (snap) => {
+        const schedules: any[] = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          if (data.barangayName === userBarangay) {
+            schedules.push({ id: d.id, ...data });
           }
+        });
 
-          if (isMatch) {
-            if (!closest) {
-              closest = { date: checkDate, wasteCategory: category, timeText: time };
+        if (schedules.length === 0) {
+          setNextCollection(null);
+          return;
+        }
+
+        const DOW_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        let closest: { date: Date; wasteCategory: string; timeText: string } | null = null;
+
+        // Search the next 60 days for the closest scheduled collection
+        for (let offset = 0; offset < 60; offset++) {
+          const checkDate = new Date(today);
+          checkDate.setDate(today.getDate() + offset);
+          const dowStr = DOW_MAP[checkDate.getDay()];
+          const key = `${checkDate.getFullYear()}-${(checkDate.getMonth() + 1).toString().padStart(2, '0')}-${checkDate.getDate().toString().padStart(2, '0')}`;
+
+          for (const s of schedules) {
+            let isMatch = s.days && s.days.includes(dowStr);
+            let category = s.wasteCategory || 'BIODEGRADABLE';
+            let time = (s.dayTimes && s.dayTimes[dowStr]) || s.time || s.timeText || s.collectionTime || '06:00 AM';
+
+            const specificMatch = (s.specificSchedules || []).find((ss: any) => {
+              if (!ss.date) return false;
+              const monthNames = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+              const monthName = monthNames[checkDate.getMonth()];
+              const shortMonthName = monthName.substring(0, 3);
+              const monthDD = `${monthName} ${checkDate.getDate()}`;
+              const shortMonthDD = `${shortMonthName} ${checkDate.getDate()}`;
+              const mmdd = `${(checkDate.getMonth() + 1).toString().padStart(2, '0')}/${checkDate.getDate().toString().padStart(2, '0')}`;
+              const dText = ss.date.trim().toLowerCase();
+              return dText === mmdd.toLowerCase() ||
+                dText === key.toLowerCase() ||
+                dText === monthDD.toLowerCase() ||
+                dText === shortMonthDD.toLowerCase();
+            });
+
+            if (specificMatch) {
+              isMatch = true;
+              category = specificMatch.category || category;
+              time = specificMatch.time || time;
             }
-            break;
-          }
-        }
-        if (closest) break;
-      }
 
-      if (closest) {
-        const c = closest as { date: Date; wasteCategory: string; timeText: string };
-        const diffDays = Math.round((c.date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        let dateLabel = '';
-        if (diffDays === 0) dateLabel = 'Today';
-        else if (diffDays === 1) dateLabel = 'Tomorrow';
-        else {
-          dateLabel = c.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            if (isMatch) {
+              if (!closest) {
+                closest = { date: checkDate, wasteCategory: category, timeText: time };
+              }
+              break;
+            }
+          }
+          if (closest) break;
         }
-        setNextCollection({ dateLabel, timeText: c.timeText, wasteCategory: c.wasteCategory });
-      } else {
+
+        if (closest) {
+          const c = closest as { date: Date; wasteCategory: string; timeText: string };
+          const diffDays = Math.round((c.date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          let dateLabel = '';
+          if (diffDays === 0) dateLabel = 'Today';
+          else if (diffDays === 1) dateLabel = 'Tomorrow';
+          else {
+            dateLabel = c.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+          }
+          setNextCollection({ dateLabel, timeText: c.timeText, wasteCategory: c.wasteCategory });
+        } else {
+          setNextCollection(null);
+        }
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: barangay_schedules listener error:', error);
+        }
         setNextCollection(null);
       }
-    });
+    );
 
     return () => unsub();
   }, [userBarangay]);
@@ -364,19 +373,27 @@ export default function HomePage() {
       collection(db, "reports"),
       where("userId", "==", user.uid)
     );
-    const unsub = onSnapshot(q, (snap) => {
-      const items: any[] = [];
-      snap.forEach((d) => {
-        items.push({ id: d.id, ...d.data() });
-      });
-      // Sort client-side to avoid Firebase composite index requirement
-      items.sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return dateB - dateA;
-      });
-      setUserReports(items);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items: any[] = [];
+        snap.forEach((d) => {
+          items.push({ id: d.id, ...d.data() });
+        });
+        // Sort client-side to avoid Firebase composite index requirement
+        items.sort((a, b) => {
+          const dateA = new Date(a.createdAt).getTime();
+          const dateB = new Date(b.createdAt).getTime();
+          return dateB - dateA;
+        });
+        setUserReports(items);
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: user reports listener error:', error);
+        }
+      }
+    );
     return () => unsub();
   }, [user?.uid]);
 
@@ -387,24 +404,48 @@ export default function HomePage() {
     const ownedRedemptions = query(collection(db, 'reward_redemptions'), where('userId', '==', user.uid));
     const ownedSchedules = query(collection(db, 'schedules'), where('userId', '==', user.uid));
 
-    const unsubscribeAwards = onSnapshot(ownedAwards, snapshot => {
-      setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
-    });
-    const unsubscribeRedemptions = onSnapshot(ownedRedemptions, snapshot => {
-      setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0));
-    });
-    const unsubscribeSchedules = onSnapshot(ownedSchedules, snapshot => {
-      const measuredTons = snapshot.docs.reduce((sum, item) => {
-        const schedule = item.data();
-        if (!['completed', 'done'].includes(String(schedule.status || '').toLowerCase())) return sum;
-        const measurement = schedule.collectionMeasurement;
-        const value = Number(measurement?.value || 0);
-        const unit = String(measurement?.unit || '');
-        if (!(value > 0) || !['kg', 'ton', 'm3'].includes(unit)) return sum;
-        return sum + toMetricTons(value, unit as WasteMeasurementUnit);
-      }, 0);
-      setTrashCollectedTons(measuredTons);
-    });
+    const unsubscribeAwards = onSnapshot(
+      ownedAwards,
+      snapshot => {
+        setEarnedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().tokens || 0)), 0));
+      },
+      error => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: reward_awards listener error:', error);
+        }
+      }
+    );
+    const unsubscribeRedemptions = onSnapshot(
+      ownedRedemptions,
+      snapshot => {
+        setRedeemedRewardTokens(snapshot.docs.reduce((sum, item) => sum + Math.max(0, Number(item.data().cost || 0)), 0));
+      },
+      error => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: reward_redemptions listener error:', error);
+        }
+      }
+    );
+    const unsubscribeSchedules = onSnapshot(
+      ownedSchedules,
+      snapshot => {
+        const measuredTons = snapshot.docs.reduce((sum, item) => {
+          const schedule = item.data();
+          if (!['completed', 'done'].includes(String(schedule.status || '').toLowerCase())) return sum;
+          const measurement = schedule.collectionMeasurement;
+          const value = Number(measurement?.value || 0);
+          const unit = String(measurement?.unit || '');
+          if (!(value > 0) || !['kg', 'ton', 'm3'].includes(unit)) return sum;
+          return sum + toMetricTons(value, unit as WasteMeasurementUnit);
+        }, 0);
+        setTrashCollectedTons(measuredTons);
+      },
+      error => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: schedules listener error:', error);
+        }
+      }
+    );
 
     return () => {
       unsubscribeAwards();
@@ -451,7 +492,9 @@ export default function HomePage() {
         setNotifications(items);
       },
       (error) => {
-        console.warn("User notifications snapshot listener warning:", error);
+        if (error?.code !== 'permission-denied') {
+          console.warn('Home: userNotifications listener error:', error);
+        }
       }
     );
     return () => unsub();

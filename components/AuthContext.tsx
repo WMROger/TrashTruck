@@ -30,7 +30,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userDocRef,
       snapshot => {
         const profile = snapshot.data();
-        if (profile?.disabled === true || profile?.status === 'disabled' || profile?.status === 'inactive') {
+        if (
+          profile?.disabled === true ||
+          profile?.status === 'disabled' ||
+          (profile?.role === 'user' && profile?.status === 'inactive')
+        ) {
           signOut(firebaseAuth).catch(error => console.warn('Unable to end deactivated account session:', error));
           return;
         }

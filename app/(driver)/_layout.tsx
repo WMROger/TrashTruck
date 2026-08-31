@@ -73,13 +73,21 @@ export default function DriverLayout() {
   useEffect(() => {
     if (!user?.uid || !db) return;
     const assignedQuery = query(collection(db, 'schedules'), where('assignedDriverId', '==', user.uid));
-    const unsubscribeSchedules = onSnapshot(assignedQuery, snapshot => {
-      const active = snapshot.docs.filter(schedule => ['pending', 'in-progress'].includes(String(schedule.data().status)));
-      setActiveRouteCount(active.length);
-      setActiveScheduleIds(active.map(schedule => schedule.id));
-      const savedPolyline = active.find(schedule => Array.isArray(schedule.data().routeOptimization?.roadPolyline))?.data().routeOptimization?.roadPolyline || [];
-      setRoutePolyline(savedPolyline.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)));
-    });
+    const unsubscribeSchedules = onSnapshot(
+      assignedQuery,
+      snapshot => {
+        const active = snapshot.docs.filter(schedule => ['pending', 'in-progress'].includes(String(schedule.data().status)));
+        setActiveRouteCount(active.length);
+        setActiveScheduleIds(active.map(schedule => schedule.id));
+        const savedPolyline = active.find(schedule => Array.isArray(schedule.data().routeOptimization?.roadPolyline))?.data().routeOptimization?.roadPolyline || [];
+        setRoutePolyline(savedPolyline.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)));
+      },
+      error => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverLayout: schedules listener error:', error);
+        }
+      }
+    );
     const unsubscribeNetwork = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) syncOfflineDriverActions();
     });

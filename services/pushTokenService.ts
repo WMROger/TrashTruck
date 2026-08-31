@@ -7,33 +7,37 @@ import { Platform } from 'react-native';
 
 export async function registerDeviceForFcm(userId: string): Promise<{ registered: boolean; reason?: string }> {
   if (!userId || Platform.OS !== 'android') return { registered: false, reason: 'android-only' };
-  if (Constants.appOwnership === 'expo') {
+  if (Constants.appOwnership === 'expo' || (Constants as any).executionEnvironment === 'storeClient') {
     return { registered: false, reason: 'expo-go-not-supported' };
   }
-  const settings = await getDoc(doc(db, 'user_settings', userId));
-  if (settings.data()?.notificationPreferences?.pushEnabled === false) return { registered: false, reason: 'disabled-by-user' };
+  try {
+    const settings = await getDoc(doc(db, 'user_settings', userId));
+    if (settings.data()?.notificationPreferences?.pushEnabled === false) return { registered: false, reason: 'disabled-by-user' };
 
-  await Notifications.setNotificationChannelAsync('trashtrack-alerts', {
-    name: 'TrashTrack Alerts',
-    importance: Notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 250, 200, 250],
-  });
-  let permission = await Notifications.getPermissionsAsync();
-  if (permission.status !== 'granted') permission = await Notifications.requestPermissionsAsync();
-  if (permission.status !== 'granted') return { registered: false, reason: 'permission-denied' };
+    await Notifications.setNotificationChannelAsync('trashtrack-alerts', {
+      name: 'TrashTrack Alerts',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 200, 250],
+    });
+    let permission = await Notifications.getPermissionsAsync();
+    if (permission.status !== 'granted') permission = await Notifications.requestPermissionsAsync();
+    if (permission.status !== 'granted') return { registered: false, reason: 'permission-denied' };
 
-  const nativeToken = await Notifications.getDevicePushTokenAsync();
-  const token = typeof nativeToken.data === 'string' ? nativeToken.data : JSON.stringify(nativeToken.data);
-  if (!token) return { registered: false, reason: 'missing-token' };
-  const deviceId = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token);
-  await setDoc(doc(db, 'users', userId, 'devices', deviceId), {
-    token,
-    tokenType: 'fcm',
-    platform: 'android',
-    enabled: true,
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-  return { registered: true };
+    const nativeToken = await Notifications.getDevicePushTokenAsync();
+    const token = typeof nativeToken.data === 'string' ? nativeToken.data : JSON.stringify(nativeToken.data);
+    if (!token) return { registered: false, reason: 'missing-token' };
+    const deviceId = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token);
+    await setDoc(doc(db, 'users', userId, 'devices', deviceId), {
+      token,
+      tokenType: 'fcm',
+      platform: 'android',
+      enabled: true,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    return { registered: true };
+  } catch (err: any) {
+    return { registered: false, reason: err?.message || 'registration-failed' };
+  }
 }
 
 export async function setFcmPushEnabled(userId: string, enabled: boolean) {
