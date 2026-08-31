@@ -11,6 +11,9 @@ import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/fires
 import { useEffect, useState } from 'react';
 import { LogBox, Platform } from 'react-native';
 import { isCictoEmail, ensureCictoProfileInFirestore } from '@/constants/cictoConfig';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 async function ensureCenroProfileInFirestore(
   uid: string,
@@ -91,10 +94,25 @@ function RootLayoutNav() {
   const { loading, isAuthenticated, user } = useAuthContext();
   const segments = useSegments();
   const router = useRouter();
+  const [isLayoutMounted, setIsLayoutMounted] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [roleLoading, setRoleLoading] = useState(false);
   const [roleResolvedForUid, setRoleResolvedForUid] = useState<string | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  const [loaded, fontError] = useFonts({
+    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+  });
+
+  useEffect(() => {
+    setIsLayoutMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (loaded || fontError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [loaded, fontError]);
 
   // Listen for mustChangePassword and 24-hour snooze time limit on authenticated user profile
   useEffect(() => {
@@ -197,10 +215,11 @@ function RootLayoutNav() {
   }, [user?.uid]);
 
   useEffect(() => {
-    if (loading || (user && (roleLoading || roleResolvedForUid !== user?.uid))) return;
+    if (!isLayoutMounted || (!loaded && !fontError) || loading || (user && (roleLoading || roleResolvedForUid !== user?.uid))) return;
 
-    const currentSegment = segments[0];
-    const secondSegment = segments[1];
+    const segmentList = segments as string[];
+    const currentSegment = segmentList[0];
+    const secondSegment = segmentList[1];
 
     // Never hijack the (auth)/loading screen — it runs its own sign-in flow
     // with progress animation and navigates when complete.
@@ -243,19 +262,19 @@ function RootLayoutNav() {
 
       // Authenticated access
       if (segmentStr === 'admin' || segmentStr.toLowerCase() === 'cenro') {
-        if (segments[1] === 'dashboard') {
+        if (secondSegment === 'dashboard') {
           if (!isCenroAdmin) {
             router.replace('/cenro' as any);
           }
-        } else if (isCenroAdmin && (segmentStr.toLowerCase() === 'cenro' || segments[1] === 'login' || !segments[1])) {
+        } else if (isCenroAdmin && (segmentStr.toLowerCase() === 'cenro' || secondSegment === 'login' || secondSegment === 'index' || !secondSegment)) {
           router.replace('/admin/dashboard' as any);
         }
       } else if (segmentStr.toLowerCase() === 'cicto') {
-        if (segments[1] === 'dashboard') {
+        if (secondSegment === 'dashboard') {
           if (!isCictoAdmin) {
             router.replace('/cicto' as any);
           }
-        } else if (isCictoAdmin && (segments.length === 1 || segments[1] === 'login')) {
+        } else if (isCictoAdmin && (segmentList.length === 1 || secondSegment === 'login' || secondSegment === 'index' || !secondSegment)) {
           router.replace('/cicto/dashboard' as any);
         }
       } else {
@@ -266,7 +285,7 @@ function RootLayoutNav() {
             currentSegment === 'auth' ||
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login' ||
-            (!currentSegment && segments.length === 0)
+            (!currentSegment && segmentList.length === 0)
           ) {
             if (driverHasShift) {
               router.replace('/(driver)' as any);
@@ -359,15 +378,6 @@ function RootLayoutNav() {
       };
     }
   }, [segments]);
-
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  if (!loaded || loading) {
-    // Async font loading only occurs in development.
-    return null;
-  }
 
   return (
     <>

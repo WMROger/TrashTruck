@@ -5,7 +5,7 @@ import PortalLoginForm from '@/components/admin/PortalLoginForm';
 import { ActivityIndicator, View } from 'react-native';
 
 export default function CenroPortalPage() {
-  const { user, loading, isAuthenticated } = useAuthContext();
+  const { loading } = useAuthContext();
 
   if (loading) {
     return (
@@ -13,10 +13,6 @@ export default function CenroPortalPage() {
         <ActivityIndicator size="large" color="#10B981" />
       </View>
     );
-  }
-
-  if (isAuthenticated && user) {
-    return <Redirect href="/admin/dashboard" />;
   }
 
   return <PortalLoginForm portal="cenro" />;

@@ -42,21 +42,19 @@ export class ScheduleNotificationService {
     }
   }
 
-  static parseScheduleDate(dateText: string): Date | null {
+  static parseScheduleDate(dateText?: string): Date | null {
     try {
       if (!dateText || typeof dateText !== 'string') {
-        console.warn('Invalid dateText provided:', dateText);
         return null;
       }
 
       // Clean up the input
       const cleanText = dateText.trim();
+      if (!cleanText) return null;
       
       // Parse dateText like "August 17, 2025" or "September 22, 2025"
       const date = new Date(cleanText);
       if (isNaN(date.getTime())) {
-        console.warn('Could not parse date with standard constructor:', dateText);
-        
         // Try manual parsing for US long format
         const match = cleanText.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
         if (match) {
@@ -67,18 +65,14 @@ export class ScheduleNotificationService {
           if (monthIndex !== -1) {
             const manualDate = new Date(parseInt(match[3]), monthIndex, parseInt(match[2]));
             if (!isNaN(manualDate.getTime())) {
-              console.log('Manual parsing succeeded for:', dateText);
               return manualDate;
             }
           }
         }
-        
-        console.error('Invalid date format:', dateText);
         return null;
       }
       return date;
-    } catch (error) {
-      console.error('Error parsing schedule date:', dateText, error);
+    } catch {
       return null;
     }
   }
@@ -88,8 +82,9 @@ export class ScheduleNotificationService {
       const scheduledNotifications = await NotificationService.getScheduledNotifications();
       
       for (const notification of scheduledNotifications) {
-        if (notification.content.data?.scheduleId && 
-            scheduleIds.includes(String(notification.content.data.scheduleId))) {
+        const data = notification.content.data as Record<string, any> | undefined;
+        const scheduleId = data?.scheduleId ? String(data.scheduleId) : null;
+        if (scheduleId && scheduleIds.includes(scheduleId)) {
           await NotificationService.cancelNotification(notification.identifier);
         }
       }
@@ -98,8 +93,23 @@ export class ScheduleNotificationService {
     }
   }
 
-  static async upsertScheduleNotifications(schedule: ScheduleData) {
+  static async upsertScheduleNotifications(schedule: ScheduleData & { specificSchedules?: any[] }) {
     try {
+      if (Array.isArray(schedule.specificSchedules) && schedule.specificSchedules.length > 0) {
+        for (const item of schedule.specificSchedules) {
+          const date = this.parseScheduleDate(item.dateText || item.date);
+          if (date) {
+            await NotificationService.upsertPickupReminders({
+              id: `${schedule.id}_${item.dateText || item.date}`,
+              date,
+              time: item.timeText || schedule.timeText,
+              type: item.wasteCategory || schedule.wasteCategory,
+            });
+          }
+        }
+        return;
+      }
+
       const date = this.parseScheduleDate(schedule.dateText);
       if (!date) return;
       await NotificationService.upsertPickupReminders({

@@ -90,7 +90,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) return;
 
-      if (isCictoEmail(currentUser.email)) {
+      if (isCicto && isCictoEmail(currentUser.email)) {
         router.replace('/cicto/dashboard' as any);
         return;
       }
