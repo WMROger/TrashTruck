@@ -11,13 +11,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   useWindowDimensions,
 } from 'react-native';
+import * as NavigationBar from 'expo-navigation-bar';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updatePassword, User } from 'firebase/auth';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, User } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
+import { takePendingAuthRequest } from '@/services/pendingAuthService';
 
 interface RequireChangePasswordModalProps {
   visible: boolean;
@@ -35,6 +38,8 @@ export default function RequireChangePasswordModal({
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -46,6 +51,8 @@ export default function RequireChangePasswordModal({
   // Reset state when modal becomes visible
   useEffect(() => {
     if (visible) {
+      setCurrentPassword('');
+      setShowCurrentPassword(false);
       setNewPassword('');
       setConfirmPassword('');
       setShowNewPassword(false);
@@ -54,6 +61,18 @@ export default function RequireChangePasswordModal({
       setIsSnoozing(false);
       setErrorMessage(null);
     }
+  }, [visible]);
+
+  // Adjust Android system navigation bar button contrast when modal is visible
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    try {
+      if (visible) {
+        NavigationBar.setButtonStyleAsync('light').catch(() => {});
+      } else {
+        NavigationBar.setButtonStyleAsync('dark').catch(() => {});
+      }
+    } catch {}
   }, [visible]);
 
   // Password verification procedure & requirements analysis
@@ -117,10 +136,34 @@ export default function RequireChangePasswordModal({
 
     setIsSubmitting(true);
     try {
-      // 1. Update Firebase Auth password directly
+      // 1. If current password is provided, re-authenticate to refresh the auth timestamp
+      if (currentPassword.trim() && currentUser.email) {
+        try {
+          const cred = EmailAuthProvider.credential(currentUser.email, currentPassword.trim());
+          await reauthenticateWithCredential(currentUser, cred);
+        } catch (reauthErr: any) {
+          if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-mismatch'].includes(reauthErr?.code)) {
+            setErrorMessage('The current / temporary password entered is incorrect.');
+            setIsSubmitting(false);
+            return;
+          }
+          throw reauthErr;
+        }
+      } else {
+        // Attempt automatic reauth if a recent credential was stored in memory
+        const pending = takePendingAuthRequest();
+        if (pending?.kind === 'email' && pending.password && currentUser.email) {
+          try {
+            const cred = EmailAuthProvider.credential(currentUser.email, pending.password);
+            await reauthenticateWithCredential(currentUser, cred);
+          } catch {}
+        }
+      }
+
+      // 2. Update Firebase Auth password
       await updatePassword(currentUser, newPassword);
 
-      // 2. Mark mustChangePassword as false and clear snooze in Firestore
+      // 3. Mark mustChangePassword as false and clear snooze in Firestore
       try {
         const userRef = doc(db, 'users', currentUser.uid);
         await updateDoc(userRef, {
@@ -132,7 +175,7 @@ export default function RequireChangePasswordModal({
         console.warn('Could not update Firestore mustChangePassword flag:', firestoreErr);
       }
 
-      // 3. Clear local storage snooze
+      // 4. Clear local storage snooze
       try {
         await AsyncStorage.removeItem(`@trashtrack_pwd_snooze_${currentUser.uid}`);
       } catch {}
@@ -152,7 +195,9 @@ export default function RequireChangePasswordModal({
       if (error?.code === 'auth/weak-password') {
         msg = 'The password chosen does not satisfy Firebase security strength requirements.';
       } else if (error?.code === 'auth/requires-recent-login') {
-        msg = 'Session expired. Please sign in again and set your new password.';
+        msg = 'Please enter your current temporary password in the top field to confirm this change.';
+      } else if (error?.code === 'auth/wrong-password' || error?.code === 'auth/invalid-credential') {
+        msg = 'The current temporary password entered is incorrect.';
       }
       setErrorMessage(msg);
     } finally {
@@ -199,16 +244,20 @@ export default function RequireChangePasswordModal({
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent hardwareAccelerated>
+      <StatusBar backgroundColor="rgba(15, 23, 42, 0.75)" barStyle="light-content" />
+      <View style={styles.fullScreenOverlay}>
+        <KeyboardAvoidingView
+          style={styles.centeredContent}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
         <View style={[styles.card, isMobile && { width: '92%', padding: 20 }]}>
           <ScrollView
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.scrollContent}
+            bounces={false}
           >
             {/* Header Badge & Title */}
             <View style={styles.headerIconContainer}>
@@ -232,6 +281,39 @@ export default function RequireChangePasswordModal({
 
             {/* Form Fields */}
             <View style={styles.formContainer}>
+              {/* Current / Temporary Password Field */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  CURRENT / TEMPORARY PASSWORD
+                </Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter current / temporary password"
+                    placeholderTextColor="#94A3B8"
+                    value={currentPassword}
+                    onChangeText={t => {
+                      setCurrentPassword(t);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    secureTextEntry={!showCurrentPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowCurrentPassword(prev => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons
+                      name={showCurrentPassword ? 'visibility-off' : 'visibility'}
+                      size={20}
+                      color="#64748B"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               {/* New Password Field */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>
@@ -432,18 +514,31 @@ export default function RequireChangePasswordModal({
                   </>
                 )}
               </TouchableOpacity>
+
+              {/* Extra bottom spacing so content is reachable above the keyboard */}
+              <View style={{ height: 40 }} />
             </View>
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  fullScreenOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    zIndex: 9999,
+    elevation: 50,
+  },
+  centeredContent: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,

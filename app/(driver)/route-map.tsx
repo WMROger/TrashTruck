@@ -69,6 +69,7 @@ export default function DriverRouteMap() {
   }, []);
 
   const [driverAssignedBarangay, setDriverAssignedBarangay] = useState<string>('Poblacion');
+  const [isShiftActive, setIsShiftActive] = useState<boolean>(false);
 
   useEffect(() => {
     if (!user?.uid || !db) return;
@@ -79,6 +80,8 @@ export default function DriverRouteMap() {
           const u = docSnap.data();
           const b = (u.assignedBarangay || u.barangay || '').trim();
           if (b) setDriverAssignedBarangay(b);
+          const active = Boolean(u.dutyStatus === 'on_duty' || u.status === 'on_duty' || u.currentTruckId);
+          setIsShiftActive(active);
         }
       },
       (err) => {
@@ -392,9 +395,27 @@ export default function DriverRouteMap() {
               ))}
             </ScrollView>
 
-            <TouchableOpacity style={styles.completeButton} onPress={() => setShowCompleteModal(true)}>
-              <MaterialIcons name="photo-camera" size={19} color="#FFFFFF" />
-              <Text style={styles.completeButtonText}>Complete this pickup</Text>
+            <TouchableOpacity
+              style={[styles.completeButton, !isShiftActive && { backgroundColor: '#64748B' }]}
+              onPress={() => {
+                if (!isShiftActive) {
+                  Alert.alert(
+                    'Off-Duty Notice',
+                    'You are currently off duty. Please start your shift and select a truck before completing pickups.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Start Shift', onPress: () => router.push('/(driver)/select-truck') }
+                    ]
+                  );
+                  return;
+                }
+                setShowCompleteModal(true);
+              }}
+            >
+              <MaterialIcons name={isShiftActive ? "photo-camera" : "lock"} size={19} color="#FFFFFF" />
+              <Text style={styles.completeButtonText}>
+                {isShiftActive ? "Complete this pickup" : "Viewing Mode (Off Duty)"}
+              </Text>
             </TouchableOpacity>
           </>
         )}

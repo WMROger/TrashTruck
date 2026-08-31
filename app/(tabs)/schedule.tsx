@@ -7,9 +7,21 @@ import { useTheme } from '@/hooks/useTheme';
 import { ScheduleData, ScheduleNotificationService } from '@/services/scheduleNotificationService';
 import { collection, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Dimensions,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from '@/components/MapView';
+import MapView, { Marker, Polyline } from '@/components/MapView';
+import LiveTruckMarker from '@/components/LiveTruckMarker';
+import { locationService } from '@/services/locationService';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { Calendar } from 'react-native-calendars';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -39,7 +51,15 @@ export default function ScheduleScreen() {
   const [selectedPickup, setSelectedPickup] = useState<RawSchedule | null>(null);
   const [showMapZoom, setShowMapZoom] = useState(false);
   const [truckLocations, setTruckLocations] = useState<any[]>([]);
+  const [truckTrails, setTruckTrails] = useState<Record<string, Array<{ latitude: number; longitude: number }>>>({});
   const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(false);
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    const t = setTimeout(() => setTracksViewChanges(false), 1000);
+    return () => clearTimeout(t);
+  }, [truckLocations.length, showMapZoom]);
 
   const formatMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const startOfWeekIndex = (d: Date) => {
@@ -216,32 +236,144 @@ export default function ScheduleScreen() {
       setRawSchedules(rows);
     });
 
-    // Subscribe to live truck locations
-    const unsubTrucks = onSnapshot(collection(db, 'truck_locations'), (snap) => {
-      const trucks: any[] = [];
-      snap.forEach(doc => {
-        const data = doc.data();
-        const latitude = data.location?.latitude ?? data.lat;
-        const longitude = data.location?.longitude ?? data.lng;
-        const lastUpdatedAt = data.lastUpdate?.toDate?.() || data.timestamp?.toDate?.() || null;
-        if (data.status === 'active' && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-           trucks.push({
-             id: doc.id,
-             ...data,
-             location: { latitude, longitude },
-             lastUpdatedAt,
-             isStale: !lastUpdatedAt || Date.now() - lastUpdatedAt.getTime() > 120000,
-           });
+    // Subscribe to live truck locations and record movement trails
+    const unsubTrucks = onSnapshot(
+      collection(db, 'truck_locations'),
+      (snap) => {
+        const trucks: any[] = [];
+        setTruckTrails((prevTrails) => {
+          const updatedTrails = { ...prevTrails };
+
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const latRaw =
+              data.location?.latitude ??
+              data.location?.lat ??
+              data.lat ??
+              data.latitude;
+            const lngRaw =
+              data.location?.longitude ??
+              data.location?.lng ??
+              data.lng ??
+              data.longitude;
+            const latitude = Number(latRaw);
+            const longitude = Number(lngRaw);
+            const lastUpdatedAt =
+              data.lastUpdate?.toDate?.() || data.timestamp?.toDate?.() || null;
+
+            const isInactive =
+              data.status === 'inactive' ||
+              data.status === 'completed' ||
+              data.status === 'off_duty';
+
+            if (
+              !isInactive &&
+              Number.isFinite(latitude) &&
+              Number.isFinite(longitude) &&
+              latitude !== 0 &&
+              longitude !== 0
+            ) {
+              const currentCoord = { latitude, longitude };
+              trucks.push({
+                id: docSnap.id,
+                ...data,
+                location: currentCoord,
+                lastUpdatedAt,
+                isStale:
+                  !lastUpdatedAt || Date.now() - lastUpdatedAt.getTime() > 180000,
+              });
+
+              // If the document has a backend recentTrail, use it
+              if (Array.isArray(data.recentTrail) && data.recentTrail.length > 0) {
+                updatedTrails[docSnap.id] = data.recentTrail.map((p: any) => ({
+                  latitude: Number(p.latitude ?? p.lat),
+                  longitude: Number(p.longitude ?? p.lng),
+                }));
+              } else {
+                // Otherwise append locally
+                const existing = updatedTrails[docSnap.id] || [];
+                if (existing.length === 0) {
+                  updatedTrails[docSnap.id] = [currentCoord];
+                } else {
+                  const last = existing[existing.length - 1];
+                  const dist = Math.hypot(
+                    last.latitude - currentCoord.latitude,
+                    last.longitude - currentCoord.longitude
+                  );
+                  if (dist > 0.00005) {
+                    updatedTrails[docSnap.id] = [
+                      ...existing,
+                      currentCoord,
+                    ].slice(-40);
+                  }
+                }
+              }
+            }
+          });
+
+          return updatedTrails;
+        });
+
+        setTruckLocations(trucks);
+      },
+      (err) => {
+        if (err?.code !== 'permission-denied') {
+          console.warn('schedule.tsx truck_locations listener error:', err);
         }
-      });
-      setTruckLocations(trucks);
-    });
+      }
+    );
 
     return () => {
       unsub();
       unsubTrucks();
     };
   }, [userBarangay]);
+
+  // Listen to live local simulation engine as well
+  useEffect(() => {
+    return locationService.onSimulationChange((simState) => {
+      if (simState.isActive && simState.currentCoordinate) {
+        setTruckLocations((current) => {
+          const simTruck = {
+            id: simState.driverId || 'active_sim_truck',
+            driverId: simState.driverId,
+            driverName: simState.driverId ? 'Assigned Driver' : 'Collection Truck',
+            truckPlate: simState.truckId || 'TRUCK-01',
+            location: simState.currentCoordinate,
+            speedKph: simState.currentSpeedKph,
+            heading: 0,
+            status: 'active',
+            locationName: simState.locationName,
+            isStale: false,
+            lastUpdatedAt: new Date(),
+          };
+          const others = current.filter((t) => t.id !== simTruck.id);
+          return [simTruck, ...others];
+        });
+
+        if (simState.currentCoordinate) {
+          setTruckTrails((prev) => {
+            const id = simState.driverId || 'active_sim_truck';
+            const existing = prev[id] || [];
+            const last = existing[existing.length - 1];
+            if (
+              !last ||
+              Math.hypot(
+                last.latitude - simState.currentCoordinate!.latitude,
+                last.longitude - simState.currentCoordinate!.longitude
+              ) > 0.00005
+            ) {
+              return {
+                ...prev,
+                [id]: [...existing, simState.currentCoordinate!].slice(-40),
+              };
+            }
+            return prev;
+          });
+        }
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -437,6 +569,52 @@ export default function ScheduleScreen() {
     return dates;
   }, [monthScheduleDates, selectedDate, CATEGORY_COLORS, colors]);
 
+  const isDark = theme === 'dark';
+
+  const renderTruckMarker = (truck: any, isZoomed: boolean = false) => {
+    const isStale = Boolean(truck.isStale);
+    const speed = truck.speedKph
+      ? Math.round(truck.speedKph)
+      : truck.speed
+      ? Math.round(truck.speed * 3.6)
+      : 0;
+
+    return (
+      <Marker
+        key={truck.id}
+        coordinate={{
+          latitude: truck.location?.latitude || 10.5217,
+          longitude: truck.location?.longitude || 124.0253,
+        }}
+        title={truck.driverName || 'Trash Collection Truck'}
+        description={
+          isStale
+            ? `Idle • Last update ${truck.lastUpdatedAt?.toLocaleTimeString() || 'recently'}`
+            : `Active Collection • ${speed ? `${speed} km/h` : 'Moving'} • ${truck.locationName || 'Danao Route'}`
+        }
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={tracksViewChanges}
+      >
+        <LiveTruckMarker
+          plateNumber={
+            truck.plateNumber ||
+            truck.truckPlate ||
+            truck.currentTruckPlate ||
+            truck.truckNumber ||
+            truck.plate ||
+            truck.truckId
+          }
+          driverName={truck.driverName}
+          speedKph={speed}
+          heading={truck.heading || 0}
+          isStale={isStale}
+          isZoomed={isZoomed}
+          locationName={truck.locationName}
+        />
+      </Marker>
+    );
+  };
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.contentContainer}
@@ -468,40 +646,47 @@ export default function ScheduleScreen() {
             style={styles.mapImage}
             initialRegion={{
               latitude: 10.5217,
-              longitude: 124.0253, // Danao, Cebu
-              latitudeDelta: 0.05,
-              longitudeDelta: 0.05,
+              longitude: 124.0253, // Danao City Hub & Central Routes
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
             }}
             pitchEnabled={false}
             rotateEnabled={false}
             scrollEnabled={false}
             zoomEnabled={false}
           >
+            {/* Dotted Trails for active trucks */}
+            {Object.entries(truckTrails).map(([truckId, trailCoords]) => {
+              if (!trailCoords || trailCoords.length < 2) return null;
+              return (
+                <React.Fragment key={`trail_prev_${truckId}`}>
+                  <Polyline
+                    coordinates={trailCoords}
+                    strokeColor="rgba(5, 150, 105, 0.25)"
+                    strokeWidth={6}
+                  />
+                  <Polyline
+                    coordinates={trailCoords}
+                    strokeColor="#059669"
+                    strokeWidth={3.5}
+                    lineDashPattern={[8, 8]}
+                  />
+                </React.Fragment>
+              );
+            })}
+
+            {/* Truck Markers */}
             {truckLocations.length > 0 ? (
-              truckLocations.map(truck => (
-                <Marker
-                  key={truck.id}
-                  coordinate={{ 
-                    latitude: truck.location?.latitude || 10.5217, 
-                    longitude: truck.location?.longitude || 124.0253 
-                  }}
-                  title={truck.driverName || "Trash Truck"}
-                  description={truck.isStale ? `Stale location · last update ${truck.lastUpdatedAt?.toLocaleTimeString() || 'unknown'}` : `Last updated: ${truck.lastUpdatedAt?.toLocaleTimeString() || 'just now'}`}
-                >
-                  <View style={{ backgroundColor: truck.isStale ? '#F59E0B' : colors.primary, padding: 6, borderRadius: 20 }}>
-                    <IconSymbol name="car.fill" size={24} color="white" />
-                  </View>
-                </Marker>
-              ))
+              truckLocations.map(truck => renderTruckMarker(truck, false))
             ) : (
               <Marker
                 coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
                 title="Danao City Hub"
-                description="Waiting for active trucks..."
+                description="Collection truck on standby at terminal"
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={tracksViewChanges}
               >
-                <View style={{ backgroundColor: '#6B7280', padding: 6, borderRadius: 20 }}>
-                  <IconSymbol name="building.2.fill" size={24} color="white" />
-                </View>
+                <LiveTruckMarker isStale={true} />
               </Marker>
             )}
           </MapView>
@@ -518,7 +703,7 @@ export default function ScheduleScreen() {
               </>
             ) : (
               <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
-                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>No trucks active right now</Text>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>Standby at Danao Hub</Text>
               </View>
             )}
           </View>
@@ -591,6 +776,43 @@ export default function ScheduleScreen() {
       <View style={styles.infoSection}>
         <Text style={[styles.infoTitle, { color: colors.textSecondary }]}>Pickup Location Info</Text>
 
+        {rawSchedules.length === 0 && userBarangay ? (
+          <View
+            style={[
+              styles.noBarangayScheduleCard,
+              {
+                backgroundColor: isDark ? '#1E293B' : '#FEF3C7',
+                borderColor: isDark ? '#334155' : '#FCD34D',
+              },
+            ]}
+          >
+            <MaterialIcons
+              name="event-busy"
+              size={24}
+              color={isDark ? '#FBBF24' : '#D97706'}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.noBarangayScheduleTitle,
+                  { color: isDark ? '#F8FAFC' : '#92400E' },
+                ]}
+              >
+                Awaiting Schedule for Brgy. {userBarangay}
+              </Text>
+              <Text
+                style={[
+                  styles.noBarangayScheduleSubtitle,
+                  { color: isDark ? '#CBD5E1' : '#B45309' },
+                ]}
+              >
+                CENRO Danao has not yet published regular collection schedules
+                for your barangay. Check back soon or contact CENRO for updates.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {selectedDate ? (
           (monthScheduleDates[`${selectedDate.getFullYear()}-${(selectedDate.getMonth()+1).toString().padStart(2,'0')}-${selectedDate.getDate().toString().padStart(2,'0')}`] || []).length > 0 ? (
             <>
@@ -657,37 +879,44 @@ export default function ScheduleScreen() {
             style={styles.fullscreenMapImage}
             initialRegion={{
               latitude: 10.5217,
-              longitude: 124.0253, // Danao, Cebu
-              latitudeDelta: 0.05,
-              longitudeDelta: 0.05,
+              longitude: 124.0253, // Danao City Hub & Central Routes
+              latitudeDelta: 0.007,
+              longitudeDelta: 0.007,
             }}
             showsUserLocation
           >
+            {/* Dotted Trails for active trucks */}
+            {Object.entries(truckTrails).map(([truckId, trailCoords]) => {
+              if (!trailCoords || trailCoords.length < 2) return null;
+              return (
+                <React.Fragment key={`trail_modal_${truckId}`}>
+                  <Polyline
+                    coordinates={trailCoords}
+                    strokeColor="rgba(5, 150, 105, 0.25)"
+                    strokeWidth={7}
+                  />
+                  <Polyline
+                    coordinates={trailCoords}
+                    strokeColor="#059669"
+                    strokeWidth={4}
+                    lineDashPattern={[8, 8]}
+                  />
+                </React.Fragment>
+              );
+            })}
+
+            {/* Truck Markers */}
             {truckLocations.length > 0 ? (
-              truckLocations.map(truck => (
-                <Marker
-                  key={truck.id}
-                  coordinate={{ 
-                    latitude: truck.location?.latitude || 10.5217, 
-                    longitude: truck.location?.longitude || 124.0253 
-                  }}
-                  title={truck.driverName || "Trash Truck"}
-                  description={truck.isStale ? `Stale location · last update ${truck.lastUpdatedAt?.toLocaleTimeString() || 'unknown'}` : `Last updated: ${truck.lastUpdatedAt?.toLocaleTimeString() || 'just now'}`}
-                >
-                  <View style={{ backgroundColor: truck.isStale ? '#F59E0B' : colors.primary, padding: 8, borderRadius: 20 }}>
-                    <IconSymbol name="car.fill" size={28} color="white" />
-                  </View>
-                </Marker>
-              ))
+              truckLocations.map(truck => renderTruckMarker(truck, true))
             ) : (
               <Marker
                 coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
                 title="Danao City Hub"
-                description="Waiting for active trucks..."
+                description="Collection truck on standby at terminal"
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={tracksViewChanges}
               >
-                <View style={{ backgroundColor: '#6B7280', padding: 8, borderRadius: 20 }}>
-                  <IconSymbol name="building.2.fill" size={28} color="white" />
-                </View>
+                <LiveTruckMarker isStale={true} />
               </Marker>
             )}
           </MapView>
@@ -709,7 +938,7 @@ export default function ScheduleScreen() {
               </>
             ) : (
               <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
-                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>No active trucks</Text>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>Standby at Danao Hub</Text>
               </View>
             )}
           </View>
@@ -1072,6 +1301,108 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  truckMarkerOuter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  truckMarkerHalo: {
+    position: 'absolute',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    opacity: 0.9,
+  },
+  truckMarkerShield: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  truckMarkerPointer: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    marginTop: -1,
+  },
+  truckMarkerLabelPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    maxWidth: 150,
+  },
+  truckMarkerLabelPillDark: {
+    backgroundColor: 'rgba(30, 41, 59, 0.96)',
+    borderColor: '#475569',
+  },
+  truckMarkerStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  truckMarkerLabelText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  truckMarkerLabelTextDark: {
+    color: '#F8FAFC',
+  },
+  hubMarker: {
+    backgroundColor: '#4B5563',
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  noBarangayScheduleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  noBarangayScheduleTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  noBarangayScheduleSubtitle: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: '500',
   },
 });
 

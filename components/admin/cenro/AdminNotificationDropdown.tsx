@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 
@@ -29,6 +30,30 @@ interface AdminNotificationDropdownProps {
   onUnreadCountChange?: (count: number) => void;
 }
 
+const READ_STORAGE_KEY = '@cenro_notif_read_ids';
+
+const TAB_ALIAS_MAP: Record<string, string> = {
+  'reports': 'trash-reports',
+  'trash-reports': 'trash-reports',
+  'routes': 'route-optimization',
+  'route-optimization': 'route-optimization',
+  'fleet': 'fleet-monitoring',
+  'fleet-monitoring': 'fleet-monitoring',
+  'overrides': 'operational-overrides',
+  'operational-overrides': 'operational-overrides',
+  'logs': 'logs',
+  'scheduler': 'collection-scheduler',
+  'collection-scheduler': 'collection-scheduler',
+  'inventory': 'truck-inventory',
+  'truck-inventory': 'truck-inventory',
+  'drivers': 'driver-accounts',
+  'driver-accounts': 'driver-accounts',
+  'feedback': 'service-feedback',
+  'service-feedback': 'service-feedback',
+  'announcements': 'announcements',
+  'dashboard': 'dashboard',
+};
+
 export default function AdminNotificationDropdown({
   visible,
   onClose,
@@ -38,6 +63,32 @@ export default function AdminNotificationDropdown({
   const [notifications, setNotifications] = useState<AdminNotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const readIdsRef = useRef<Set<string>>(new Set());
+  readIdsRef.current = readIds;
+
+  // Load saved read IDs on mount
+  useEffect(() => {
+    AsyncStorage.getItem(READ_STORAGE_KEY)
+      .then((stored) => {
+        if (stored) {
+          try {
+            const arr = JSON.parse(stored);
+            if (Array.isArray(arr)) {
+              const loadedSet = new Set(arr);
+              setReadIds(loadedSet);
+              readIdsRef.current = loadedSet;
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Update parent unread count whenever notifications or readIds change
+  useEffect(() => {
+    const unread = notifications.filter(n => !readIds.has(n.id)).length;
+    onUnreadCountChange?.(unread);
+  }, [notifications, readIds, onUnreadCountChange]);
 
   useEffect(() => {
     if (!db) {
@@ -70,7 +121,7 @@ export default function AdminNotificationDropdown({
         return timeB - timeA;
       });
       setNotifications(all);
-      const unread = all.filter(n => !readIds.has(n.id)).length;
+      const unread = all.filter(n => !readIdsRef.current.has(n.id)).length;
       onUnreadCountChange?.(unread);
       setLoading(false);
     };
@@ -84,7 +135,7 @@ export default function AdminNotificationDropdown({
           title: `New Report: ${data.barangay || 'Danao City'}`,
           subtitle: data.aiAnalysis?.wasteType || data.reportType || data.description || 'Pending waste inspection',
           timestamp: data.createdAt,
-          targetTab: 'reports',
+          targetTab: 'trash-reports',
         };
       });
       updateCombined();
@@ -104,16 +155,16 @@ export default function AdminNotificationDropdown({
 
         if (cat.includes('dispatch') || action.includes('dispatch') || action.includes('route')) {
           notifType = 'dispatch';
-          targetTab = 'routes';
-        } else if (cat.includes('driver') || action.includes('driver') || action.includes('shift')) {
+          targetTab = 'route-optimization';
+        } else if (cat.includes('driver') || action.includes('driver') || action.includes('shift') || cat.includes('fleet')) {
           notifType = 'driver';
-          targetTab = 'fleet';
+          targetTab = 'fleet-monitoring';
         } else if (cat.includes('override')) {
           notifType = 'override';
-          targetTab = 'overrides';
+          targetTab = 'operational-overrides';
         } else if (cat.includes('report')) {
           notifType = 'report';
-          targetTab = 'reports';
+          targetTab = 'trash-reports';
         }
 
         return {
@@ -138,14 +189,22 @@ export default function AdminNotificationDropdown({
   }, []);
 
   const handleItemPress = (notif: AdminNotificationItem) => {
-    setReadIds(prev => new Set(prev).add(notif.id));
-    onNavigateTab(notif.targetTab);
+    const nextRead = new Set(readIds);
+    nextRead.add(notif.id);
+    setReadIds(nextRead);
+    readIdsRef.current = nextRead;
+    AsyncStorage.setItem(READ_STORAGE_KEY, JSON.stringify(Array.from(nextRead))).catch(() => {});
+
+    const resolvedTab = TAB_ALIAS_MAP[notif.targetTab] || notif.targetTab;
+    onNavigateTab(resolvedTab);
     onClose();
   };
 
   const handleMarkAllAsRead = () => {
     const allIds = new Set(notifications.map(n => n.id));
     setReadIds(allIds);
+    readIdsRef.current = allIds;
+    AsyncStorage.setItem(READ_STORAGE_KEY, JSON.stringify(Array.from(allIds))).catch(() => {});
     onUnreadCountChange?.(0);
   };
 

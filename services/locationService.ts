@@ -577,6 +577,10 @@ class LocationService {
         barangay: assignedBarangay || currentPoint.barangay || 'Poblacion',
         locationName: currentPoint.name || `Brgy. ${assignedBarangay || 'Poblacion'} Route`,
         isSimulation: true,
+        recentTrail: this.activeTripPoints.slice(-40).map((p) => ({
+          latitude: p.latitude,
+          longitude: p.longitude,
+        })),
         lastUpdate: serverTimestamp(),
       }, { merge: true });
     } catch (err) {
@@ -725,16 +729,20 @@ class LocationService {
     
     try {
       const truckRef = doc(db, 'truck_locations', driverId);
-      await setDoc(truckRef, {
-        driverId,
-        truckId,
-        lat: coords.latitude,
-        lng: coords.longitude,
-        speed: coords.speed,
-        heading: coords.heading,
-        lastUpdate: serverTimestamp(),
-        status: 'active',
-      });
+      await setDoc(
+        truckRef,
+        {
+          driverId,
+          truckId,
+          lat: coords.latitude,
+          lng: coords.longitude,
+          speed: coords.speed,
+          heading: coords.heading,
+          lastUpdate: serverTimestamp(),
+          status: 'active',
+        },
+        { merge: true }
+      );
       await this.writeTripPoint(driverId, truckId, coords, context, false);
     } catch (error) {
       console.error('Error updating location in Firestore:', error);

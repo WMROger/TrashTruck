@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 
 import { auth, db } from '@/config/firebase';
+import { setPendingEmailAuth } from '@/services/pendingAuthService';
 
 export default function DriverLoginScreen() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function DriverLoginScreen() {
 
     setIsSigningIn(true);
     try {
+      setPendingEmailAuth(normalizedEmail, password);
       const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
       const profileSnapshot = await getDoc(doc(db, 'users', credential.user.uid));
       const profile = profileSnapshot.exists() ? profileSnapshot.data() : null;
@@ -43,8 +45,11 @@ export default function DriverLoginScreen() {
       }
 
       const hasActiveShift = profile?.dutyStatus === 'on_duty' || profile?.status === 'on_duty' || !!profile?.currentTruckId;
-      // Always route drivers to the driver interface — they can select a truck from there
-      router.replace('/(driver)');
+      if (hasActiveShift) {
+        router.replace('/(driver)');
+      } else {
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
       const invalidCredentials = error?.code === 'auth/invalid-credential' ||
         error?.code === 'auth/user-not-found' || error?.code === 'auth/wrong-password';

@@ -46,6 +46,8 @@ LogBox.ignoreLogs([
   'You are initializing Firebase Auth for React Native without providing AsyncStorage',
   'expo-notifications: Android Push notifications',
   '`expo-notifications` functionality is not fully supported in Expo Go',
+  'setBackgroundColorAsync is not supported with edge-to-edge enabled',
+  '`setBackgroundColorAsync` is not supported with edge-to-edge enabled',
   'SafeAreaView has been deprecated',
   'TouchableMixin is deprecated',
   'Invalid DOM property `transform-origin`',
@@ -264,9 +266,15 @@ function RootLayoutNav() {
             currentSegment === 'auth' ||
             currentSegment === '(auth)' ||
             currentSegment === 'driver-login' ||
-            currentSegment === '(tabs)' ||
-            !currentSegment
+            (!currentSegment && segments.length === 0)
           ) {
+            if (driverHasShift) {
+              router.replace('/(driver)' as any);
+            } else {
+              router.replace('/(tabs)/home' as any);
+            }
+          } else if (currentSegment === '(tabs)' && driverHasShift) {
+            // Keep on-duty driver in driver portal to complete their active shift
             router.replace('/(driver)' as any);
           }
         } else if (isCenroAdmin) {

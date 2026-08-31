@@ -27,7 +27,7 @@ import {
 } from 'firebase/firestore';
 
 import { auth, db } from '@/config/firebase';
-import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays } from '@/constants/danaoBarangays';
+import { DANAO_CITY_BARANGAYS, resolveScheduleBarangays, mergeDanaoBarangays } from '@/constants/danaoBarangays';
 import { BARANGAY_COLLECTION_ROUTES } from '@/constants/barangaySimulationRoutes';
 import { locationService, SimulationState } from '@/services/locationService';
 import {
@@ -137,7 +137,7 @@ export default function RouteOptimizationTab() {
     return reports.filter((r) => r.status === 'acknowledged' || (r as any).queuedForDriver === true).length;
   }, [reports]);
 
-  // 1. Subscribe to Collection Schedules for Dynamic Barangays
+  // 1. Subscribe to Collection Schedules for Dynamic Barangays + All Danao City & Report Barangays
   useEffect(() => {
     if (!db) return;
     const unsubSchedules = onSnapshot(collection(db, 'barangay_schedules'), (snap) => {
@@ -148,14 +148,25 @@ export default function RouteOptimizationTab() {
           scheduleNames.add(data.barangayName.trim());
         }
       });
-      const resolved = resolveScheduleBarangays(Array.from(scheduleNames));
+      const reportBarangays = reports.map((r) => r.barangay).filter(Boolean);
+      const resolved = mergeDanaoBarangays([...Array.from(scheduleNames), ...reportBarangays]);
       setAvailableBarangays(resolved);
       if (resolved.length > 0 && (!selectedBarangay || !resolved.includes(selectedBarangay))) {
         setSelectedBarangay(resolved[0]);
       }
     });
     return () => unsubSchedules();
-  }, []);
+  }, [reports]);
+
+  // Also update availableBarangays when reports change
+  useEffect(() => {
+    if (reports.length > 0) {
+      setAvailableBarangays((prev) => {
+        const reportBrs = reports.map((r) => r.barangay).filter(Boolean);
+        return mergeDanaoBarangays([...prev, ...reportBrs]);
+      });
+    }
+  }, [reports]);
 
   // 2. Fetch Trucks Map
   useEffect(() => {
@@ -203,11 +214,14 @@ export default function RouteOptimizationTab() {
     return () => unsubUsers();
   }, []);
 
-  // 4. Fetch Verified Reports
+  // 4. Fetch Verified Reports (including acknowledged and in-progress)
   useEffect(() => {
     if (!db) return;
     const reportsRef = collection(db, 'reports');
-    const qReports = query(reportsRef, where('status', 'in', ['acknowledged', 'in_progress', 'verified']));
+    const qReports = query(
+      reportsRef,
+      where('status', 'in', ['acknowledged', 'in-progress', 'in_progress', 'in progress', 'verified'])
+    );
     const unsubReports = onSnapshot(qReports, (snapshot) => {
       const data: Report[] = [];
       snapshot.forEach((docSnap) => {
@@ -274,18 +288,20 @@ export default function RouteOptimizationTab() {
     return reports.filter((r) => {
       const b = (r.barangay || '').trim().toLowerCase();
       const current = selectedBarangay.trim().toLowerCase();
-      if (b !== current && b !== `${current} city` && !current.includes(b)) {
+      if (b !== current && b !== `${current} city` && !current.includes(b) && !b.includes(current)) {
         return false;
       }
-      if (statusFilter !== 'all' && r.status !== statusFilter) {
+      const normStatus = (r.status || '').toLowerCase().replace(/_/g, '-');
+      const normFilter = statusFilter === 'in_progress' ? 'in-progress' : statusFilter;
+      if (statusFilter !== 'all' && normStatus !== normFilter) {
         return false;
       }
       if (reportSearch.trim()) {
         const q = reportSearch.toLowerCase().trim();
         return (
-          r.title.toLowerCase().includes(q) ||
-          r.street.toLowerCase().includes(q) ||
-          r.description.toLowerCase().includes(q) ||
+          (r.title || '').toLowerCase().includes(q) ||
+          (r.street || '').toLowerCase().includes(q) ||
+          (r.description || '').toLowerCase().includes(q) ||
           (r.aiAnalysis?.wasteType || '').toLowerCase().includes(q)
         );
       }
@@ -691,6 +707,12 @@ export default function RouteOptimizationTab() {
                   ) : (
                     filteredBarangays.map((b) => {
                       const isSelected = selectedBarangay === b;
+                      const bLower = b.trim().toLowerCase();
+                      const bReportCount = reports.filter((r) => {
+                        const rBLower = (r.barangay || '').trim().toLowerCase();
+                        return rBLower === bLower || bLower.includes(rBLower) || rBLower.includes(bLower);
+                      }).length;
+
                       return (
                         <TouchableOpacity
                           key={b}
@@ -718,8 +740,15 @@ export default function RouteOptimizationTab() {
                           >
                             Brgy. {b}
                           </Text>
+                          {bReportCount > 0 && (
+                            <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginLeft: 'auto', marginRight: 6 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#B45309' }}>
+                                {bReportCount} {bReportCount === 1 ? 'Report' : 'Reports'}
+                              </Text>
+                            </View>
+                          )}
                           {isSelected && (
-                            <View style={styles.activePillTag}>
+                            <View style={[styles.activePillTag, bReportCount > 0 && { marginLeft: 0 }]}>
                               <Text style={styles.activePillTagText}>Selected</Text>
                             </View>
                           )}

@@ -140,11 +140,37 @@ export default function DriverIndex() {
     }
 
     const currentUser = auth.currentUser;
-    // Fetch Next Pickup & Live Dispatches
+    // Fetch Next Pickup & Live Dispatches from 'schedules' & 'barangay_schedules'
     const nextPickupQuery = query(
       collection(db, 'schedules'),
       where('assignedDriverId', '==', currentUser.uid)
     );
+
+    let rawDirectPickups: NextPickup[] = [];
+    let rawDirectDispatches: NextPickup[] = [];
+    let rawBarangayPickups: NextPickup[] = [];
+
+    const DOW_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const today = new Date();
+    const todayDOW = today.getDay();
+    const todayShort = DOW_SHORT[todayDOW];
+
+    const recomputePickups = () => {
+      if (rawDirectDispatches.length > 0) {
+        setLiveDispatches(rawDirectDispatches);
+      } else {
+        setLiveDispatches([]);
+      }
+
+      if (rawDirectPickups.length > 0) {
+        setNextPickup(rawDirectPickups[0]);
+      } else if (rawBarangayPickups.length > 0) {
+        setNextPickup(rawBarangayPickups[0]);
+      } else {
+        setNextPickup(null);
+      }
+    };
+
     const unsubscribeNextPickup = onSnapshot(
       nextPickupQuery,
       (snapshot) => {
@@ -170,7 +196,7 @@ export default function DriverIndex() {
                 isLiveDispatch: true,
                 routeOrder: data.routeOrder || 0
               });
-            } else if (data.dateText === todayString || data.dateText === 'Today') {
+            } else if (data.dateText === todayString || data.dateText === 'Today' || !data.dateText) {
               todayPickups.push({
                 id: doc.id,
                 street: data.street || 'Unknown Street',
@@ -185,14 +211,48 @@ export default function DriverIndex() {
         });
         
         todayPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
-        setNextPickup(todayPickups.length > 0 ? todayPickups[0] : null);
-
         liveDispatchesData.sort((a, b) => (a.routeOrder || 0) - (b.routeOrder || 0));
-        setLiveDispatches(liveDispatchesData);
+        rawDirectPickups = todayPickups;
+        rawDirectDispatches = liveDispatchesData;
+        recomputePickups();
       },
       (error) => {
         if (error?.code !== 'permission-denied') {
           console.warn('DriverIndex: next pickup listener error:', error);
+        }
+      }
+    );
+
+    // Also listen to 'barangay_schedules'
+    const unsubBarangaySchedules = onSnapshot(
+      collection(db, 'barangay_schedules'),
+      (snapshot) => {
+        const bPickups: NextPickup[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          const days = Array.isArray(data.days) ? data.days : (Array.isArray(data.selectedDays) ? data.selectedDays : []);
+          const isToday = days.some((day: string) => String(day).toUpperCase().startsWith(todayShort));
+          
+          if (isToday || data.isDaily === true) {
+            const time = (data.dayTimes && data.dayTimes[todayShort]) || data.time || data.timeText || '06:00 AM';
+            bPickups.push({
+              id: `bs_${d.id}`,
+              street: data.streetName || data.street || 'Barangay Route',
+              wasteCategory: data.wasteCategory || 'BIODEGRADABLE',
+              timeText: time,
+              dateText: 'Today',
+              status: 'pending',
+              isLiveDispatch: false,
+            });
+          }
+        });
+        bPickups.sort((a, b) => a.timeText.localeCompare(b.timeText));
+        rawBarangayPickups = bPickups;
+        recomputePickups();
+      },
+      (error) => {
+        if (error?.code !== 'permission-denied') {
+          console.warn('DriverIndex: barangay_schedules listener error:', error);
         }
       }
     );
@@ -240,6 +300,7 @@ export default function DriverIndex() {
 
     return () => {
       unsubscribeNextPickup();
+      unsubBarangaySchedules();
       unsubscribeHistory();
     };
   }, [user]);
@@ -300,16 +361,49 @@ export default function DriverIndex() {
   }, [user?.uid, auth?.currentUser?.uid]);
 
   const handleCompletePickup = (id: string) => {
+    if (!isShiftActive) {
+      Alert.alert(
+        'Off-Duty Notice',
+        'You are currently off duty. Please start your shift and select a truck before completing pickups.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Start Shift', onPress: () => router.push('/(driver)/select-truck') }
+        ]
+      );
+      return;
+    }
     setSelectedPickupId(id);
     setShowCompleteModal(true);
   };
 
   const handleIssuePickup = (id: string) => {
+    if (!isShiftActive) {
+      Alert.alert(
+        'Off-Duty Notice',
+        'You are currently off duty. Please start your shift and select a truck before reporting issues.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Start Shift', onPress: () => router.push('/(driver)/select-truck') }
+        ]
+      );
+      return;
+    }
     setSelectedPickupId(id);
     setShowIssueModal(true);
   };
 
   const handleNavigate = (scheduleId: string) => {
+    if (!isShiftActive) {
+      Alert.alert(
+        'Off-Duty Notice',
+        'You are currently off duty. Please start your shift and select a truck to start live route navigation.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Start Shift', onPress: () => router.push('/(driver)/select-truck') }
+        ]
+      );
+      return;
+    }
     router.push({ pathname: '/(driver)/route-map', params: { scheduleId } });
   };
 
@@ -728,14 +822,21 @@ export default function DriverIndex() {
             </View>
           </View>
           
-          <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.completeBtn} onPress={() => handleCompletePickup(nextPickup.id)}>
-              <Text style={styles.completeBtnText}>Complete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.issueBtn} onPress={() => handleIssuePickup(nextPickup.id)}>
-              <Text style={styles.issueBtnText}>Issue</Text>
-            </TouchableOpacity>
-          </View>
+          {isShiftActive ? (
+            <View style={styles.actionButtons}>
+              <TouchableOpacity style={styles.completeBtn} onPress={() => handleCompletePickup(nextPickup.id)}>
+                <Text style={styles.completeBtnText}>Complete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.issueBtn} onPress={() => handleIssuePickup(nextPickup.id)}>
+                <Text style={styles.issueBtnText}>Issue</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.offDutyNoticeRow}>
+              <Feather name="eye" size={13} color="rgba(255, 255, 255, 0.8)" />
+              <Text style={styles.offDutyNoticeText}>Viewing Mode &bull; Start shift to perform collection actions</Text>
+            </View>
+          )}
         </View>
       ) : (
         <View style={[styles.emptyCard, isDark && styles.emptyDashedDark]}>
@@ -1982,5 +2083,20 @@ const styles = StyleSheet.create({
   },
   toastAlertDismissBtn: {
     padding: 6,
+  },
+  offDutyNoticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.15)',
+    paddingTop: 12,
+    marginTop: 4,
+  },
+  offDutyNoticeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
   },
 });

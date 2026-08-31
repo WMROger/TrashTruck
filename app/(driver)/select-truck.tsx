@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { autoAssignQueuedReportsOnDriverShiftStart } from '@/services/autoDispatchService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
   Alert,
@@ -36,6 +37,7 @@ export default function SelectTruckScreen() {
   const { user } = useAuthContext();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const insets = useSafeAreaInsets();
 
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,10 +272,26 @@ export default function SelectTruckScreen() {
       <StatusBar barStyle="light-content" />
 
       {/* Header */}
-      <View style={[styles.header, isDark && styles.headerDark]}>
-        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-          <Feather name="arrow-left" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
+      <View
+        style={[
+          styles.header,
+          isDark && styles.headerDark,
+          { paddingTop: Math.max(insets.top, StatusBar.currentHeight || 0) + 12 },
+        ]}
+      >
+        <View style={styles.headerTopBar}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleGoBack}
+            hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            activeOpacity={0.7}
+          >
+            <Feather name="arrow-left" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={styles.headerPillTag}>
+            <Text style={styles.headerPillTagText}>Shift Initialization</Text>
+          </View>
+        </View>
 
         <View style={styles.headerContent}>
           <View style={styles.headerTitleRow}>
@@ -530,14 +548,34 @@ const styles = StyleSheet.create({
   headerDark: {
     backgroundColor: '#1A2E23',
   },
+  headerTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  headerPillTag: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  headerPillTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#A7F3D0',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   headerContent: {
     gap: 4,
@@ -555,7 +593,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.8)',
     marginLeft: 38,
   },
 

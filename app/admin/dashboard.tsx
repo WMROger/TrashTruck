@@ -640,15 +640,37 @@ export default function AdminDashboard() {
   };
 
   const handleTabPress = (tab: string) => {
-    if (tab === 'profile-settings') {
+    const tabAliasMap: Record<string, string> = {
+      'reports': 'trash-reports',
+      'trash-reports': 'trash-reports',
+      'routes': 'route-optimization',
+      'route-optimization': 'route-optimization',
+      'fleet': 'fleet-monitoring',
+      'fleet-monitoring': 'fleet-monitoring',
+      'overrides': 'operational-overrides',
+      'operational-overrides': 'operational-overrides',
+      'scheduler': 'collection-scheduler',
+      'collection-scheduler': 'collection-scheduler',
+      'inventory': 'truck-inventory',
+      'truck-inventory': 'truck-inventory',
+      'drivers': 'driver-accounts',
+      'driver-accounts': 'driver-accounts',
+      'feedback': 'service-feedback',
+      'service-feedback': 'service-feedback',
+      'announcements': 'announcements',
+      'dashboard': 'dashboard',
+    };
+    const resolvedTab = tabAliasMap[tab] || tab;
+
+    if (resolvedTab === 'profile-settings') {
       setShowProfileSettingsModal(true);
       return;
     }
 
-    if (tab === activeTab) return; // Don't show loader if clicking the same tab
+    if (resolvedTab === activeTab) return; // Don't show loader if clicking the same tab
     
     setIsTabLoading(true);
-    setActiveTab(tab);
+    setActiveTab(resolvedTab);
     
     // Start spinner animation
     spinValue.setValue(0);
