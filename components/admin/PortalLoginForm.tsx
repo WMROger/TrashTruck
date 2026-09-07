@@ -165,16 +165,24 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
         return;
       } else {
         // --- CENRO PORTAL AUTHENTICATION ---
-        const email = username.includes('@')
-          ? username.trim().toLowerCase()
-          : `${username.trim().toLowerCase()}@admin.com`;
+        const trimmed = username.trim().toLowerCase();
+        let email = trimmed;
+        if (!trimmed.includes('@')) {
+          if (trimmed === 'admin' || trimmed === 'cenro') {
+            email = `${trimmed}@admin.com`;
+          } else {
+            showError('Please enter your full registered email address (e.g. yourname@gmail.com).', 'Invalid Email', 'warning');
+            setIsLoading(false);
+            return;
+          }
+        }
 
         const isKnownAdmin =
           email.startsWith('admin@') ||
           email.startsWith('cenro@') ||
           email.includes('admin') ||
-          username.trim().toLowerCase() === 'admin' ||
-          username.trim().toLowerCase() === 'cenro';
+          trimmed === 'admin' ||
+          trimmed === 'cenro';
 
         if (Platform.OS === 'web' && auth) {
           try {
@@ -201,7 +209,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           const userSnap = await getDoc(userRef);
 
           if (!userSnap.exists()) {
-            if (isKnownAdmin || portal === 'cenro') {
+            if (isKnownAdmin) {
               await ensureCenroProfileInFirestore(user.uid, user.email || email);
               router.replace('/admin/dashboard' as any);
               return;
@@ -215,7 +223,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
           const userData = userSnap.data();
           let userRole = userData.role;
 
-          if ((!userRole || userRole === 'user') && (isKnownAdmin || portal === 'cenro')) {
+          if ((!userRole || userRole === 'user') && isKnownAdmin) {
             await ensureCenroProfileInFirestore(user.uid, user.email || email);
             userRole = 'admin';
           }
@@ -317,7 +325,7 @@ export default function PortalLoginForm({ portal }: PortalLoginFormProps) {
               {/* Login Form */}
               <View style={styles.form}>
                 <AdminInput
-                  placeholder={isCicto ? 'CICTO Username or Email' : 'CENRO Username or Email'}
+                  placeholder={isCicto ? 'CICTO Username or Email' : 'CENRO or Coordinator Email'}
                   value={username}
                   onChangeText={setUsername}
                   icon="person"

@@ -73,6 +73,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         {
           title: "FIELD OPERATIONS",
           items: [
+            { id: "diesel-estimate", label: "TRIP & DIESEL LOG", icon: "local-gas-station" },
             {
               id: "collection-scheduler",
               label: "COLLECTION SCHEDULES",
@@ -140,6 +141,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
         {
           title: "FLEET & PERSONNEL",
           items: [
+            { id: "diesel-estimate", label: "DIESEL ESTIMATE", icon: "local-gas-station" },
             {
               id: "truck-inventory",
               label: "FLEET INVENTORY",

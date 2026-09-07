@@ -17,3 +17,4 @@ export { default as CenroProfileSettingsModal } from './CenroProfileSettingsModa
 export { default as CoordinatorOnboardingTab } from './CoordinatorOnboardingTab';
 export { default as OperationalLogsTab } from './OperationalLogsTab';
 export { default as AdminNotificationDropdown } from './AdminNotificationDropdown';
+export { default as DieselEstimateTab } from './DieselEstimateTab';

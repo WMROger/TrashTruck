@@ -98,7 +98,8 @@ service cloud.firestore {
       'routeOptimization',
       'isLiveDispatch',
       'truckId',
-      'truckPlate'
+      'truckPlate',
+      'dieselClosedAt'
     ]);
   }
 
@@ -210,8 +211,107 @@ service cloud.firestore {
       && request.resource.data.get('driverId', '') == request.auth.uid;
   }
 
+    // Diesel access uses explicit profile roles; coordinators are scoped to their barangay.
+    function dieselManager() {
+      return hasActiveProfile() && userProfile().role in ['admin', 'cenro', 'cenro_officer'];
+    }
+    function dieselCoordinator(barangay) {
+      return hasRole('coordinator') && barangay is string && barangay.size() > 0
+        && userProfile().get('assignedBarangay', userProfile().get('barangay', '')) == barangay;
+    }
+    function dieselReader(data) {
+      return dieselManager() || (hasRole('driver') && data.driverId == request.auth.uid) || dieselCoordinator(data.barangay);
+    }
+    function dieselScheduleReader(scheduleId) {
+      let schedule = get(/databases/$(database)/documents/schedules/$(scheduleId)).data;
+      return dieselManager() || (hasRole('driver') && schedule.assignedDriverId == request.auth.uid)
+        || dieselCoordinator(schedule.barangay);
+    }
+    function validDieselIdentity(scheduleId) {
+      let s = get(/databases/$(database)/documents/schedules/$(scheduleId)).data;
+      let d = request.resource.data;
+      return d.scheduleId == scheduleId && d.driverId == s.assignedDriverId
+        && d.truckId == s.truckId && d.barangay == s.barangay && s.get('isLiveDispatch', false) == true;
+    }
+    function dieselNumber(value, minimum, maximum) {
+      return value is number && value >= minimum && value <= maximum;
+    }
+    function validDieselActual() {
+      let a = request.resource.data.actual;
+      return a.keys().hasOnly(['distanceKm', 'drivingHours', 'idleHours', 'collectionHours', 'averageLoadPercent',
+          'collectedKg', 'actualLiters', 'distanceSource', 'fuelMethod', 'evidence', 'isDemo', 'tripDate'])
+        && dieselNumber(a.distanceKm, 0, 2000) && dieselNumber(a.drivingHours, 0, 24)
+        && dieselNumber(a.idleHours, 0, 24) && dieselNumber(a.collectionHours, 0, 24)
+        && a.drivingHours + a.idleHours + a.collectionHours > 0
+        && a.drivingHours + a.idleHours + a.collectionHours <= 24
+        && dieselNumber(a.averageLoadPercent, 0, 100) && dieselNumber(a.collectedKg, 0, 100000)
+        && a.distanceSource in ['gps', 'odometer', 'manual']
+        && a.isDemo is bool && a.tripDate is string && a.tripDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && a.evidence is string && a.evidence.size() <= 4000
+        && ((a.actualLiters == null && a.fuelMethod == 'not-recorded')
+          || (dieselNumber(a.actualLiters, 0.001, 2000) && a.fuelMethod in ['tank-balance', 'full-to-full', 'metered'] && a.evidence.size() > 0));
+    }
+    function dieselSubmission() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['scheduleId', 'driverId', 'truckId', 'barangay', 'actual', 'status', 'submittedBy',
+          'submittedAt', 'reviewedAt', 'reviewedBy', 'reviewNote'])
+        && d.status == 'pending' && d.submittedBy == request.auth.uid && d.submittedAt == request.time
+        && d.reviewedAt == null && d.reviewedBy == null && d.reviewNote == '' && validDieselActual();
+    }
+    match /diesel_settings/{id} {
+      allow read: if dieselManager() || hasRole('driver') || hasRole('coordinator');
+      allow create, update: if dieselManager() && id == 'main'
+        && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+        && dieselNumber(request.resource.data.parameters.pricePerLiter, 0.001, 1000)
+        && dieselNumber(request.resource.data.parameters.kmPerLiter, 0.001, 30);
+      allow delete: if false;
+    }
+    match /diesel_estimates/{scheduleId} {
+      allow read: if dieselReader(resource.data);
+      allow create: if dieselManager() && validDieselIdentity(scheduleId)
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+    match /diesel_logs/{scheduleId} {
+      // A missing document may be read by its assigned operator for duplicate-safe transactions.
+      allow get: if dieselScheduleReader(scheduleId);
+      allow list: if dieselReader(resource.data);
+      allow create: if validDieselIdentity(scheduleId) && dieselReader(request.resource.data) && dieselSubmission();
+      allow update: if (
+        resource.data.status in ['pending', 'needs-correction']
+        && validDieselIdentity(scheduleId) && dieselReader(resource.data) && dieselSubmission()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['actual', 'status', 'submittedBy', 'submittedAt', 'reviewedAt', 'reviewedBy', 'reviewNote'])
+      ) || (
+        dieselManager() && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'needs-correction']
+        && request.resource.data.reviewedBy == request.auth.uid && request.resource.data.reviewedAt == request.time
+        && request.resource.data.reviewNote is string && request.resource.data.reviewNote.size() > 0 && request.resource.data.reviewNote.size() <= 4000
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+      );
+      allow delete: if false;
+    }
+    match /diesel_models/{truckId} {
+      allow read: if dieselManager() || hasRole('driver') || hasRole('coordinator');
+      allow create, update: if dieselManager() && request.resource.data.truckId == truckId
+        && request.resource.data.trainedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+        && dieselNumber(request.resource.data.factor, 0.5, 2);
+      allow delete: if false;
+    }
+    match /diesel_gps/{scheduleId}/points/{pointId} {
+      allow read: if dieselScheduleReader(scheduleId);
+      allow create: if hasRole('driver') && get(/databases/$(database)/documents/schedules/$(scheduleId)).data.assignedDriverId == request.auth.uid
+        && request.resource.data.keys().hasOnly(['latitude', 'longitude', 'timestampMs', 'accuracyMeters', 'isSimulation', 'driverId', 'createdAt'])
+        && request.resource.data.driverId == request.auth.uid && request.resource.data.createdAt == request.time
+        && request.resource.data.isSimulation == false
+        && dieselNumber(request.resource.data.latitude, -90, 90) && dieselNumber(request.resource.data.longitude, -180, 180)
+        && dieselNumber(request.resource.data.accuracyMeters, 0, 10000)
+        && request.resource.data.timestampMs is number;
+      allow update, delete: if false;
+    }
+
     match /schedules/{scheduleId} {
       allow read: if isAdmin() || isCicto()
+        || dieselCoordinator(resource.data.get('barangay', ''))
         || (isAuthenticated() && resource.data.userId == request.auth.uid)
         || (isAuthenticated() && resource.data.assignedDriverId == request.auth.uid)
         || isOwner(resource.data.get('userId', ''))
@@ -222,8 +322,11 @@ service cloud.firestore {
       allow delete: if isAdmin() || isCicto();
       allow update: if isAdmin() || isCicto()
         || (
-          (isAssignedDriver(resource.data) || (isAuthenticated() && (resource.data.assignedDriverId == request.auth.uid || resource.data.get('assignedDriverId', '') == request.auth.uid)))
+          (isAssignedDriver(resource.data) || (isAuthenticated() && (resource.data.assignedDriverId == request.auth.uid || resource.data.get('assignedDriverId', '') == request.auth.uid))
+            || dieselCoordinator(resource.data.get('barangay', '')))
           && driverCompletionUpdateOnly()
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['dieselClosedAt'])
+            || (resource.data.get('isLiveDispatch', false) == true && request.resource.data.dieselClosedAt == request.time))
         );
     }
 
@@ -275,7 +378,7 @@ service cloud.firestore {
     // Users can only modify their own profile through field-restricted functions.
     match /users/{userId} {
       allow create: if validResidentProfileCreate(userId) || validCictoProfileCreate(userId) || validAdminProfileCreate(userId) || isAdmin() || isCicto();
-      allow read: if isOwner(userId) || isAdmin() || isCicto();
+      allow read: if isOwner(userId) || isAdmin() || isCicto() || hasRole('coordinator') || resource.data.get('role', '') == 'driver';
       allow update: if isAdmin() || isCicto() || cictoRoleUpdateOnly(userId)
         || (isOwner(userId) && (regularProfileUpdateOnly() || driverTruckAssignmentOnly()));
       allow delete: if isAdmin() || isCicto();

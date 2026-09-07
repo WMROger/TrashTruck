@@ -64,6 +64,11 @@ export default function DriverProfileSettings() {
 
         {/* Main Menu */}
         <View style={[styles.menuSection, isDarkMode && styles.menuSectionDark]}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(driver)/diesel-log' as any)}>
+            <View style={styles.menuIconContainer}><Feather name="file-text" size={18} color="#166534" /></View>
+            <View style={styles.menuTextContainer}><Text style={[styles.menuTitle, isDarkMode && styles.textLight]}>Trip & Diesel Log</Text>
+              <Text style={styles.menuSubtitle}>Enter distance and consumption after your shift</Text></View>
+          </TouchableOpacity>
           <TouchableOpacity 
             style={styles.menuItem} 
             onPress={() => router.push('/(driver)/edit-profile')}

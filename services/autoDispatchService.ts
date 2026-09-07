@@ -12,6 +12,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { optimizeBarangayRouteWithTraffic } from './trafficAwareOptimizerService';
+import { dieselContext } from './dieselService';
 
 export interface AutoDispatchResult {
   success: boolean;
@@ -185,7 +186,8 @@ export async function autoDispatchReportToActiveRoute(report: {
     allReportsForSector.push(report);
 
     // 3. Run AI Traffic & Fuel Lowest-Detour Optimization
-    const optResult = optimizeBarangayRouteWithTraffic(barangay, allReportsForSector);
+    const diesel = await dieselContext((activeDriver as any).currentTruckId);
+    const optResult = optimizeBarangayRouteWithTraffic(barangay, allReportsForSector, diesel.parameters, diesel.factor, diesel.modelId, diesel.source);
 
     // 4. Check if an active live dispatch schedule already exists for this driver today
     const schedulesRef = collection(db, 'schedules');
@@ -195,6 +197,7 @@ export async function autoDispatchReportToActiveRoute(report: {
       where('status', '==', 'in_progress')
     );
     const scheduleSnap = await getDocs(qActiveSchedule);
+    const openTrip = scheduleSnap.docs.find(item => item.data().isLiveDispatch && !item.data().dieselClosedAt);
 
     const today = new Date();
     const dateText = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -209,15 +212,48 @@ export async function autoDispatchReportToActiveRoute(report: {
       timeWindow: s.optimalTimeWindow || 'Routine',
     }));
 
-    if (!scheduleSnap.empty) {
+    if (openTrip) {
       // Update existing live schedule
-      const activeSchedDoc = scheduleSnap.docs[0];
+      const activeSchedDoc = openTrip;
+      const openTripData = activeSchedDoc.data();
+      const fuelBudget =
+        openTripData.fuelBudgetLiters ||
+        (openTripData.routeOptimization?.dieselEstimate?.optimized?.liters
+          ? Math.round(openTripData.routeOptimization.dieselEstimate.optimized.liters * 1.10 * 100) / 100
+          : null);
+
+      // Check if adding this report exceeds the driver's refueled fuel budget
+      if (fuelBudget && fuelBudget > 0 && optResult.optimizedFuelLiters > fuelBudget) {
+        // Exceeds shift budget; defer to next shift or trip for this barangay
+        const reportRef = doc(db, 'reports', report.id);
+        await updateDoc(reportRef, {
+          queuedForDriver: true,
+          queuedForNextShift: true,
+          queuedBarangay: barangay,
+          queuedReason: `Exceeds current shift diesel capacity (${optResult.optimizedFuelLiters.toFixed(1)} L required vs ${fuelBudget.toFixed(1)} L refueled budget); held for next shift.`,
+          updatedAt: serverTimestamp(),
+        });
+
+        return {
+          success: true,
+          dispatched: false,
+          driverName,
+          driverId,
+          barangay,
+          message: `Report queued for the next shift in Brgy. ${barangay} because Driver ${driverName} reached safe shift diesel capacity (${fuelBudget.toFixed(1)} L).`,
+        };
+      }
+
       await updateDoc(activeSchedDoc.ref, {
         street: `Master AI Collection Route (${optResult.optimizedStops.length} Stops)`,
         wasteCategory: 'Scheduled & Citizen Reports',
         stops: formattedStops,
+        fuelBudgetLiters: Math.max(fuelBudget || 0, Math.round(optResult.optimizedFuelLiters * 1.10 * 100) / 100),
         'routeOptimization.stopCount': optResult.optimizedStops.length,
         'routeOptimization.optimizedDistanceKm': optResult.optimizedDistanceKm,
+        'routeOptimization.baselineDistanceKm': optResult.baselineDistanceKm,
+        'routeOptimization.fuelCostSavedPhp': optResult.fuelCostSavedPhp,
+        'routeOptimization.lastReplannedAt': new Date().toISOString(),
         'routeOptimization.fuelSavingsLiters': optResult.fuelSavingsLiters,
         'routeOptimization.timeSavingsMinutes': optResult.timeSavingsMinutes,
         'routeOptimization.roadPolyline': optResult.roadPolyline,
@@ -237,8 +273,10 @@ export async function autoDispatchReportToActiveRoute(report: {
         truckId: (activeDriver as any).currentTruckId || null,
         truckPlate: truckPlate,
         isLiveDispatch: true,
+        fuelBudgetLiters: Math.round(optResult.optimizedFuelLiters * 1.10 * 100) / 100,
         routeOptimization: {
           method: 'traffic-aware-fuel-optimized',
+          ...(diesel.parameters.pricePerLiter > 0 ? { dieselEstimate: optResult.dieselEstimate } : {}),
           baselineDistanceKm: optResult.baselineDistanceKm,
           optimizedDistanceKm: optResult.optimizedDistanceKm,
           fuelSavingsLiters: optResult.fuelSavingsLiters,
@@ -354,7 +392,8 @@ export async function autoAssignQueuedReportsOnDriverShiftStart(
     });
 
     // 2. Run AI Traffic & Detour Optimization
-    const optResult = optimizeBarangayRouteWithTraffic(barangay, queuedReports);
+    const diesel = await dieselContext(truckId || undefined);
+    const optResult = optimizeBarangayRouteWithTraffic(barangay, queuedReports, diesel.parameters, diesel.factor, diesel.modelId, diesel.source);
 
     const today = new Date();
     const dateText = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -377,15 +416,20 @@ export async function autoAssignQueuedReportsOnDriverShiftStart(
       where('status', '==', 'in_progress')
     );
     const activeSchedSnap = await getDocs(qActiveSched);
+    const openTrip = activeSchedSnap.docs.find(item => item.data().isLiveDispatch && !item.data().dieselClosedAt);
 
-    if (!activeSchedSnap.empty) {
-      const activeDoc = activeSchedSnap.docs[0];
+    if (openTrip) {
+      const activeDoc = openTrip;
       await updateDoc(activeDoc.ref, {
         street: `Master AI Collection Route (${optResult.optimizedStops.length} Stops)`,
         wasteCategory: 'Scheduled & Citizen Reports',
         stops: formattedStops,
+        fuelBudgetLiters: Math.round(optResult.optimizedFuelLiters * 1.10 * 100) / 100,
         'routeOptimization.stopCount': optResult.optimizedStops.length,
         'routeOptimization.optimizedDistanceKm': optResult.optimizedDistanceKm,
+        'routeOptimization.baselineDistanceKm': optResult.baselineDistanceKm,
+        'routeOptimization.fuelCostSavedPhp': optResult.fuelCostSavedPhp,
+        'routeOptimization.lastReplannedAt': new Date().toISOString(),
         'routeOptimization.fuelSavingsLiters': optResult.fuelSavingsLiters,
         'routeOptimization.timeSavingsMinutes': optResult.timeSavingsMinutes,
         'routeOptimization.roadPolyline': optResult.roadPolyline,
@@ -403,8 +447,10 @@ export async function autoAssignQueuedReportsOnDriverShiftStart(
         truckId: truckId || null,
         truckPlate: truckPlate || 'TRK-01',
         isLiveDispatch: true,
+        fuelBudgetLiters: Math.round(optResult.optimizedFuelLiters * 1.10 * 100) / 100,
         routeOptimization: {
           method: 'traffic-aware-fuel-optimized',
+          ...(diesel.parameters.pricePerLiter > 0 ? { dieselEstimate: optResult.dieselEstimate } : {}),
           baselineDistanceKm: optResult.baselineDistanceKm,
           optimizedDistanceKm: optResult.optimizedDistanceKm,
           fuelSavingsLiters: optResult.fuelSavingsLiters,

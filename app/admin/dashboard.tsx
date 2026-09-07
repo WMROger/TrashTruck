@@ -1,10 +1,34 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Animated,
+  Dimensions,
+  Image,
+  Modal,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { Alert, Animated, Dimensions, Image, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from 'firebase/firestore';
 import { useAuthContext } from '../../components/AuthContext';
 import { AdminSidebar } from '../../components/admin';
 import {
@@ -25,6 +49,7 @@ import {
   CenroProfileSettingsModal,
   OperationalLogsTab,
   AdminNotificationDropdown,
+  DieselEstimateTab,
 } from '../../components/admin/cenro';
 import { auth, db } from '../../config/firebase';
 import { sendTestNotification as sendTestNotificationHelper } from '../../services/homeNotifications';
@@ -41,8 +66,8 @@ export default function AdminDashboard() {
     initialEmail.includes('cenro') ||
     initialEmail.includes('coord');
 
-  const [isAdmin, setIsAdmin] = useState(isKnownAdminInitial);
-  const [isLoading, setIsLoading] = useState(!isKnownAdminInitial);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showProfileSettingsModal, setShowProfileSettingsModal] = useState(false);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -93,125 +118,114 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let isMounted = true;
-    const checkAdminAccess = async () => {
-      if (authLoading) return;
-      const activeUser = user || auth?.currentUser;
-      // Check if user exists (don't use isAuthenticated for admin access)
-      if (!activeUser) {
-        // Wait a short grace period on web refresh for Firebase Auth hydration
-        const timer = setTimeout(() => {
-          if (!auth?.currentUser && !user && isMounted) {
-            console.log('Admin dashboard: No user found after hydration grace, redirecting to login');
-            router.replace('/admin/login');
-          }
-        }, 800);
-        return () => clearTimeout(timer);
-      }
+    if (authLoading) return;
 
-      const emailLower = (activeUser.email || '').toLowerCase();
-      const isKnownAdmin =
-        emailLower.startsWith('admin@') ||
-        emailLower.startsWith('cenro@') ||
-        emailLower.includes('admin') ||
-        emailLower.includes('cenro') ||
-        emailLower.includes('coord');
+    const activeUser = user || auth?.currentUser;
+    if (!activeUser) {
+      const timer = setTimeout(() => {
+        if (!auth?.currentUser && !user && isMounted) {
+          console.log('Admin dashboard: No user found after hydration grace, redirecting to login');
+          router.replace('/admin/login');
+        }
+      }, 800);
+      return () => clearTimeout(timer);
+    }
 
-      // Verify admin role in Firestore
-      if (db) {
-        try {
-          const userRef = doc(db, 'users', activeUser.uid);
-          const userSnap = await getDoc(userRef);
-          
-          if (userSnap.exists()) {
-            const userData = userSnap.data();
-            let role = userData.role;
-            if ((!role || role === 'user') && isKnownAdmin) {
-              await setDoc(userRef, { role: 'admin', status: 'active', updatedAt: serverTimestamp() }, { merge: true });
-              role = 'admin';
-            }
-            const isCenroAdmin = role === 'admin' || role === 'cenro' || role === 'coordinator' || role === 'cenro_officer';
-            if (isCenroAdmin || isKnownAdmin) {
-              console.log('Admin dashboard: Admin role confirmed for:', activeUser.email);
-              const brgy = userData.assignedBarangay || userData.barangay || '';
-              setUserRole(role || 'admin');
-              setAssignedBarangay(brgy);
-              if (role === 'coordinator') {
-                setActiveTab('collection-scheduler');
-              }
-              if (isMounted) {
-                setIsAdmin(true);
-                setIsLoading(false);
-              }
-            } else {
-              console.log('Admin dashboard: User does not have admin role:', activeUser.email);
-              Alert.alert('Access Denied', 'You do not have admin privileges.');
-              if (isMounted) setIsLoading(false);
-              router.replace('/cenro' as any);
-            }
-          } else if (isKnownAdmin) {
-            await setDoc(userRef, {
-              uid: activeUser.uid,
-              email: activeUser.email,
-              displayName: activeUser.displayName || 'CENRO Admin',
-              name: activeUser.displayName || 'CENRO Admin',
-              role: 'admin',
-              status: 'active',
-              verified: true,
-              department: 'City Environment & Natural Resources Office (CENRO Danao)',
-              agency: 'CENRO Danao City',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
-            if (isMounted) {
-              setIsAdmin(true);
-              setIsLoading(false);
-            }
-          } else {
-            console.log('Admin dashboard: User document not found in Firestore, auto-bootstrapping CENRO profile');
-            await setDoc(userRef, {
-              uid: activeUser.uid,
-              email: activeUser.email || 'admin@admin.com',
-              displayName: activeUser.displayName || 'CENRO Admin',
-              name: activeUser.displayName || 'CENRO Admin',
-              role: 'admin',
-              status: 'active',
-              verified: true,
-              department: 'City Environment & Natural Resources Office (CENRO Danao)',
-              agency: 'CENRO Danao City',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
-            if (isMounted) {
-              setIsAdmin(true);
-              setIsLoading(false);
-            }
+    if (!db) {
+      if (isMounted) setIsLoading(false);
+      return;
+    }
+
+    const emailLower = (activeUser.email || '').toLowerCase();
+    const isKnownAdmin =
+      emailLower.startsWith('admin@') ||
+      emailLower.startsWith('cenro@') ||
+      emailLower.includes('admin') ||
+      emailLower.includes('cenro');
+
+    const userRef = doc(db, 'users', activeUser.uid);
+    const unsub = onSnapshot(userRef, async (userSnap) => {
+      if (!isMounted) return;
+      try {
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          let role = userData.role;
+
+          if ((!role || role === 'user') && isKnownAdmin) {
+            await setDoc(userRef, { role: 'admin', status: 'active', updatedAt: serverTimestamp() }, { merge: true });
+            role = 'admin';
           }
-        } catch (error) {
-          console.error('Admin dashboard: Error checking admin role:', error);
-          if (isKnownAdmin || (activeUser.email && (activeUser.email.toLowerCase().includes('admin') || activeUser.email.toLowerCase().includes('cenro')))) {
-            if (isMounted) {
-              setIsAdmin(true);
-              setIsLoading(false);
+
+          if (role === 'coordinator') {
+            let brgy = userData.assignedBarangay || userData.barangay || '';
+            if (!brgy && userData.employeeId) {
+              try {
+                const identSnap = await getDoc(doc(db, 'identifiers', 'coordinator', 'items', userData.employeeId));
+                if (identSnap.exists() && identSnap.data()?.barangay) {
+                  brgy = identSnap.data().barangay;
+                  await setDoc(userRef, { assignedBarangay: brgy, barangay: brgy }, { merge: true });
+                }
+              } catch (e) {
+                console.warn('Dashboard: could not recover coordinator barangay identifier', e);
+              }
+            } else if (brgy && (!userData.assignedBarangay || !userData.barangay)) {
+              await setDoc(userRef, { assignedBarangay: brgy, barangay: brgy }, { merge: true });
             }
-            return;
-          }
-          if (isMounted) {
+
+            console.log('Admin dashboard: Coordinator role confirmed for:', activeUser.email, 'Barangay:', brgy);
+            setUserRole('coordinator');
+            setAssignedBarangay(brgy);
+            setActiveTab((current) => current === 'dashboard' ? 'diesel-estimate' : current);
+            setIsAdmin(true);
             setIsLoading(false);
+          } else if (role === 'admin' || role === 'cenro' || role === 'cenro_officer' || isKnownAdmin) {
+            console.log('Admin dashboard: Admin role confirmed for:', activeUser.email);
+            const brgy = userData.assignedBarangay || userData.barangay || '';
+            setUserRole(role || 'admin');
+            setAssignedBarangay(brgy);
+            setIsAdmin(true);
+            setIsLoading(false);
+          } else {
+            console.log('Admin dashboard: User does not have admin/coordinator role:', activeUser.email);
+            Alert.alert('Access Denied', 'You do not have portal privileges.');
+            setIsLoading(false);
+            router.replace('/cenro' as any);
           }
-          router.replace('/admin/login');
-        }
-      } else {
-        if (isMounted) setIsLoading(false);
-        if (isKnownAdmin) {
+        } else if (isKnownAdmin) {
+          await setDoc(userRef, {
+            uid: activeUser.uid,
+            email: activeUser.email,
+            displayName: activeUser.displayName || 'CENRO Admin',
+            name: activeUser.displayName || 'CENRO Admin',
+            role: 'admin',
+            status: 'active',
+            verified: true,
+            department: 'City Environment & Natural Resources Office (CENRO Danao)',
+            agency: 'CENRO Danao City',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+          setUserRole('admin');
           setIsAdmin(true);
+          setIsLoading(false);
         } else {
+          console.log('Admin dashboard: User document not found in Firestore');
+          setIsLoading(false);
           router.replace('/admin/login');
         }
+      } catch (error) {
+        console.error('Admin dashboard: Error processing user snapshot:', error);
+        if (isMounted) setIsLoading(false);
       }
-    };
+    }, (error) => {
+      console.error('Admin dashboard: Error listening to user role:', error);
+      if (isMounted) setIsLoading(false);
+    });
 
-    checkAdminAccess();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, [user, authLoading, router]);
 
   // Dashboard summaries: latest 3 report images and feedback snapshot
@@ -587,6 +601,8 @@ export default function AdminDashboard() {
     // If coordinator tries to access a restricted tab, guard and fallback
     if (isCoordinator) {
       switch (activeTab) {
+        case 'diesel-estimate':
+          return <DieselEstimateTab userRole={userRole} assignedBarangay={assignedBarangay} />;
         case 'collection-scheduler':
           return <CollectionSchedulerTab userRole={userRole} assignedBarangay={assignedBarangay} />;
         case 'trash-reports':
@@ -600,11 +616,13 @@ export default function AdminDashboard() {
         case 'logs':
           return <OperationalLogsTab />;
         default:
-          return <CollectionSchedulerTab userRole={userRole} assignedBarangay={assignedBarangay} />;
+          return <DieselEstimateTab userRole={userRole} assignedBarangay={assignedBarangay} />;
       }
     }
 
     switch (activeTab) {
+      case 'diesel-estimate':
+        return <DieselEstimateTab userRole={userRole} assignedBarangay={assignedBarangay} />;
       case 'dashboard':
         return <CenroDashboardTab onTabChange={handleTabPress} />;
       case 'trash-reports':
@@ -641,6 +659,10 @@ export default function AdminDashboard() {
 
   const handleTabPress = (tab: string) => {
     const tabAliasMap: Record<string, string> = {
+      'diesel-estimate': 'diesel-estimate',
+      'diesel': 'diesel-estimate',
+      'trip-log': 'diesel-estimate',
+      'logs': 'logs',
       'reports': 'trash-reports',
       'trash-reports': 'trash-reports',
       'routes': 'route-optimization',

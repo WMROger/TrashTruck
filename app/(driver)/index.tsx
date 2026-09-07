@@ -12,6 +12,8 @@ import { useTheme } from '@/hooks/useTheme';
 import { locationService, SimulationState } from '@/services/locationService';
 import MapView, { Marker, Polyline } from '@/components/MapView';
 import { getBarangaySimulationRoute } from '@/constants/barangaySimulationRoutes';
+import { closeDieselTripsForShift } from '@/services/dieselService';
+import { getDriverShiftDieselRecommendation, ShiftDieselRecommendation } from '@/services/dieselRecommendationService';
 
 interface NextPickup {
   id: string;
@@ -63,6 +65,10 @@ export default function DriverIndex() {
   // GPS Simulation state
   const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
 
+  // Shift AI Fuel Recommendation & Deferred Reports State
+  const [shiftFuelRec, setShiftFuelRec] = useState<ShiftDieselRecommendation | null>(null);
+  const [deferredReportsCount, setDeferredReportsCount] = useState(0);
+
   // Real-time listener for newly injected route waypoints
   useEffect(() => {
     const activeUid = user?.uid || auth?.currentUser?.uid;
@@ -98,6 +104,44 @@ export default function DriverIndex() {
 
     return () => unsub();
   }, [user]);
+
+  // Listen for shift fuel recommendation
+  useEffect(() => {
+    const activeUid = user?.uid || auth?.currentUser?.uid;
+    if (!activeUid || !currentTruck?.id || !assignedBarangay) {
+      setShiftFuelRec(null);
+      return;
+    }
+
+    let isMounted = true;
+    getDriverShiftDieselRecommendation(activeUid, currentTruck.id, assignedBarangay)
+      .then((rec) => {
+        if (isMounted) setShiftFuelRec(rec);
+      })
+      .catch((err) => console.warn('DriverIndex: diesel recommendation fetch error:', err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.uid, currentTruck?.id, assignedBarangay]);
+
+  // Real-time listener for reports deferred to next shift in this barangay
+  useEffect(() => {
+    if (!db || !assignedBarangay) return;
+    const qDeferred = query(
+      collection(db, 'reports'),
+      where('barangay', '==', assignedBarangay),
+      where('queuedForNextShift', '==', true)
+    );
+    const unsub = onSnapshot(
+      qDeferred,
+      (snap) => {
+        setDeferredReportsCount(snap.size);
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, [assignedBarangay]);
 
   // Barangay Simulation Route Points for Mini-Map
   const barangayRoutePoints = React.useMemo(() => {
@@ -613,6 +657,78 @@ export default function DriverIndex() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* AI Shift Fuel Advisor Card */}
+      {isShiftActive && !!currentTruck && shiftFuelRec && (
+        <View style={[styles.fuelAdvisorCard, isDark && styles.fuelAdvisorCardDark]}>
+          <View style={styles.fuelAdvisorHeader}>
+            <View style={styles.fuelAdvisorHeaderLeft}>
+              <View style={styles.fuelAdvisorIconCircle}>
+                <MaterialIcons name="local-gas-station" size={18} color="#FFFFFF" />
+              </View>
+              <View>
+                <Text style={[styles.fuelAdvisorTitle, isDark && styles.textLight]}>
+                  Shift Refueling Target
+                </Text>
+                <Text style={[styles.fuelAdvisorSubtitle, isDark && styles.textMuted]}>
+                  {shiftFuelRec.isAiLearned
+                    ? `AI Calibrated • ${shiftFuelRec.eligibleTripsCount} verified shifts`
+                    : `Baseline Estimate • ${shiftFuelRec.eligibleTripsCount}/${shiftFuelRec.learningThreshold} shifts gathered`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.fuelAdvisorTargetPill}>
+              <Text style={styles.fuelAdvisorTargetNumber}>
+                {shiftFuelRec.totalRecommendedLiters.toFixed(1)} L
+              </Text>
+              {shiftFuelRec.estimatedCostPhp !== null && (
+                <Text style={styles.fuelAdvisorTargetCost}>
+                  ≈ ₱{shiftFuelRec.estimatedCostPhp.toFixed(0)}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* Quick Metrics Strip */}
+          <View style={[styles.fuelAdvisorMetricsRow, isDark && { backgroundColor: '#1F2937' }]}>
+            <View style={styles.fuelAdvisorMetricCol}>
+              <Text style={styles.fuelAdvisorMetricLabel}>Route Base</Text>
+              <Text style={[styles.fuelAdvisorMetricValue, isDark && styles.textLight]}>
+                {shiftFuelRec.usualBaselineLiters.toFixed(1)} L
+              </Text>
+            </View>
+
+            <View style={styles.fuelAdvisorMetricDivider} />
+
+            <View style={styles.fuelAdvisorMetricCol}>
+              <Text style={styles.fuelAdvisorMetricLabel}>Report Detours</Text>
+              <Text style={[styles.fuelAdvisorMetricValue, { color: shiftFuelRec.reportExtraLiters > 0 ? '#D97706' : (isDark ? '#9CA3AF' : '#6B7280') }]}>
+                {shiftFuelRec.reportExtraLiters > 0 ? `+${shiftFuelRec.reportExtraLiters.toFixed(1)} L` : '0.0 L'}
+              </Text>
+            </View>
+
+            <View style={styles.fuelAdvisorMetricDivider} />
+
+            <View style={styles.fuelAdvisorMetricCol}>
+              <Text style={styles.fuelAdvisorMetricLabel}>Reserve (10%)</Text>
+              <Text style={[styles.fuelAdvisorMetricValue, { color: '#2563EB' }]}>
+                +{shiftFuelRec.safetyReserveLiters.toFixed(1)} L
+              </Text>
+            </View>
+          </View>
+
+          {/* Notice if any citizen reports were deferred to next shift */}
+          {deferredReportsCount > 0 && (
+            <View style={styles.fuelAdvisorDeferredNotice}>
+              <MaterialIcons name="schedule" size={14} color="#D97706" />
+              <Text style={styles.fuelAdvisorDeferredText}>
+                {deferredReportsCount} report(s) scheduled for next shift to protect your safe fuel capacity limit.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Interactive Live Route Mini-Map Card - Active when Driver is ON DUTY with assigned truck */}
       {isShiftActive && !!currentTruck && (
@@ -2098,5 +2214,113 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.8)',
+  },
+
+  // Shift Fuel Advisor Card Styles
+  fuelAdvisorCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    marginBottom: 16,
+  },
+  fuelAdvisorCardDark: {
+    backgroundColor: '#062B1D',
+    borderColor: '#166534',
+  },
+  fuelAdvisorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  fuelAdvisorHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  fuelAdvisorIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#16A34A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fuelAdvisorTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#14532D',
+  },
+  fuelAdvisorSubtitle: {
+    fontSize: 11,
+    color: '#15803D',
+    marginTop: 1,
+  },
+  fuelAdvisorTargetPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    alignItems: 'flex-end',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  fuelAdvisorTargetNumber: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  fuelAdvisorTargetCost: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  fuelAdvisorMetricsRow: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+  },
+  fuelAdvisorMetricCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  fuelAdvisorMetricLabel: {
+    fontSize: 10,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  fuelAdvisorMetricValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  fuelAdvisorMetricDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E5E7EB',
+  },
+  fuelAdvisorDeferredNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  fuelAdvisorDeferredText: {
+    fontSize: 11,
+    color: '#92400E',
+    fontWeight: '600',
+    flex: 1,
   },
 });

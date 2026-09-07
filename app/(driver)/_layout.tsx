@@ -76,9 +76,10 @@ export default function DriverLayout() {
     const unsubscribeSchedules = onSnapshot(
       assignedQuery,
       snapshot => {
-        const active = snapshot.docs.filter(schedule => ['pending', 'in-progress'].includes(String(schedule.data().status)));
+        const active = snapshot.docs.filter(schedule => !schedule.data().dieselClosedAt && ['pending', 'in-progress', 'in_progress'].includes(String(schedule.data().status)));
+        const master = active.filter(schedule => schedule.data().isLiveDispatch);
         setActiveRouteCount(active.length);
-        setActiveScheduleIds(active.map(schedule => schedule.id));
+        setActiveScheduleIds((master.length ? master : active).map(schedule => schedule.id));
         const savedPolyline = active.find(schedule => Array.isArray(schedule.data().routeOptimization?.roadPolyline))?.data().routeOptimization?.roadPolyline || [];
         setRoutePolyline(savedPolyline.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)));
       },
@@ -146,6 +147,7 @@ export default function DriverLayout() {
           marginTop: 2,
         },
       })}>
+      <Tabs.Screen name="diesel-log" options={{ href: null }} />
       <Tabs.Screen
         name="index"
         options={{

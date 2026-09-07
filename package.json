@@ -13,7 +13,8 @@
     "clean:auth": "node ./scripts/delete-all-auth-users.js",
     "delete:user": "node ./scripts/delete-user.js",
     "db:seed": "node ./scripts/seedDemo.js",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:diesel": "node --test scripts/test-diesel.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

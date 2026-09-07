@@ -1,4 +1,5 @@
 import { BARANGAY_COLLECTION_ROUTES, CENRO_DEPOT_WAYPOINT, CENRO_RETURN_WAYPOINT, SimulationWaypoint } from '@/constants/barangaySimulationRoutes';
+import { calculateDiesel, DEMO_DIESEL_PARAMETERS, DieselParameters, DieselPlan } from './dieselMath';
 
 export type RouteStop = {
   id: string;
@@ -34,9 +35,8 @@ export type TrafficOptimizationResult = {
   bottlenecksAvoided: number;
   trafficHotspots: Array<{ name: string; severity: 'high' | 'medium'; advice: string }>;
   roadPolyline: Array<{ latitude: number; longitude: number }>;
+  dieselEstimate: DieselPlan;
 };
-
-const DIESEL_PRICE_PER_LITER = 60.0; // PHP
 
 // Haversine distance calculator in kilometers
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -194,7 +194,11 @@ export function insertVerifiedReportsIntoRoute(
  */
 export function optimizeBarangayRouteWithTraffic(
   barangay: string,
-  extraReports: any[] = []
+  extraReports: any[] = [],
+  dieselParameters: DieselParameters = DEMO_DIESEL_PARAMETERS,
+  dieselFactor = 1,
+  dieselModelId: string | null = null,
+  parameterSource = 'Demonstration assumptions; configure the CENRO supply price'
 ): TrafficOptimizationResult {
   const waypoints = BARANGAY_COLLECTION_ROUTES[barangay] || [
     CENRO_DEPOT_WAYPOINT,
@@ -264,32 +268,29 @@ export function optimizeBarangayRouteWithTraffic(
   const baselineDistanceKm = calculateRouteDistance(rawBaselineStops);
   const optimizedDistanceKm = calculateRouteDistance(optimizedStops);
 
-  // Compactor baseline in congested stop-and-go with idle delays: ~0.38 Liters per km (~2.63 km/L)
-  // Plus 0.18 Liters per high-traffic bottleneck idle delay (12 mins idle @ 0.9L/hr)
-  const baselineIdleFuel = detectedHotspots.length * 0.22;
-  const baselineFuelLiters = Math.round((baselineDistanceKm * 0.38 + baselineIdleFuel) * 10) / 10;
+  // Use identical physical assumptions for both sequences. Route order alone does
+  // not justify improved km/L or reduced idling without measured supporting data.
+  const inputs = (distanceKm: number) => ({
+    distanceKm, drivingHours: distanceKm / 20, idleHours: 0,
+    collectionHours: intermediateStops.length * dieselParameters.minutesPerStop / 60,
+    averageLoadPercent: dieselParameters.averageLoadPercent,
+  });
+  const baselineInputs = inputs(baselineDistanceKm), optimizedInputs = inputs(optimizedDistanceKm);
+  const baseline = calculateDiesel(baselineInputs, dieselParameters, dieselFactor);
+  const optimized = calculateDiesel(optimizedInputs, dieselParameters, dieselFactor);
+  const dieselEstimate: DieselPlan = { version: 1, savedAt: new Date().toISOString(), parameters: dieselParameters,
+    parameterSource, distanceSource: 'Demo route; straight-line distance between stops',
+    baselineInputs, optimizedInputs, baseline, optimized, modelId: dieselModelId };
+  const baselineFuelLiters = Math.round(baseline.liters * 100) / 100;
+  const optimizedFuelLiters = Math.round(optimized.liters * 100) / 100;
+  const fuelSavingsLiters = Math.round((baseline.liters - optimized.liters) * 100) / 100;
+  const fuelCostSavedPhp = Math.round((baseline.liters - optimized.liters) * dieselParameters.pricePerLiter * 100) / 100;
 
-  // Optimized compactor in smooth traffic sequencing: ~0.26 Liters per km (~3.85 km/L)
-  // Low idle penalty
-  const optimizedIdleFuel = detectedHotspots.length * 0.05;
-  const optimizedFuelLiters = Math.round((optimizedDistanceKm * 0.26 + optimizedIdleFuel) * 10) / 10;
+  const baselineDurationMins = Math.round(baseline.operatingHours * 60);
+  const optimizedDurationMins = Math.round(optimized.operatingHours * 60);
 
-  const fuelSavingsLiters = Math.max(0.4, Math.round((baselineFuelLiters - optimizedFuelLiters) * 10) / 10);
-  const fuelCostSavedPhp = Math.round(fuelSavingsLiters * DIESEL_PRICE_PER_LITER);
-
-  // Time calculations:
-  // Baseline: 20 km/h avg speed + 8 mins per high traffic delay + 3 mins per stop
-  const baselineDurationMins = Math.round(
-    (baselineDistanceKm / 20) * 60 + detectedHotspots.length * 8 + rawBaselineStops.length * 2.5
-  );
-
-  // Optimized: 28 km/h avg speed + 2 mins per bottleneck (bypassed smoothly) + 2.5 mins per stop
-  const optimizedDurationMins = Math.round(
-    (optimizedDistanceKm / 28) * 60 + detectedHotspots.length * 2 + optimizedStops.length * 2.5
-  );
-
-  const timeSavingsMinutes = Math.max(5, baselineDurationMins - optimizedDurationMins);
-  const efficiencyGainPercent = Math.round(((baselineDurationMins - optimizedDurationMins) / baselineDurationMins) * 100);
+  const timeSavingsMinutes = baselineDurationMins - optimizedDurationMins;
+  const efficiencyGainPercent = baselineDurationMins > 0 ? Math.round(((baselineDurationMins - optimizedDurationMins) / baselineDurationMins) * 100) : 0;
 
   const roadPolyline = optimizedStops.map((s) => ({
     latitude: s.latitude,
@@ -313,5 +314,6 @@ export function optimizeBarangayRouteWithTraffic(
     bottlenecksAvoided: detectedHotspots.length,
     trafficHotspots: detectedHotspots,
     roadPolyline,
+    dieselEstimate,
   };
 }

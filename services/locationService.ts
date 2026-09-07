@@ -669,6 +669,21 @@ class LocationService {
       console.warn('Error writing trip point to client_activity:', err);
     }
 
+    // Record only a uniquely attributed real trip. Never duplicate a whole
+    // shift's distance across several concurrent route assignments.
+    const scheduleIds = context.activeScheduleIds || [];
+    if (!isSimulation && scheduleIds.length === 1) {
+      try {
+        await addDoc(collection(db, 'diesel_gps', scheduleIds[0], 'points'), {
+          latitude: coords.latitude, longitude: coords.longitude, timestampMs: now,
+          accuracyMeters: coords.accuracy ?? 10000, isSimulation: false,
+          driverId, createdAt: serverTimestamp(),
+        });
+      } catch (error) {
+        console.warn('Diesel trip GPS point was not saved:', error);
+      }
+    }
+
     this.lastHistoryAt = now;
     this.lastHistoryCoordinate = coordinate;
 

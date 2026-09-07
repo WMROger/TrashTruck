@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { autoAssignQueuedReportsOnDriverShiftStart } from '@/services/autoDispatchService';
+import { getDriverShiftDieselRecommendation, ShiftDieselRecommendation } from '@/services/dieselRecommendationService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
@@ -46,6 +47,8 @@ export default function SelectTruckScreen() {
   // Confirmation modal
   const [confirmTruck, setConfirmTruck] = useState<Truck | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [fuelRec, setFuelRec] = useState<ShiftDieselRecommendation | null>(null);
+  const [loadingFuelRec, setLoadingFuelRec] = useState(false);
 
   // Fetch all trucks in real-time
   useEffect(() => {
@@ -176,10 +179,25 @@ export default function SelectTruckScreen() {
     }
   };
 
-  const handleSelectTruck = (truck: Truck) => {
+  const handleSelectTruck = async (truck: Truck) => {
     if (!user) return;
     setConfirmTruck(truck);
     setShowConfirmModal(true);
+    setLoadingFuelRec(true);
+    setFuelRec(null);
+    try {
+      let b = 'Poblacion';
+      if (db && user.uid) {
+        const uSnap = await getDoc(doc(db, 'users', user.uid));
+        b = uSnap.data()?.assignedBarangay || uSnap.data()?.barangay || 'Poblacion';
+      }
+      const rec = await getDriverShiftDieselRecommendation(user.uid, truck.id, b);
+      setFuelRec(rec);
+    } catch (err) {
+      console.warn('SelectTruck: could not fetch fuel recommendation:', err);
+    } finally {
+      setLoadingFuelRec(false);
+    }
   };
 
   const handleConfirmAssignment = () => {
@@ -216,6 +234,7 @@ export default function SelectTruckScreen() {
           currentTruckPlate: truck.plateNumber,
           status: 'on_duty',
           dutyStatus: 'on_duty',
+          currentShiftFuelBudgetLiters: fuelRec?.totalRecommendedLiters || null,
         });
 
         // Check if there are queued verified reports for this driver's assigned barangay
@@ -429,38 +448,127 @@ export default function SelectTruckScreen() {
               You’re about to start your shift with this truck
             </Text>
 
-            {/* Truck Detail Card */}
-            {confirmTruck && (
-              <View style={[styles.modalDetailCard, isDark && { backgroundColor: '#1F2937', borderColor: '#374151' }]}>
-                <View style={styles.modalDetailRow}>
-                  <View style={styles.modalDetailLabel}>
-                    <MaterialIcons name="confirmation-number" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
-                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Plate Number</Text>
+            <ScrollView style={{ width: '100%', maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+              {/* Truck Detail Card */}
+              {confirmTruck && (
+                <View style={[styles.modalDetailCard, isDark && { backgroundColor: '#1F2937', borderColor: '#374151' }]}>
+                  <View style={styles.modalDetailRow}>
+                    <View style={styles.modalDetailLabel}>
+                      <MaterialIcons name="confirmation-number" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                      <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Plate Number</Text>
+                    </View>
+                    <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.plateNumber}</Text>
                   </View>
-                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.plateNumber}</Text>
-                </View>
 
-                <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
+                  <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
 
-                <View style={styles.modalDetailRow}>
-                  <View style={styles.modalDetailLabel}>
-                    <MaterialIcons name="category" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
-                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Type</Text>
+                  <View style={styles.modalDetailRow}>
+                    <View style={styles.modalDetailLabel}>
+                      <MaterialIcons name="category" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                      <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Type</Text>
+                    </View>
+                    <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.type}</Text>
                   </View>
-                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.type}</Text>
-                </View>
 
-                <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
+                  <View style={[styles.modalDivider, isDark && { backgroundColor: '#374151' }]} />
 
-                <View style={styles.modalDetailRow}>
-                  <View style={styles.modalDetailLabel}>
-                    <MaterialIcons name="fitness-center" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
-                    <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Capacity</Text>
+                  <View style={styles.modalDetailRow}>
+                    <View style={styles.modalDetailLabel}>
+                      <MaterialIcons name="fitness-center" size={16} color={isDark ? '#86EFAC' : '#2E8B57'} />
+                      <Text style={[styles.modalDetailLabelText, isDark && styles.textMuted]}>Capacity</Text>
+                    </View>
+                    <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.capacity} Tons</Text>
                   </View>
-                  <Text style={[styles.modalDetailValue, isDark && styles.textLight]}>{confirmTruck.capacity} Tons</Text>
                 </View>
-              </View>
-            )}
+              )}
+
+              {/* AI Refueling Advice Card */}
+              {loadingFuelRec ? (
+                <View style={[styles.fuelRecLoadingCard, isDark && styles.fuelRecLoadingCardDark]}>
+                  <ActivityIndicator size="small" color={isDark ? '#86EFAC' : '#166534'} />
+                  <Text style={[styles.fuelRecLoadingText, isDark && styles.textMuted]}>
+                    Calculating shift fuel recommendation & citizen reports buffer...
+                  </Text>
+                </View>
+              ) : fuelRec ? (
+                <View style={[styles.fuelRecCard, isDark && styles.fuelRecCardDark]}>
+                  <View style={styles.fuelRecHeaderRow}>
+                    <View style={styles.fuelRecHeaderLeft}>
+                      <MaterialIcons name="local-gas-station" size={20} color={isDark ? '#86EFAC' : '#166534'} />
+                      <Text style={[styles.fuelRecHeaderTitle, isDark && styles.textLight]}>AI Refueling Advice</Text>
+                    </View>
+                    <View style={[styles.fuelRecBadge, fuelRec.isAiLearned ? styles.fuelRecBadgeLearned : styles.fuelRecBadgeGathering]}>
+                      <Text style={styles.fuelRecBadgeText}>
+                        {fuelRec.isAiLearned ? 'AI Learned' : `${fuelRec.eligibleTripsCount}/${fuelRec.learningThreshold} Trips`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Big Number Banner */}
+                  <View style={[styles.fuelRecBanner, isDark && styles.fuelRecBannerDark]}>
+                    <View>
+                      <Text style={[styles.fuelRecBannerSubtitle, isDark && styles.textMuted]}>Recommended Refuel for Shift</Text>
+                      <Text style={[styles.fuelRecBannerNumber, isDark && { color: '#86EFAC' }]}>
+                        {fuelRec.totalRecommendedLiters.toFixed(1)} <Text style={styles.fuelRecBannerUnit}>Liters</Text>
+                      </Text>
+                    </View>
+                    {fuelRec.estimatedCostPhp !== null && (
+                      <View style={styles.fuelRecCostPill}>
+                        <Text style={styles.fuelRecCostText}>≈ ₱{fuelRec.estimatedCostPhp.toFixed(2)}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Itemized Breakdown */}
+                  <View style={styles.fuelRecBreakdownList}>
+                    <View style={styles.fuelRecItemRow}>
+                      <View style={styles.fuelRecItemLeft}>
+                        <MaterialIcons name="alt-route" size={14} color={isDark ? '#9CA3AF' : '#4B5563'} />
+                        <Text style={[styles.fuelRecItemLabel, isDark && styles.textLight]}>
+                          Usual Route ({fuelRec.barangay})
+                        </Text>
+                      </View>
+                      <Text style={[styles.fuelRecItemValue, isDark && styles.textLight]}>
+                        {fuelRec.usualBaselineLiters.toFixed(1)} L
+                      </Text>
+                    </View>
+
+                    <View style={styles.fuelRecItemRow}>
+                      <View style={styles.fuelRecItemLeft}>
+                        <MaterialIcons name="report" size={14} color="#D97706" />
+                        <Text style={[styles.fuelRecItemLabel, isDark && styles.textLight]}>
+                          Citizen Reports ({fuelRec.reportCount})
+                        </Text>
+                      </View>
+                      <Text style={[styles.fuelRecItemValue, { color: fuelRec.reportExtraLiters > 0 ? '#D97706' : (isDark ? '#9CA3AF' : '#6B7280') }]}>
+                        {fuelRec.reportExtraLiters > 0 ? `+${fuelRec.reportExtraLiters.toFixed(1)} L` : '0.0 L'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.fuelRecItemRow}>
+                      <View style={styles.fuelRecItemLeft}>
+                        <MaterialIcons name="shield" size={14} color="#2563EB" />
+                        <Text style={[styles.fuelRecItemLabel, isDark && styles.textLight]}>
+                          Safety Reserve (+10%)
+                        </Text>
+                      </View>
+                      <Text style={[styles.fuelRecItemValue, { color: '#2563EB' }]}>
+                        +{fuelRec.safetyReserveLiters.toFixed(1)} L
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={[styles.fuelRecFooterNotice, isDark && styles.fuelRecFooterNoticeDark]}>
+                    <MaterialIcons name="info-outline" size={14} color={isDark ? '#86EFAC' : '#166534'} />
+                    <Text style={[styles.fuelRecFooterNoticeText, isDark && { color: '#86EFAC' }]}>
+                      {fuelRec.reportCount > 0
+                        ? `Includes extra fuel so you don't run out during ${fuelRec.reportCount} citizen report detour(s).`
+                        : 'Saves Danao City fuel while protecting your route with a 10% traffic margin.'}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </ScrollView>
 
             {/* Action Buttons */}
             <View style={styles.modalActions}>
@@ -872,5 +980,154 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     textAlign: 'center',
+  },
+
+  // Fuel Recommendation Card Styles
+  fuelRecLoadingCard: {
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  fuelRecLoadingCardDark: {
+    backgroundColor: '#064E3B',
+    borderColor: '#065F46',
+  },
+  fuelRecLoadingText: {
+    fontSize: 12,
+    color: '#166534',
+    textAlign: 'center',
+  },
+  fuelRecCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    marginBottom: 20,
+  },
+  fuelRecCardDark: {
+    backgroundColor: '#0F291E',
+    borderColor: '#166534',
+  },
+  fuelRecHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  fuelRecHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fuelRecHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  fuelRecBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  fuelRecBadgeLearned: {
+    backgroundColor: '#DCFCE7',
+  },
+  fuelRecBadgeGathering: {
+    backgroundColor: '#FEF3C7',
+  },
+  fuelRecBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  fuelRecBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  fuelRecBannerDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  fuelRecBannerSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  fuelRecBannerNumber: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  fuelRecBannerUnit: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  fuelRecCostPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  fuelRecCostText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  fuelRecBreakdownList: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  fuelRecItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fuelRecItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fuelRecItemLabel: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  fuelRecItemValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  fuelRecFooterNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    padding: 8,
+    borderRadius: 8,
+  },
+  fuelRecFooterNoticeDark: {
+    backgroundColor: '#064E3B',
+  },
+  fuelRecFooterNoticeText: {
+    fontSize: 11,
+    color: '#166534',
+    flex: 1,
+    lineHeight: 15,
   },
 });

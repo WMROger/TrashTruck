@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,6 +38,8 @@ import {
 import RouteOptimizationMap from './RouteOptimizationMap';
 import { writeAuditLog } from '@/services/auditLogService';
 import { isAutoDispatchEnabled, setAutoDispatchEnabled } from '@/services/autoDispatchService';
+import { applicableDieselFactor, DEFAULT_DIESEL_SETTINGS, DieselSettings, parametersForTruck } from '@/services/dieselService';
+import { DieselModel } from '@/services/dieselMath';
 
 interface Report {
   id: string;
@@ -282,6 +284,20 @@ export default function RouteOptimizationTab() {
   const currentSelectedDriver = useMemo(() => {
     return drivers.find((d) => d.id === selectedDriverId) || null;
   }, [drivers, selectedDriverId]);
+  const [dieselSettings, setDieselSettings] = useState<DieselSettings>(DEFAULT_DIESEL_SETTINGS);
+  const [dieselModel, setDieselModel] = useState<DieselModel | null>(null);
+  const [dieselError, setDieselError] = useState('');
+  const dieselParameters = useMemo(() => parametersForTruck(dieselSettings, currentSelectedDriver?.currentTruckId), [dieselSettings, currentSelectedDriver?.currentTruckId]);
+  useEffect(() => onSnapshot(doc(db, 'diesel_settings', 'main'), snap => {
+    setDieselSettings(snap.exists() ? { ...DEFAULT_DIESEL_SETTINGS, ...snap.data() } as DieselSettings : DEFAULT_DIESEL_SETTINGS);
+    setDieselError('');
+  }, () => setDieselError('Supply settings could not be loaded. Fuel figures use demonstration assumptions.')), []);
+  useEffect(() => {
+    setDieselModel(null);
+    if (!currentSelectedDriver?.currentTruckId) return;
+    return onSnapshot(doc(db, 'diesel_models', currentSelectedDriver.currentTruckId), snap => setDieselModel(snap.exists() ? snap.data() as DieselModel : null),
+      () => setDieselError('Truck learning could not be loaded. The basic diesel formula is in use.'));
+  }, [currentSelectedDriver?.currentTruckId]);
 
   // 7. Filter Verified Reports for this Barangay
   const barangayReports = useMemo(() => {
@@ -315,26 +331,26 @@ export default function RouteOptimizationTab() {
   }, [reports, selectedReportIds]);
 
   // 8. Trigger AI Traffic & Fuel Optimization
-  const runOptimization = (extraReps: Report[] = selectedReportObjects) => {
+  const runOptimization = useCallback((extraReps: Report[] = selectedReportObjects) => {
     setIsOptimizingAI(true);
-    setTimeout(() => {
       try {
-        const result = optimizeBarangayRouteWithTraffic(selectedBarangay, extraReps);
+        const factor = applicableDieselFactor(dieselModel, dieselParameters);
+        const result = optimizeBarangayRouteWithTraffic(selectedBarangay, extraReps, dieselParameters, factor, factor !== 1 ? dieselModel?.id || null : null,
+          dieselSettings.parameterSource + '; ' + dieselSettings.priceSource + '; price effective ' + (dieselSettings.priceDate || 'not configured'));
         setOptResult(result);
       } catch (err) {
         console.error('Error running traffic optimization:', err);
       } finally {
         setIsOptimizingAI(false);
       }
-    }, 300);
-  };
+  }, [selectedReportObjects, selectedBarangay, dieselParameters, dieselModel, dieselSettings]);
 
   // Run automatically when selected barangay or inserted reports change
   useEffect(() => {
     if (selectedBarangay) {
       runOptimization(selectedReportObjects);
     }
-  }, [selectedBarangay, selectedReportObjects.length]);
+  }, [selectedBarangay, selectedReportObjects, runOptimization]);
 
   // Toggle report insertion
   const toggleReportSelection = (id: string) => {
@@ -413,9 +429,11 @@ export default function RouteOptimizationTab() {
         driver: driverName,
         assignedDriverId: selectedDriverId,
         truckId: truckId,
+        truckPlate: currentSelectedDriver.currentTruckPlate || '',
         isLiveDispatch: true,
         routeOptimization: {
           method: 'traffic-aware-fuel-optimized',
+          ...(dieselParameters.pricePerLiter > 0 ? { dieselEstimate: optResult.dieselEstimate } : {}),
           baselineDistanceKm: optResult.baselineDistanceKm,
           optimizedDistanceKm: optResult.optimizedDistanceKm,
           fuelSavingsLiters: optResult.fuelSavingsLiters,
@@ -500,6 +518,11 @@ export default function RouteOptimizationTab() {
           <Text style={styles.headerTitle}>AI Traffic & Fuel Route Optimization</Text>
           <Text style={styles.headerDescription}>
             Simulate baseline driver routes, avoid commercial traffic bottlenecks, and insert verified citizen reports.
+          </Text>
+          <Text style={styles.headerDescription}>
+            Demo distances use straight lines between stops. Diesel uses the CENRO supply price and editable truck assumptions.
+            {dieselParameters.pricePerLiter <= 0 ? ' Set a supply price in Diesel Estimate to calculate costs.' : ' Supply price: ₱' + dieselParameters.pricePerLiter + '/L.'}
+            {dieselError ? ' ' + dieselError : ''}
           </Text>
         </View>
 
