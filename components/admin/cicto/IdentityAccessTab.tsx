@@ -768,7 +768,7 @@ export default function IdentityAccessTab() {
                   })}
 
                   {filteredBarangayList.length === 0 && (
-                    <Text style={styles.noDropdownMatchText}>No barangays match "{barangayDropdownSearch}".</Text>
+                    <Text style={styles.noDropdownMatchText}>No barangays match &quot;{barangayDropdownSearch}&quot;.</Text>
                   )}
                 </ScrollView>
               </View>
@@ -935,7 +935,7 @@ export default function IdentityAccessTab() {
               )}
               {searchQuery.trim() !== '' && (
                 <View style={styles.activeTag}>
-                  <Text style={styles.activeTagText}>Search: "{searchQuery}"</Text>
+                  <Text style={styles.activeTagText}>Search: &quot;{searchQuery}&quot;</Text>
                   <TouchableOpacity onPress={() => setSearchQuery('')}>
                     <MaterialIcons name="close" size={13} color="#0F766E" />
                   </TouchableOpacity>

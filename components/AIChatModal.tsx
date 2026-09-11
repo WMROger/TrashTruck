@@ -229,7 +229,7 @@ const buildOfflineAssistantResponse = (queryText: string, context: any) => {
   if (/announcement|alert/.test(normalized)) {
     const count = Number(context?.announcements?.total || 0);
     return count
-      ? `There ${count === 1 ? 'is' : 'are'} ${count} published announcement${count === 1 ? '' : 's'}. Open the Alerts tab to review the official details.`
+      ? `There ${count === 1 ? 'is' : 'are'} ${count} published announcement${count === 1 ? '' : 's'}. Open the Announce tab to review the official details.`
       : 'There are no published announcements in your TrashTrack data right now.';
   }
   if (/notification|inbox/.test(normalized)) {

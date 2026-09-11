@@ -155,7 +155,7 @@ export default function TruckInventoryTab() {
         updatedAt: serverTimestamp(),
       });
 
-      // 2. Clear truck assignment from the driver's user document
+      // 2. Clear truck assignment from the driver's user document and set unassignedNotice
       if (driverId) {
         try {
           await updateDoc(doc(db, 'users', driverId), {
@@ -164,10 +164,31 @@ export default function TruckInventoryTab() {
             assignedTruck: null,
             status: 'off_duty',
             dutyStatus: 'off_duty',
+            unassignedNotice: {
+              truckPlate: plateNumber || 'Assigned Truck',
+              truckId: truckId,
+              unassignedAt: new Date().toISOString(),
+              unassignedBy: 'CENRO Fleet Admin',
+              acknowledged: false,
+            },
             updatedAt: serverTimestamp(),
           });
         } catch (userErr) {
           console.warn('Could not clear driver user doc:', userErr);
+        }
+
+        // Also add a formal notification to 'notifications' collection so it's in their inbox
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            userId: driverId,
+            title: '🚛 Truck Assignment Removed',
+            message: `You have been removed from truck ${plateNumber || ''} by CENRO Fleet Management. Your current shift has been concluded.`,
+            type: 'truck_unassigned',
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notifErr) {
+          console.warn('Could not send unassignment notification:', notifErr);
         }
 
         // 3. Clear employee_ids record if present

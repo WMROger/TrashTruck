@@ -225,6 +225,7 @@ export default function SelectTruckScreen() {
           assignedDriverId: user.uid,
           assignedDriverName: driverName,
           shiftStartedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
 
         // Update the user's document
@@ -234,7 +235,7 @@ export default function SelectTruckScreen() {
           currentTruckPlate: truck.plateNumber,
           status: 'on_duty',
           dutyStatus: 'on_duty',
-          currentShiftFuelBudgetLiters: fuelRec?.totalRecommendedLiters || null,
+          updatedAt: serverTimestamp(),
         });
 
         // Check if there are queued verified reports for this driver's assigned barangay

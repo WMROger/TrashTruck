@@ -145,7 +145,8 @@ export default function TabLayout() {
         <Tabs.Screen
           name="announcements"
           options={{
-            title: 'Alerts',
+            title: 'Announcements',
+            tabBarLabel: 'Announce',
             tabBarIcon: ({ focused, color, size }) => (
               <MaterialIcons 
                 name="campaign" 

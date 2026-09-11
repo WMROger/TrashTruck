@@ -16,6 +16,23 @@ export type SimulationState = {
   barangay?: string;
   truckId: string;
   driverId: string;
+  heading?: number;
+
+  // 1:1 Realistic Drive Metrics
+  speedMultiplier: number; // 1 = 1:1 real-time ratio, 2 = 2x, 5 = 5x, 10 = 10x
+  elapsedDurationSeconds: number; // e.g. 180 (3 min)
+  totalDurationSeconds: number; // e.g. 600 (10 min drive)
+  remainingDurationSeconds: number; // e.g. 420 (7 min left)
+  distanceTraveledKm: number; // e.g. 1.20 km
+  totalDistanceKm: number; // e.g. 4.10 km
+  progressPercent: number; // e.g. 29%
+
+  // Live Fuel Consumption Metrics ("how much it would take and etc")
+  fuelBurnedLiters: number; // e.g. 0.45 L
+  totalEstimatedFuelLiters: number; // e.g. 1.55 L
+  fuelCostBurnedPhp: number | null; // e.g. ₱27.00
+  totalEstimatedCostPhp: number | null; // e.g. ₱93.00
+  fuelBurnRateKmPerLiter: number; // e.g. 3.2 km/L
 };
 
 export const DANAO_SIMULATION_ROUTE = [
@@ -52,9 +69,57 @@ function calculateBearing(startLat: number, startLng: number, destLat: number, d
   return (brng + 360) % 360;
 }
 
+export function haversineDistKm(
+  c1: { latitude: number; longitude: number },
+  c2: { latitude: number; longitude: number }
+): number {
+  const R = 6371;
+  const dLat = ((c2.latitude - c1.latitude) * Math.PI) / 180;
+  const dLon = ((c2.longitude - c1.longitude) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((c1.latitude * Math.PI) / 180) *
+      Math.cos((c2.latitude * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function densifySimulationRoute(
+  waypoints: SimulationWaypoint[],
+  maxSegmentKm = 0.04
+): SimulationWaypoint[] {
+  if (waypoints.length < 2) return waypoints;
+  const result: SimulationWaypoint[] = [];
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const p1 = waypoints[i];
+    const p2 = waypoints[i + 1];
+    result.push(p1);
+    const dist = haversineDistKm(p1, p2);
+    if (dist > maxSegmentKm) {
+      const steps = Math.ceil(dist / maxSegmentKm);
+      for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        result.push({
+          latitude: p1.latitude + (p2.latitude - p1.latitude) * t,
+          longitude: p1.longitude + (p2.longitude - p1.longitude) * t,
+          name: p1.name || 'En Route Sector',
+          speed: Math.round((p1.speed ?? 24) + ((p2.speed ?? 24) - (p1.speed ?? 24)) * t),
+          barangay: p1.barangay,
+        });
+      }
+    }
+  }
+  result.push(waypoints[waypoints.length - 1]);
+  return result;
+}
+
 class LocationService {
   private locationSubscription: Location.LocationSubscription | null = null;
   private isTracking = false;
+  private currentDriverId: string | null = null;
+  private currentTruckId: string | null = null;
   private retryTimeout: ReturnType<typeof setTimeout> | null = null;
   private maxRetries = 3;
   private lastHistoryAt = 0;
@@ -77,6 +142,20 @@ class LocationService {
     timestampMs: number;
     recordedAt: string;
   }> = [];
+  private speedMultiplier = 1;
+  private simElapsedSeconds = 0;
+  private simTotalDurationSeconds = 600;
+  private simRouteWaypoints: SimulationWaypoint[] = [];
+  private simCumDistances: number[] = [];
+  private simTotalDistanceKm = 0;
+  private simLastFirestoreWrite = 0;
+  private simLastTripPersist = 0;
+  private simIsWriting = false;
+  private firestoreBackoffUntil = 0;
+  private simDieselKmPerLiter = 3.2;
+  private simPricePerLiter = 60.0;
+  private simIdleLitersPerHour = 1.2;
+
   private simulationState: SimulationState = {
     isActive: false,
     currentStep: 0,
@@ -86,7 +165,24 @@ class LocationService {
     locationName: '',
     truckId: '',
     driverId: '',
+    heading: 0,
+    speedMultiplier: 1,
+    elapsedDurationSeconds: 0,
+    totalDurationSeconds: 600,
+    remainingDurationSeconds: 600,
+    distanceTraveledKm: 0,
+    totalDistanceKm: 0,
+    progressPercent: 0,
+    fuelBurnedLiters: 0,
+    totalEstimatedFuelLiters: 0,
+    fuelCostBurnedPhp: 0,
+    totalEstimatedCostPhp: 0,
+    fuelBurnRateKmPerLiter: 3.2,
   };
+
+  public isGpsTracking(): boolean {
+    return this.isTracking;
+  }
 
   // =========================================================================
   // STANDALONE APK: BACKGROUND LOCATION TRACKING (UNCOMMENT WHEN BUILDING APK)
@@ -146,6 +242,8 @@ class LocationService {
       }
 
       this.isTracking = true;
+      this.currentDriverId = driverId;
+      this.currentTruckId = truckId;
 
       // Try to get initial location with fallback
       try {
@@ -216,7 +314,7 @@ class LocationService {
     }, delay);
   }
 
-  async stopTracking(driverId: string) {
+  async stopTracking(driverId?: string) {
     // If tracking is already stopped, avoid redundant writes and duplicate log messages
     if (!this.isTracking && !this.locationSubscription && !this.retryTimeout) {
       return;
@@ -241,15 +339,19 @@ class LocationService {
     this.lastHistoryCoordinate = null;
     this.deviationSamples = 0;
 
+    const targetDriverId = driverId || this.currentDriverId;
+    this.currentDriverId = null;
+    this.currentTruckId = null;
+
     // Mark as inactive in Firestore
     try {
-      if (db && driverId) {
-        const truckRef = doc(db, 'truck_locations', driverId);
+      if (db && targetDriverId) {
+        const truckRef = doc(db, 'truck_locations', targetDriverId);
         await setDoc(truckRef, {
           status: 'inactive',
           lastUpdate: serverTimestamp(),
         }, { merge: true });
-        console.log('Stopped live GPS tracking for driver:', driverId);
+        console.log('Stopped live GPS tracking for driver:', targetDriverId);
       }
     } catch (error: any) {
       if (error?.message?.includes('Missing or insufficient permissions') || error?.code === 'permission-denied') {
@@ -260,8 +362,9 @@ class LocationService {
     }
   }
 
+
   // -------------------------------------------------------------
-  // SIMULATION ENGINE (Driver-Side Movement Simulator)
+  // 1:1 REAL-TIME SIMULATION ENGINE & FUEL ANALYTICS
   // -------------------------------------------------------------
 
   public getSimulationState(): SimulationState {
@@ -286,88 +389,248 @@ class LocationService {
     });
   }
 
+  public setSimulationSpeed(multiplier: number) {
+    if (!Number.isFinite(multiplier) || multiplier <= 0) return;
+    this.speedMultiplier = multiplier;
+    this.simulationState.speedMultiplier = multiplier;
+    this.notifySimulationListeners();
+  }
+
   /**
-   * Starts a real-time GPS simulation driving along Danao City routes for a specific Barangay.
-   * Telemetry is written directly to Firestore so CICTO & CENRO dashboards update live.
+   * Starts a realistic GPS simulation driving along Danao City routes for a specific Barangay.
+   * Runs in authentic 1:1 real-time ratio (e.g. 10-minute drive = 10 minutes at 1x speed),
+   * calculating live diesel fuel consumed (Liters and ₱) and remaining ETA.
    */
   public async startSimulation(
     driverId: string,
     truckId: string,
     barangayOrRoute?: string | SimulationWaypoint[],
-    context: FleetTrackingContext = {}
+    context: FleetTrackingContext = {},
+    initialSpeedMultiplier = 1
   ) {
     if (this.simulationInterval) {
-      this.stopSimulation(driverId);
+      await this.stopSimulation(driverId);
     }
 
-    let route: SimulationWaypoint[];
+    this.speedMultiplier = Math.max(0.25, Math.min(20, initialSpeedMultiplier || 1));
+
+    let rawRoute: SimulationWaypoint[];
     let targetBarangay = 'Poblacion';
 
     if (Array.isArray(barangayOrRoute) && barangayOrRoute.length >= 2) {
-      route = barangayOrRoute;
-      // Use the most common non-Poblacion barangay in the route as the assigned sector
-      const routeBarangays = barangayOrRoute.map(wp => wp.barangay).filter(b => b && b !== 'Poblacion');
+      rawRoute = barangayOrRoute;
+      const routeBarangays = barangayOrRoute.map((wp) => wp.barangay).filter((b) => b && b !== 'Poblacion');
       targetBarangay = routeBarangays[0] || barangayOrRoute[0]?.barangay || 'Poblacion';
     } else if (typeof barangayOrRoute === 'string' && barangayOrRoute.trim()) {
       targetBarangay = barangayOrRoute.trim();
-      route = await getRoadSnappedSimulationRoute(targetBarangay);
+      rawRoute = await getRoadSnappedSimulationRoute(targetBarangay);
     } else {
-      route = await getRoadSnappedSimulationRoute('Poblacion');
+      rawRoute = await getRoadSnappedSimulationRoute('Poblacion');
     }
+
+    // Densify raw waypoints so 1:1 movement interpolates smoothly along streets (~30-40m)
+    const route = densifySimulationRoute(rawRoute, 0.04);
+    this.simRouteWaypoints = route;
+
+    // Calculate cumulative distances
+    const cumDist: number[] = [0];
+    for (let i = 0; i < route.length - 1; i++) {
+      const segDist = haversineDistKm(route[i], route[i + 1]);
+      cumDist.push(cumDist[i] + segDist);
+    }
+    this.simCumDistances = cumDist;
+    const totalDistKm = Math.max(0.8, cumDist[cumDist.length - 1] || 4.0);
+    this.simTotalDistanceKm = totalDistKm;
+
+    // 1:1 Real-Time Drive Duration:
+    // Typical urban collection truck speed in Danao City averages ~24 km/h (including stops & traffic).
+    // For a ~4.0 km route: 4.0 / 24 * 3600 = 600 seconds = exactly 10 minutes!
+    const targetSpeedKph = 24;
+    const totalDurationSeconds = Math.max(180, Math.round((totalDistKm / targetSpeedKph) * 3600));
+    this.simTotalDurationSeconds = totalDurationSeconds;
+    this.simElapsedSeconds = 0;
+    this.simLastFirestoreWrite = Date.now();
+
+    // Diesel Parameters: standard Danao 6-wheeler compactor truck
+    this.simDieselKmPerLiter = 3.2; // 3.2 km/L
+    this.simIdleLitersPerHour = 1.2; // 1.2 L/h idle & compaction
+    this.simPricePerLiter = 60.0; // ₱60.00 / Liter
+
+    // Total Estimated Diesel Fuel for the entire route
+    const totalDrivingLiters = (totalDistKm / this.simDieselKmPerLiter) * 1.10; // 10% load penalty factor
+    const totalIdleLiters = (totalDurationSeconds / 3600) * this.simIdleLitersPerHour;
+    const totalFuelLiters = Math.round((totalDrivingLiters + totalIdleLiters) * 100) / 100;
+    const totalCostPhp = Math.round(totalFuelLiters * this.simPricePerLiter);
 
     const effectiveTruckId = truckId || 'TRUCK-DANAO-01';
     const dateStr = new Date().toISOString().slice(0, 10);
     this.currentActiveTripId = `${effectiveTruckId}-${driverId}-${dateStr}`;
     this.activeTripPoints = [];
-    let currentIndex = 0;
+
+    const initialHeading = calculateBearing(
+      route[0].latitude,
+      route[0].longitude,
+      route[1]?.latitude || route[0].latitude,
+      route[1]?.longitude || route[0].longitude
+    );
 
     this.simulationState = {
       isActive: true,
       currentStep: 1,
       totalSteps: route.length,
-      currentSpeedKph: route[0].speed || 25,
+      currentSpeedKph: route[0].speed || 24,
       currentCoordinate: { latitude: route[0].latitude, longitude: route[0].longitude },
       locationName: route[0].name || `Brgy. ${targetBarangay} Route`,
       barangay: targetBarangay,
       truckId: effectiveTruckId,
       driverId,
+      heading: initialHeading,
+      speedMultiplier: this.speedMultiplier,
+      elapsedDurationSeconds: 0,
+      totalDurationSeconds,
+      remainingDurationSeconds: totalDurationSeconds,
+      distanceTraveledKm: 0,
+      totalDistanceKm: Math.round(totalDistKm * 100) / 100,
+      progressPercent: 0,
+      fuelBurnedLiters: 0,
+      totalEstimatedFuelLiters: totalFuelLiters,
+      fuelCostBurnedPhp: 0,
+      totalEstimatedCostPhp: totalCostPhp,
+      fuelBurnRateKmPerLiter: this.simDieselKmPerLiter,
     };
     this.notifySimulationListeners();
 
-    // Emit first point immediately
-    await this.emitSimulationPoint(driverId, effectiveTruckId, route[0], route[1] || route[0], context, targetBarangay, route.length);
+    // Emit first telemetry point immediately
+    await this.emitSimulationPoint(
+      driverId,
+      effectiveTruckId,
+      route[0],
+      route[1] || route[0],
+      context,
+      targetBarangay,
+      route.length,
+      this.simulationState
+    );
 
-    // Step every 3.5 seconds
+    // 1-Second Continuous Interval Engine (1:1 Ratio Ticker)
     this.simulationInterval = setInterval(async () => {
-      currentIndex += 1;
-      if (currentIndex >= route.length) {
-        // Full route completed! Stop interval and record completion
-        console.log(`🎉 GPS Simulation completed all ${route.length} route waypoints for driver: ${driverId}`);
+      // Advance simulated time by (1.0s * speedMultiplier)
+      const simAdvance = 1.0 * this.speedMultiplier;
+      this.simElapsedSeconds += simAdvance;
+
+      if (this.simElapsedSeconds >= this.simTotalDurationSeconds) {
+        console.log(`🎉 1:1 GPS Simulation completed full ${totalDurationSeconds}s drive for driver: ${driverId}`);
         await this.completeSimulation(driverId, effectiveTruckId, targetBarangay, route.length);
         return;
       }
 
-      const currentPoint = route[currentIndex];
-      const nextPoint = route[Math.min(currentIndex + 1, route.length - 1)];
-      const speed = currentPoint.speed || Math.floor(Math.random() * 12) + 25;
+      const progress = Math.min(1, this.simElapsedSeconds / this.simTotalDurationSeconds);
+      const targetDist = progress * totalDistKm;
+
+      // Locate enclosing segment along cumulative distances
+      let segIdx = 0;
+      for (let i = 0; i < cumDist.length - 1; i++) {
+        if (targetDist >= cumDist[i] && targetDist <= cumDist[i + 1]) {
+          segIdx = i;
+          break;
+        }
+        if (targetDist > cumDist[i + 1]) {
+          segIdx = i + 1;
+        }
+      }
+      segIdx = Math.min(segIdx, route.length - 2);
+
+      const p1 = route[segIdx];
+      const p2 = route[segIdx + 1] || p1;
+      const segSpan = (cumDist[segIdx + 1] - cumDist[segIdx]) || 0.0001;
+      const t = Math.max(0, Math.min(1, (targetDist - cumDist[segIdx]) / segSpan));
+
+      const curLat = p1.latitude + (p2.latitude - p1.latitude) * t;
+      const curLng = p1.longitude + (p2.longitude - p1.longitude) * t;
+      const heading = calculateBearing(curLat, curLng, p2.latitude, p2.longitude);
+
+      // Realistic speed variations around segment target speed
+      const baseSpeed = p1.speed || 24;
+      const speedKph = Math.max(14, Math.min(48, Math.round(baseSpeed + Math.sin(this.simElapsedSeconds * 0.2) * 4)));
+
+      // Live fuel consumption calculations
+      const curDistKm = Math.min(totalDistKm, targetDist);
+      const drivingLiters = (curDistKm / this.simDieselKmPerLiter) * 1.10;
+      const idleLiters = (this.simElapsedSeconds / 3600) * this.simIdleLitersPerHour;
+      const fuelBurnedLiters = Math.min(totalFuelLiters, Math.round((drivingLiters + idleLiters) * 100) / 100);
+      const fuelCostBurnedPhp = Math.round(fuelBurnedLiters * this.simPricePerLiter);
+      const remainingSec = Math.max(0, Math.round(this.simTotalDurationSeconds - this.simElapsedSeconds));
+      const progressPct = Math.min(100, Math.round(progress * 100));
 
       this.simulationState = {
         isActive: true,
-        currentStep: currentIndex + 1,
+        currentStep: segIdx + 1,
         totalSteps: route.length,
-        currentSpeedKph: speed,
-        currentCoordinate: { latitude: currentPoint.latitude, longitude: currentPoint.longitude },
-        locationName: currentPoint.name || `Waypoint ${currentIndex + 1}`,
+        currentSpeedKph: speedKph,
+        currentCoordinate: { latitude: curLat, longitude: curLng },
+        locationName: p1.name || `Waypoint ${segIdx + 1}`,
         barangay: targetBarangay,
         truckId: effectiveTruckId,
         driverId,
+        heading,
+        speedMultiplier: this.speedMultiplier,
+        elapsedDurationSeconds: Math.round(this.simElapsedSeconds),
+        totalDurationSeconds: this.simTotalDurationSeconds,
+        remainingDurationSeconds: remainingSec,
+        distanceTraveledKm: Math.round(curDistKm * 100) / 100,
+        totalDistanceKm: Math.round(totalDistKm * 100) / 100,
+        progressPercent: progressPct,
+        fuelBurnedLiters,
+        totalEstimatedFuelLiters: totalFuelLiters,
+        fuelCostBurnedPhp,
+        totalEstimatedCostPhp: totalCostPhp,
+        fuelBurnRateKmPerLiter: this.simDieselKmPerLiter,
       };
+
+      // Update in-app listeners every 1 second (super responsive)
       this.notifySimulationListeners();
 
-      await this.emitSimulationPoint(driverId, effectiveTruckId, currentPoint, nextPoint, context, targetBarangay, route.length);
-    }, 3500);
+      // Throttle remote Firestore writes to every 6 seconds to prevent exceeding rate limits and preserve quota
+      const now = Date.now();
+      if (
+        !this.simIsWriting &&
+        now >= this.firestoreBackoffUntil &&
+        now - this.simLastFirestoreWrite >= 6000
+      ) {
+        this.simLastFirestoreWrite = now;
+        this.simIsWriting = true;
+        const currentSimPt = {
+          latitude: curLat,
+          longitude: curLng,
+          name: p1.name,
+          speed: speedKph,
+          barangay: p1.barangay || targetBarangay,
+        };
+        this.emitSimulationPoint(
+          driverId,
+          effectiveTruckId,
+          currentSimPt,
+          p2,
+          context,
+          targetBarangay,
+          route.length,
+          this.simulationState
+        )
+          .catch((err: any) => {
+            if (err?.code === 'resource-exhausted' || String(err?.message).includes('backoff')) {
+              this.firestoreBackoffUntil = Date.now() + 30000;
+            }
+          })
+          .finally(() => {
+            this.simIsWriting = false;
+          });
+      }
+    }, 1000);
 
-    console.log(`🚀 Started GPS movement simulation for Driver: ${driverId} in Brgy. ${targetBarangay} (Truck: ${effectiveTruckId})`);
+    console.log(
+      `🚀 Started 1:1 GPS Simulation (${this.speedMultiplier}x speed) for Driver: ${driverId} in Brgy. ${targetBarangay} ` +
+      `[Total: ${Math.round(totalDistKm * 10) / 10} km · ${Math.round(totalDurationSeconds / 60)} min drive · Est. Fuel: ${totalFuelLiters} L / ₱${totalCostPhp}]`
+    );
   }
 
   public async completeSimulation(driverId: string, truckId: string, barangay: string, totalSteps: number) {
@@ -375,6 +638,11 @@ class LocationService {
       clearInterval(this.simulationInterval);
       this.simulationInterval = null;
     }
+
+    const totalEstFuel = this.simulationState.totalEstimatedFuelLiters || 1.5;
+    const totalEstCost = this.simulationState.totalEstimatedCostPhp || 90;
+    const totalDist = this.simulationState.totalDistanceKm || 4.0;
+    const totalDuration = this.simulationState.totalDurationSeconds || 600;
 
     this.simulationState = {
       isActive: false,
@@ -385,6 +653,19 @@ class LocationService {
       locationName: 'Route Completed',
       truckId,
       driverId,
+      heading: 0,
+      speedMultiplier: this.speedMultiplier,
+      elapsedDurationSeconds: totalDuration,
+      totalDurationSeconds: totalDuration,
+      remainingDurationSeconds: 0,
+      distanceTraveledKm: totalDist,
+      totalDistanceKm: totalDist,
+      progressPercent: 100,
+      fuelBurnedLiters: totalEstFuel,
+      totalEstimatedFuelLiters: totalEstFuel,
+      fuelCostBurnedPhp: totalEstCost,
+      totalEstimatedCostPhp: totalEstCost,
+      fuelBurnRateKmPerLiter: this.simDieselKmPerLiter,
     };
     this.notifySimulationListeners();
 
@@ -413,6 +694,9 @@ class LocationService {
             endTime: new Date().toISOString(),
             points: this.activeTripPoints,
             totalPoints: this.activeTripPoints.length,
+            totalDistanceKm: totalDist,
+            totalFuelLiters: totalEstFuel,
+            totalDurationSeconds: totalDuration,
             lastUpdate: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
@@ -430,6 +714,8 @@ class LocationService {
           completedSteps: totalSteps,
           completionPercentage: 100,
           status: 'completed',
+          totalDistanceKm: totalDist,
+          totalFuelLiters: totalEstFuel,
           recordedAtClient: new Date().toISOString(),
           createdAt: serverTimestamp(),
         });
@@ -452,6 +738,8 @@ class LocationService {
     const barangay = this.simulationState.barangay || 'Poblacion';
     const lastCoord = this.simulationState.currentCoordinate;
     const lastLocName = this.simulationState.locationName;
+    const currentDist = this.simulationState.distanceTraveledKm;
+    const currentFuel = this.simulationState.fuelBurnedLiters;
 
     this.simulationState = {
       isActive: false,
@@ -462,6 +750,19 @@ class LocationService {
       locationName: '',
       truckId: '',
       driverId: '',
+      heading: 0,
+      speedMultiplier: 1,
+      elapsedDurationSeconds: 0,
+      totalDurationSeconds: 600,
+      remainingDurationSeconds: 600,
+      distanceTraveledKm: 0,
+      totalDistanceKm: 0,
+      progressPercent: 0,
+      fuelBurnedLiters: 0,
+      totalEstimatedFuelLiters: 0,
+      fuelCostBurnedPhp: 0,
+      totalEstimatedCostPhp: 0,
+      fuelBurnRateKmPerLiter: 3.2,
     };
     this.notifySimulationListeners();
 
@@ -487,6 +788,8 @@ class LocationService {
             reason,
             points: this.activeTripPoints,
             totalPoints: this.activeTripPoints.length,
+            distanceTraveledKm: currentDist,
+            fuelBurnedLiters: currentFuel,
             lastUpdate: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
@@ -508,6 +811,8 @@ class LocationService {
             reason,
             lastLocation: lastCoord,
             lastLocationName: lastLocName,
+            distanceTraveledKm: currentDist,
+            fuelBurnedLiters: currentFuel,
             recordedAtClient: new Date().toISOString(),
             createdAt: serverTimestamp(),
           });
@@ -525,7 +830,8 @@ class LocationService {
     nextPoint: { latitude: number; longitude: number },
     context: FleetTrackingContext,
     assignedBarangay?: string,
-    totalStepsCount = 47
+    totalStepsCount = 47,
+    simState?: SimulationState
   ) {
     if (!db) return;
 
@@ -535,7 +841,7 @@ class LocationService {
       nextPoint.latitude,
       nextPoint.longitude
     );
-    const speedKph = currentPoint.speed || 32;
+    const speedKph = currentPoint.speed || 24;
     const speedMps = speedKph / 3.6;
 
     const mockCoords: Location.LocationObjectCoords = {
@@ -562,7 +868,7 @@ class LocationService {
     };
     this.activeTripPoints.push(ptRecord);
 
-    // 1. Update live truck marker (isolated try-catch)
+    // 1. Update live truck marker in Firestore (every 6s)
     try {
       const truckRef = doc(db, 'truck_locations', driverId);
       await setDoc(truckRef, {
@@ -577,18 +883,34 @@ class LocationService {
         barangay: assignedBarangay || currentPoint.barangay || 'Poblacion',
         locationName: currentPoint.name || `Brgy. ${assignedBarangay || 'Poblacion'} Route`,
         isSimulation: true,
+        speedMultiplier: simState?.speedMultiplier || this.speedMultiplier,
+        elapsedDurationSeconds: simState?.elapsedDurationSeconds || 0,
+        totalDurationSeconds: simState?.totalDurationSeconds || 600,
+        remainingDurationSeconds: simState?.remainingDurationSeconds || 600,
+        distanceTraveledKm: simState?.distanceTraveledKm || 0,
+        totalDistanceKm: simState?.totalDistanceKm || 0,
+        progressPercent: simState?.progressPercent || 0,
+        fuelBurnedLiters: simState?.fuelBurnedLiters || 0,
+        totalEstimatedFuelLiters: simState?.totalEstimatedFuelLiters || 0,
+        fuelCostBurnedPhp: simState?.fuelCostBurnedPhp || 0,
+        totalEstimatedCostPhp: simState?.totalEstimatedCostPhp || 0,
         recentTrail: this.activeTripPoints.slice(-40).map((p) => ({
           latitude: p.latitude,
           longitude: p.longitude,
         })),
         lastUpdate: serverTimestamp(),
       }, { merge: true });
-    } catch (err) {
-      console.warn('Simulation truck_locations update note:', err);
+    } catch (err: any) {
+      if (err?.code === 'resource-exhausted') {
+        this.firestoreBackoffUntil = Date.now() + 30000;
+      }
+      console.warn('Simulation truck_locations update note:', err?.message || err);
     }
 
-    // 2. Persist to fleet_trips document in Firestore
-    if (this.currentActiveTripId) {
+    // 2. Persist to fleet_trips document in Firestore only periodically (every 30 seconds) to avoid quota exhaustion
+    const now = Date.now();
+    if (this.currentActiveTripId && (now - this.simLastTripPersist >= 30000)) {
+      this.simLastTripPersist = now;
       try {
         const tripRef = doc(db, 'fleet_trips', this.currentActiveTripId);
         await setDoc(tripRef, {
@@ -604,19 +926,17 @@ class LocationService {
           completionPercentage: Math.round((this.activeTripPoints.length / Math.max(1, totalStepsCount)) * 100),
           points: this.activeTripPoints,
           totalPoints: this.activeTripPoints.length,
+          distanceTraveledKm: simState?.distanceTraveledKm || 0,
+          fuelBurnedLiters: simState?.fuelBurnedLiters || 0,
           lastUpdate: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      } catch (err) {
-        console.warn('Simulation fleet_trips write note:', err);
+      } catch (err: any) {
+        if (err?.code === 'resource-exhausted') {
+          this.firestoreBackoffUntil = Date.now() + 30000;
+        }
+        console.warn('Simulation fleet_trips write note:', err?.message || err);
       }
-    }
-
-    // 3. Append to client_activity trip points
-    try {
-      await this.writeTripPoint(driverId, truckId, mockCoords, context, true, assignedBarangay || currentPoint.barangay);
-    } catch (err) {
-      console.warn('Simulation client_activity write note:', err);
     }
   }
 
@@ -744,6 +1064,8 @@ class LocationService {
     
     try {
       const truckRef = doc(db, 'truck_locations', driverId);
+      const truckBarangay = context.barangay || context.assignedBarangay;
+      const speedKph = coords.speed ? Math.round(coords.speed * 3.6) : 0;
       await setDoc(
         truckRef,
         {
@@ -752,9 +1074,11 @@ class LocationService {
           lat: coords.latitude,
           lng: coords.longitude,
           speed: coords.speed,
-          heading: coords.heading,
+          speedKph,
+          heading: coords.heading || 0,
           lastUpdate: serverTimestamp(),
           status: 'active',
+          ...(truckBarangay ? { barangay: truckBarangay } : {}),
         },
         { merge: true }
       );

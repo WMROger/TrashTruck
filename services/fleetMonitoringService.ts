@@ -3,6 +3,8 @@ export type FleetCoordinate = { latitude: number; longitude: number };
 export type FleetTrackingContext = {
   routePolyline?: FleetCoordinate[];
   activeScheduleIds?: string[];
+  barangay?: string;
+  assignedBarangay?: string;
 };
 
 const radians = (degrees: number) => degrees * Math.PI / 180;

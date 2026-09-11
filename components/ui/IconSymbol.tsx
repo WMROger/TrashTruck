@@ -65,6 +65,7 @@ const MAPPING = {
   'envelope.fill': 'email',
   'map.fill': 'map',
   'clock.fill': 'access-time',
+  'heart': 'favorite-border',
   'heart.fill': 'favorite',
   'bookmark.fill': 'bookmark',
   'share.fill': 'share',

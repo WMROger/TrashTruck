@@ -23,6 +23,7 @@ import LiveTruckMarker from '@/components/LiveTruckMarker';
 import { locationService } from '@/services/locationService';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { Calendar } from 'react-native-calendars';
+import { BARANGAY_ANCHORS } from '@/constants/barangaySimulationRoutes';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -192,6 +193,18 @@ export default function ScheduleScreen() {
 
   const [userBarangay, setUserBarangay] = useState<string>('');
 
+  const userAnchor = useMemo(() => {
+    if (!userBarangay) return null;
+    return BARANGAY_ANCHORS[userBarangay] || null;
+  }, [userBarangay]);
+
+  const defaultMapCenter = useMemo(() => {
+    if (userAnchor) {
+      return { latitude: userAnchor.lat, longitude: userAnchor.lng };
+    }
+    return { latitude: 10.5217, longitude: 124.0253 }; // Danao City Hub
+  }, [userAnchor]);
+
   // Subscribe to user profile to get realtime barangay updates
   useEffect(() => {
     if (!db || !user?.uid) return;
@@ -273,6 +286,15 @@ export default function ScheduleScreen() {
               latitude !== 0 &&
               longitude !== 0
             ) {
+              // Resident filter: Only show trucks serving user's registered barangay
+              const truckBarangay = (data.barangay || data.assignedBarangay || '').trim();
+              if (userBarangay) {
+                if (!truckBarangay || truckBarangay.toLowerCase() !== userBarangay.trim().toLowerCase()) {
+                  delete updatedTrails[docSnap.id];
+                  return;
+                }
+              }
+
               const currentCoord = { latitude, longitude };
               trucks.push({
                 id: docSnap.id,
@@ -308,6 +330,16 @@ export default function ScheduleScreen() {
                   }
                 }
               }
+            } else {
+              delete updatedTrails[docSnap.id];
+            }
+          });
+
+          // Clean up trails for any trucks that are no longer active/valid for this resident
+          const validIds = new Set(trucks.map((t) => t.id));
+          Object.keys(updatedTrails).forEach((id) => {
+            if (!validIds.has(id)) {
+              delete updatedTrails[id];
             }
           });
 
@@ -332,10 +364,26 @@ export default function ScheduleScreen() {
   // Listen to live local simulation engine as well
   useEffect(() => {
     return locationService.onSimulationChange((simState) => {
+      const simId = simState.driverId || 'active_sim_truck';
+
       if (simState.isActive && simState.currentCoordinate) {
+        const simBarangay = (simState.barangay || '').trim();
+
+        // If resident has a registered barangay, filter local simulation to match
+        if (userBarangay && simBarangay && simBarangay.toLowerCase() !== userBarangay.trim().toLowerCase()) {
+          setTruckLocations((current) => current.filter((t) => t.id !== simId));
+          setTruckTrails((prev) => {
+            if (!prev[simId]) return prev;
+            const updated = { ...prev };
+            delete updated[simId];
+            return updated;
+          });
+          return;
+        }
+
         setTruckLocations((current) => {
           const simTruck = {
-            id: simState.driverId || 'active_sim_truck',
+            id: simId,
             driverId: simState.driverId,
             driverName: simState.driverId ? 'Assigned Driver' : 'Collection Truck',
             truckPlate: simState.truckId || 'TRUCK-01',
@@ -343,6 +391,7 @@ export default function ScheduleScreen() {
             speedKph: simState.currentSpeedKph,
             heading: 0,
             status: 'active',
+            barangay: simState.barangay,
             locationName: simState.locationName,
             isStale: false,
             lastUpdatedAt: new Date(),
@@ -353,8 +402,7 @@ export default function ScheduleScreen() {
 
         if (simState.currentCoordinate) {
           setTruckTrails((prev) => {
-            const id = simState.driverId || 'active_sim_truck';
-            const existing = prev[id] || [];
+            const existing = prev[simId] || [];
             const last = existing[existing.length - 1];
             if (
               !last ||
@@ -365,15 +413,23 @@ export default function ScheduleScreen() {
             ) {
               return {
                 ...prev,
-                [id]: [...existing, simState.currentCoordinate!].slice(-40),
+                [simId]: [...existing, simState.currentCoordinate!].slice(-40),
               };
             }
             return prev;
           });
         }
+      } else if (!simState.isActive) {
+        setTruckLocations((current) => current.filter((t) => t.id !== simId));
+        setTruckTrails((prev) => {
+          if (!prev[simId]) return prev;
+          const updated = { ...prev };
+          delete updated[simId];
+          return updated;
+        });
       }
     });
-  }, []);
+  }, [userBarangay]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -636,19 +692,24 @@ export default function ScheduleScreen() {
       <View style={[styles.mapCard, { backgroundColor: colors.surface }]}>
         <View style={styles.mapHeader}>
           <IconSymbol name="map" size={20} color={colors.primary} />
-          <Text style={[styles.mapTitle, { color: colors.textPrimary }]}>Live Tracker (API)</Text>
+          <Text style={[styles.mapTitle, { color: colors.textPrimary }]}>
+            Live Tracker{userBarangay ? ` • Brgy. ${userBarangay}` : ' (API)'}
+          </Text>
         </View>
         <Text style={[styles.mapSubtitle, { color: colors.textSecondary }]}>
-          Track the current location of the trash collector in real-time.
+          {userBarangay
+            ? `Tracking active collection trucks servicing Barangay ${userBarangay}.`
+            : 'Track the current location of the trash collector in real-time.'}
         </Text>
         <TouchableOpacity style={styles.mapImageContainer} activeOpacity={0.9} onPress={() => setShowMapZoom(true)}>
           <MapView
+            key={`card_map_${userBarangay || 'hub'}`}
             style={styles.mapImage}
             initialRegion={{
-              latitude: 10.5217,
-              longitude: 124.0253, // Danao City Hub & Central Routes
-              latitudeDelta: 0.005,
-              longitudeDelta: 0.005,
+              latitude: defaultMapCenter.latitude,
+              longitude: defaultMapCenter.longitude,
+              latitudeDelta: userAnchor ? 0.015 : 0.005,
+              longitudeDelta: userAnchor ? 0.015 : 0.005,
             }}
             pitchEnabled={false}
             rotateEnabled={false}
@@ -680,9 +741,9 @@ export default function ScheduleScreen() {
               truckLocations.map(truck => renderTruckMarker(truck, false))
             ) : (
               <Marker
-                coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
-                title="Danao City Hub"
-                description="Collection truck on standby at terminal"
+                coordinate={defaultMapCenter}
+                title={userBarangay ? `Brgy. ${userBarangay}` : 'Danao City Hub'}
+                description={userBarangay ? `Collection truck on standby for ${userBarangay}` : 'Collection truck on standby at terminal'}
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={tracksViewChanges}
               >
@@ -703,7 +764,9 @@ export default function ScheduleScreen() {
               </>
             ) : (
               <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
-                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>Standby at Danao Hub</Text>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>
+                  {userBarangay ? `Standby for Brgy. ${userBarangay}` : 'Standby at Danao Hub'}
+                </Text>
               </View>
             )}
           </View>
@@ -876,12 +939,13 @@ export default function ScheduleScreen() {
       <Modal visible={showMapZoom} transparent animationType="slide" onRequestClose={() => setShowMapZoom(false)}>
         <View style={styles.fullscreenMapContainer}>
           <MapView
+            key={`modal_map_${userBarangay || 'hub'}`}
             style={styles.fullscreenMapImage}
             initialRegion={{
-              latitude: 10.5217,
-              longitude: 124.0253, // Danao City Hub & Central Routes
-              latitudeDelta: 0.007,
-              longitudeDelta: 0.007,
+              latitude: defaultMapCenter.latitude,
+              longitude: defaultMapCenter.longitude,
+              latitudeDelta: userAnchor ? 0.02 : 0.007,
+              longitudeDelta: userAnchor ? 0.02 : 0.007,
             }}
             showsUserLocation
           >
@@ -910,9 +974,9 @@ export default function ScheduleScreen() {
               truckLocations.map(truck => renderTruckMarker(truck, true))
             ) : (
               <Marker
-                coordinate={{ latitude: 10.5217, longitude: 124.0253 }}
-                title="Danao City Hub"
-                description="Collection truck on standby at terminal"
+                coordinate={defaultMapCenter}
+                title={userBarangay ? `Brgy. ${userBarangay}` : 'Danao City Hub'}
+                description={userBarangay ? `Collection truck on standby for ${userBarangay}` : 'Collection truck on standby at terminal'}
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={tracksViewChanges}
               >
@@ -938,7 +1002,9 @@ export default function ScheduleScreen() {
               </>
             ) : (
               <View style={[styles.etaContainer, { backgroundColor: '#F3F4F6', opacity: 0.9 }]}>
-                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>Standby at Danao Hub</Text>
+                <Text style={[styles.mapEtaText, { color: '#4B5563' }]}>
+                  {userBarangay ? `Standby for Brgy. ${userBarangay}` : 'Standby at Danao Hub'}
+                </Text>
               </View>
             )}
           </View>

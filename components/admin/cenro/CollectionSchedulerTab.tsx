@@ -142,6 +142,34 @@ const WebTimeSelect = ({
 
 const DAYS_OF_WEEK = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+const DAY_ORDER_MAP: Record<string, number> = {
+  MON: 0,
+  MONDAY: 0,
+  TUE: 1,
+  TUESDAY: 1,
+  WED: 2,
+  WEDNESDAY: 2,
+  THU: 3,
+  THURSDAY: 3,
+  FRI: 4,
+  FRIDAY: 4,
+  SAT: 5,
+  SATURDAY: 5,
+  SUN: 6,
+  SUNDAY: 6,
+};
+
+export const sortDaysInOrder = (days: string[] = []): string[] => {
+  if (!Array.isArray(days)) return [];
+  return [...days].sort((a, b) => {
+    const keyA = String(a || '').trim().toUpperCase();
+    const keyB = String(b || '').trim().toUpperCase();
+    const valA = DAY_ORDER_MAP[keyA] !== undefined ? DAY_ORDER_MAP[keyA] : 99;
+    const valB = DAY_ORDER_MAP[keyB] !== undefined ? DAY_ORDER_MAP[keyB] : 99;
+    return valA - valB;
+  });
+};
+
 const CATEGORIES = [
   { name: 'BIODEGRADABLE', color: '#22C55E', icon: 'eco' },
   { name: 'NON-BIODEGRADABLE', color: '#2563EB', icon: 'delete-outline' },
@@ -476,10 +504,14 @@ export default function CollectionSchedulerTab({
   }, [sortedBarangayKeys, currentPage, itemsPerPage]);
 
   const toggleDay = (day: string) => {
-    if (selectedDays.includes(day)) {
-      setSelectedDays(selectedDays.filter((d) => d !== day));
-    } else {
-      setSelectedDays([...selectedDays, day]);
+    const isAlreadySelected = selectedDays.includes(day);
+    const updated = isAlreadySelected
+      ? selectedDays.filter((d) => d !== day)
+      : [...selectedDays, day];
+    const sorted = sortDaysInOrder(updated);
+    setSelectedDays(sorted);
+
+    if (!isAlreadySelected) {
       setDayTimes((prev) => ({
         ...prev,
         [day]: prev[day] || modalTimeStr || '06:00 AM',
@@ -522,7 +554,7 @@ export default function CollectionSchedulerTab({
     setBarangayName(isCoordinator && assignedBarangay ? assignedBarangay : (presetBarangayName || ''));
     setZone('');
     setStreetName('');
-    const defaultDays = ['MON', 'WED', 'FRI'];
+    const defaultDays = sortDaysInOrder(['MON', 'WED', 'FRI']);
     setSelectedDays(defaultDays);
     setTruckName('');
     setWasteCategory('BIODEGRADABLE');
@@ -555,7 +587,7 @@ export default function CollectionSchedulerTab({
     setBarangayName(schedule.barangayName || '');
     setZone(schedule.zone || '');
     setStreetName(schedule.streetName || '');
-    const currentDays = schedule.days || [];
+    const currentDays = sortDaysInOrder(schedule.days || []);
     setSelectedDays(currentDays);
     setTruckName(schedule.truck || '');
     setWasteCategory(schedule.wasteCategory || 'BIODEGRADABLE');
@@ -603,8 +635,9 @@ export default function CollectionSchedulerTab({
     setIsSubmitting(true);
     try {
       const chosenTime = modalTimeStr || '06:00 AM';
+      const sortedDays = sortDaysInOrder(selectedDays);
       const cleanedDayTimes: { [day: string]: string } = {};
-      selectedDays.forEach((d) => {
+      sortedDays.forEach((d) => {
         cleanedDayTimes[d] = useCustomDayTimes ? (dayTimes[d] || chosenTime) : chosenTime;
       });
 
@@ -612,7 +645,7 @@ export default function CollectionSchedulerTab({
         barangayName: barangayName.trim(),
         zone: zone.trim(),
         streetName: streetName.trim(),
-        days: selectedDays,
+        days: sortedDays,
         dayTimes: cleanedDayTimes,
         truck: truckName.trim(),
         wasteCategory: wasteCategory,
@@ -1263,8 +1296,10 @@ export default function CollectionSchedulerTab({
                           },
                         ]}
                       >
-                        {Array.from(
-                          new Set(allSchedsInBarangay.flatMap((s) => s.days || []))
+                        {sortDaysInOrder(
+                          Array.from(
+                            new Set(allSchedsInBarangay.flatMap((s) => s.days || []))
+                          )
                         )
                           .slice(0, 5)
                           .map((d, dIdx) => (
@@ -1348,7 +1383,7 @@ export default function CollectionSchedulerTab({
                                           }}
                                         >
                                           {(() => {
-                                            const days: string[] = row.days || [];
+                                            const days: string[] = sortDaysInOrder(row.days || []);
                                             const dTimes: Record<string, string> = row.dayTimes || {};
                                             const defaultTime = row.time || row.timeText || row.collectionTime || '06:00 AM';
                                             const uniqueTimes = new Set(days.map((d: string) => dTimes[d] || defaultTime));
@@ -2138,7 +2173,7 @@ export default function CollectionSchedulerTab({
                         <View style={styles.scheduleCoverageBanner}>
                           <MaterialIcons name="check-circle" size={16} color="#059669" />
                           <Text style={styles.scheduleCoverageText}>
-                            Applies to <Text style={{ fontWeight: '800' }}>{selectedDays.join(', ')}</Text> at{' '}
+                            Applies to <Text style={{ fontWeight: '800' }}>{sortDaysInOrder(selectedDays).join(', ')}</Text> at{' '}
                             <Text style={{ fontWeight: '800' }}>{modalTimeStr || '06:00 AM'}</Text>
                           </Text>
                         </View>
@@ -2163,10 +2198,12 @@ export default function CollectionSchedulerTab({
                         {selectedDays.length > 1 && (
                           <TouchableOpacity
                             onPress={() => {
-                              const firstTime = dayTimes[selectedDays[0]] || modalTimeStr || '06:00 AM';
+                              const sorted = sortDaysInOrder(selectedDays);
+                              const firstDay = sorted[0];
+                              const firstTime = (firstDay ? dayTimes[firstDay] : null) || modalTimeStr || '06:00 AM';
                               setDayTimes((prev) => {
                                 const next = { ...prev };
-                                selectedDays.forEach((d) => {
+                                sorted.forEach((d) => {
                                   next[d] = firstTime;
                                 });
                                 return next;
@@ -2176,7 +2213,7 @@ export default function CollectionSchedulerTab({
                             activeOpacity={0.8}
                           >
                             <MaterialIcons name="sync" size={13} color="#065F46" />
-                            <Text style={styles.syncAllDaysLinkText}>Copy {selectedDays[0]} to All</Text>
+                            <Text style={styles.syncAllDaysLinkText}>Copy {sortDaysInOrder(selectedDays)[0] || 'MON'} to All</Text>
                           </TouchableOpacity>
                         )}
                       </View>
@@ -2190,7 +2227,7 @@ export default function CollectionSchedulerTab({
                         </View>
                       ) : (
                         <View style={styles.daysTableContainer}>
-                          {selectedDays.map((day, idx) => {
+                          {sortDaysInOrder(selectedDays).map((day, idx) => {
                             const currentTime = dayTimes[day] || modalTimeStr || '06:00 AM';
                             const dayFullName =
                               day === 'MON' ? 'Monday' :

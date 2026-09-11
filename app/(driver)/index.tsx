@@ -3,6 +3,7 @@ import { auth, db } from '@/config/firebase';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, onSnapshot, query, where, doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import * as Location from 'expo-location';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Modal } from 'react-native';
 
@@ -35,6 +36,12 @@ interface HistoryItem {
   completionImage?: string;
 }
 
+function formatMinutesSeconds(sec: number): string {
+  const m = Math.floor(Math.max(0, sec) / 60);
+  const s = Math.floor(Math.max(0, sec) % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
 export default function DriverIndex() {
   const router = useRouter();
   const { user } = useAuthContext();
@@ -62,8 +69,10 @@ export default function DriverIndex() {
   // Driver assigned barangay from Firestore
   const [assignedBarangay, setAssignedBarangay] = useState<string>('Poblacion');
 
-  // GPS Simulation state
+  // GPS Simulation & Actual Driving state
   const [simulationState, setSimulationState] = useState<SimulationState>(locationService.getSimulationState());
+  const [isActualDriving, setIsActualDriving] = useState<boolean>(locationService.isGpsTracking());
+  const [actualTruckCoord, setActualTruckCoord] = useState<{ latitude: number; longitude: number } | null>(null);
 
   // Shift AI Fuel Recommendation & Deferred Reports State
   const [shiftFuelRec, setShiftFuelRec] = useState<ShiftDieselRecommendation | null>(null);
@@ -103,7 +112,7 @@ export default function DriverIndex() {
     );
 
     return () => unsub();
-  }, [user]);
+  }, [user?.uid]);
 
   // Listen for shift fuel recommendation
   useEffect(() => {
@@ -151,8 +160,37 @@ export default function DriverIndex() {
     }));
   }, [assignedBarangay]);
 
+  // Real-time listener for physical GPS truck location when actual driving
+  useEffect(() => {
+    const activeUid = user?.uid || auth?.currentUser?.uid;
+    if (!activeUid || !db) return;
+    return onSnapshot(
+      doc(db, 'truck_locations', activeUid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const lat = data.lat ?? data.location?.latitude;
+          const lng = data.lng ?? data.location?.longitude;
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            setActualTruckCoord({ latitude: Number(lat), longitude: Number(lng) });
+          }
+          if (data.status === 'active' && !data.isSimulated) {
+            setIsActualDriving(true);
+          } else if (data.status === 'inactive' && !locationService.getSimulationState().isActive) {
+            setIsActualDriving(false);
+          }
+        }
+      },
+      (err) => {
+        if (err?.code !== 'permission-denied') {
+          console.warn('DriverIndex: truck_locations listener error:', err);
+        }
+      }
+    );
+  }, [user?.uid]);
+
   // Current coordinate for the truck marker on the mini-map
-  const currentTruckCoord = simulationState.currentCoordinate || (
+  const currentTruckCoord = simulationState.currentCoordinate || actualTruckCoord || (
     barangayRoutePoints[0] ? barangayRoutePoints[0] : { latitude: 10.5218, longitude: 124.0285 }
   );
 
@@ -165,15 +203,65 @@ export default function DriverIndex() {
   const handleToggleSimulation = async () => {
     const activeUser = user || auth?.currentUser;
     if (!activeUser) {
-      Alert.alert('Authentication Required', 'Please sign in to run GPS simulation.');
+      Alert.alert('Authentication Required', 'Please sign in to run drive navigation.');
       return;
     }
 
-    if (simulationState.isActive) {
-      await locationService.stopSimulation(activeUser.uid);
+    if (simulationState.isActive || isActualDriving) {
+      if (isActualDriving) {
+        await locationService.stopTracking(activeUser.uid);
+        setIsActualDriving(false);
+      }
+      if (simulationState.isActive) {
+        await locationService.stopSimulation(activeUser.uid);
+      }
     } else {
-      const truckId = currentTruck?.id || currentTruck?.plateNumber || 'TRUCK-DANAO-01';
-      await locationService.startSimulation(activeUser.uid, truckId, assignedBarangay);
+      Alert.alert(
+        'Start Drive (Testing Mode)',
+        'Choose how you want to test the truck navigation:',
+        [
+          {
+            text: 'Simulated Route (Brgy. Baliang)',
+            onPress: async () => {
+              const truckId = currentTruck?.id || currentTruck?.plateNumber || 'TRUCK-DANAO-01';
+              await locationService.stopTracking(activeUser.uid);
+              setIsActualDriving(false);
+              await locationService.startSimulation(activeUser.uid, truckId, 'Baliang', {}, 1);
+              // Immediately open full-screen hands-free driving cockpit (RA 10913 compliant)
+              router.push({
+                pathname: '/(driver)/route-map',
+                params: { autoDrive: 'true', driveMode: 'sim', targetBarangay: 'Baliang' },
+              });
+            },
+          },
+          {
+            text: 'Use Actual Phone GPS',
+            onPress: async () => {
+              try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert('Permission Denied', 'Location permission is required to use your phone GPS.');
+                  return;
+                }
+                const truckId = currentTruck?.id || currentTruck?.plateNumber || 'TRUCK-DANAO-01';
+                await locationService.stopSimulation(activeUser.uid);
+                await locationService.startTracking(activeUser.uid, truckId, { barangay: 'Baliang' });
+                setIsActualDriving(true);
+                router.push({
+                  pathname: '/(driver)/route-map',
+                  params: { driveMode: 'actual', targetBarangay: 'Baliang' },
+                });
+              } catch (e) {
+                console.error('Failed to start actual GPS tracking:', e);
+              }
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
+      );
     }
   };
 
@@ -347,7 +435,7 @@ export default function DriverIndex() {
       unsubBarangaySchedules();
       unsubscribeHistory();
     };
-  }, [user]);
+  }, [user?.uid]);
 
   // Listen for current user profile & truck assignment
   useEffect(() => {
@@ -362,6 +450,13 @@ export default function DriverIndex() {
           const b = (data.assignedBarangay || data.barangay || '').trim();
           if (b) {
             setAssignedBarangay(b);
+          }
+          if (data.unassignedNotice && data.unassignedNotice.acknowledged === false) {
+            setActiveToastAlert({
+              id: 'unassigned_notice',
+              title: '🚛 Truck Assignment Removed',
+              message: `You have been unassigned from truck ${data.unassignedNotice.truckPlate || ''} by CENRO Fleet Management.`,
+            });
           }
           if (data.currentTruckId) {
             // Listen to the truck document for real-time info
@@ -791,45 +886,98 @@ export default function DriverIndex() {
             <View style={[styles.telemetryOverlay, isDark && styles.telemetryOverlayDark]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
                 <MaterialIcons
-                  name={simulationState.isActive ? 'navigation' : 'location-on'}
+                  name={(simulationState.isActive || isActualDriving) ? 'navigation' : 'location-on'}
                   size={15}
                   color={isDark ? '#86EFAC' : '#16A34A'}
                 />
                 <Text style={[styles.telemetryStreetText, isDark && styles.textLight]} numberOfLines={1}>
-                  {simulationState.isActive ? simulationState.locationName : `Sector: Brgy. ${assignedBarangay}`}
+                  {simulationState.isActive
+                    ? simulationState.locationName
+                    : isActualDriving
+                    ? 'Live Physical GPS · Brgy. Baliang'
+                    : `Sector: Brgy. ${assignedBarangay}`}
                 </Text>
               </View>
               <View style={[styles.telemetrySpeedBox, isDark && styles.telemetrySpeedBoxDark]}>
-                <Text style={[styles.telemetrySpeedVal, { color: simulationState.isActive ? (simulationState.currentSpeedKph >= 60 ? '#DC2626' : '#16A34A') : (isDark ? '#9CA3AF' : '#6B7280') }]}>
-                  {simulationState.isActive ? `${simulationState.currentSpeedKph} km/h` : 'Standby'}
+                <Text style={[styles.telemetrySpeedVal, { color: (simulationState.isActive || isActualDriving) ? (simulationState.currentSpeedKph >= 60 ? '#DC2626' : '#16A34A') : (isDark ? '#9CA3AF' : '#6B7280') }]}>
+                  {simulationState.isActive
+                    ? `${simulationState.currentSpeedKph} km/h`
+                    : isActualDriving
+                    ? 'GPS Live'
+                    : 'Standby'}
                 </Text>
               </View>
             </View>
           </View>
 
+          {/* Speed Selector Pills when Simulation is Active */}
+          {simulationState.isActive && (
+            <View style={[styles.miniMapSpeedStrip, isDark && { backgroundColor: '#111827', borderColor: '#374151' }]}>
+              <Text style={[styles.miniMapSpeedStripLabel, isDark && styles.textMuted]}>Speed Ratio:</Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {[
+                  { label: '1x (1:1)', val: 1 },
+                  { label: '2x', val: 2 },
+                  { label: '5x', val: 5 },
+                  { label: '10x', val: 10 },
+                ].map((s) => {
+                  const isSel = (simulationState.speedMultiplier || 1) === s.val;
+                  return (
+                    <TouchableOpacity
+                      key={s.val}
+                      onPress={() => locationService.setSimulationSpeed(s.val)}
+                      style={[
+                        styles.miniMapSpeedPill,
+                        isSel && styles.miniMapSpeedPillActive,
+                        isDark && { backgroundColor: '#1F2937' },
+                        isSel && isDark && { backgroundColor: '#16A34A' },
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.miniMapSpeedPillText, isSel && { color: '#FFFFFF', fontWeight: '800' }]}>
+                        {s.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {/* Mini-Map Simulator & Telemetry Controls */}
           <View style={styles.miniMapFooter}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[styles.miniMapFooterLabel, isDark && styles.textMuted]} numberOfLines={1}>
-                {simulationState.isActive ? `Streaming: ${simulationState.currentStep}/${simulationState.totalSteps} Waypoints` : `Truck: ${currentTruck.plateNumber}`}
+                {simulationState.isActive
+                  ? `⏱️ ${formatMinutesSeconds(simulationState.elapsedDurationSeconds || 0)} / ${formatMinutesSeconds(simulationState.totalDurationSeconds || 600)} (${simulationState.speedMultiplier}x)`
+                  : isActualDriving
+                  ? '📍 Live Physical GPS Active (Brgy. Baliang)'
+                  : `Truck: ${currentTruck.plateNumber}`}
               </Text>
               <Text style={[styles.miniMapFooterSub, isDark && styles.textLight]} numberOfLines={1}>
-                {simulationState.isActive ? 'Real-time telemetry to dispatch' : 'GPS navigation active'}
+                {simulationState.isActive
+                  ? `⛽ ${(simulationState.fuelBurnedLiters || 0).toFixed(2)} L of ${(simulationState.totalEstimatedFuelLiters || 0).toFixed(1)} L (≈ ₱${(simulationState.fuelCostBurnedPhp || 0).toFixed(0)})`
+                  : isActualDriving
+                  ? 'Broadcasting live phone movement'
+                  : 'GPS navigation active'}
               </Text>
             </View>
 
             <TouchableOpacity
-              style={[styles.simDriveBtn, simulationState.isActive ? styles.simDriveBtnStop : styles.simDriveBtnStart]}
+              style={[
+                styles.simDriveBtn,
+                (simulationState.isActive || isActualDriving) ? styles.simDriveBtnStop : styles.simDriveBtnStart,
+              ]}
               onPress={handleToggleSimulation}
               activeOpacity={0.85}
             >
               <MaterialIcons
-                name={simulationState.isActive ? 'stop' : 'play-arrow'}
+                name={(simulationState.isActive || isActualDriving) ? 'stop' : 'play-arrow'}
                 size={16}
                 color="#FFFFFF"
               />
               <Text style={styles.simDriveBtnText}>
-                {simulationState.isActive ? 'Stop Drive' : 'Start Drive'}
+                {(simulationState.isActive || isActualDriving) ? 'Stop Drive' : 'Start Drive'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2099,6 +2247,35 @@ const styles = StyleSheet.create({
   telemetrySpeedVal: {
     fontSize: 11,
     fontWeight: '900',
+  },
+  miniMapSpeedStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: '#F8FAFC',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
+  },
+  miniMapSpeedStripLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  miniMapSpeedPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#E2E8F0',
+  },
+  miniMapSpeedPillActive: {
+    backgroundColor: '#16A34A',
+  },
+  miniMapSpeedPillText: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#475569',
   },
   miniMapFooter: {
     flexDirection: 'row',
